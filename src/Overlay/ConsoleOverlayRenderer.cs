@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
@@ -81,11 +82,101 @@ public sealed class ConsoleOverlayRenderer(
             }
 
             var label = quote.Label;
-            var color = GetPriceColor(quote.RepresentativeChaosValue, pricing);
-            entries.Add(new OverlayRowEntry(row.Y, row.Height, label, color));
+            var segments = BuildTextSegments(quote, pricing);
+            entries.Add(new OverlayRowEntry(row.Y, row.Height, segments));
         }
 
         return entries;
+    }
+
+    private static IReadOnlyList<OverlayTextSegment> BuildTextSegments(PriceQuote quote, PricingCacheOptions pricing)
+    {
+        var fallbackColor = GetPriceColor(quote.RepresentativeChaosValue, pricing);
+
+        if (!quote.IsRange)
+        {
+            return [new OverlayTextSegment(quote.Label, fallbackColor, IsDivineAmountText(quote.Label))];
+        }
+
+        // The separator must stay as " -", otherwise it looks weird sometimes
+        const string separator = " -";
+        var splitIndex = quote.Label.IndexOf(separator, StringComparison.Ordinal);
+        if (splitIndex < 0)
+        {
+            return [new OverlayTextSegment(quote.Label, fallbackColor, IsDivineAmountText(quote.Label))];
+        }
+
+        var leftText = quote.Label[..splitIndex];
+        var rightText = quote.Label[(splitIndex + separator.Length)..];
+
+        var leftColor = TryParseDisplayedChaosEquivalent(leftText, pricing, out var leftChaos)
+            ? GetPriceColor(leftChaos, pricing)
+            : fallbackColor;
+
+        var rightColor = TryParseDisplayedChaosEquivalent(rightText, pricing, out var rightChaos)
+            ? GetPriceColor(rightChaos, pricing)
+            : fallbackColor;
+
+        return
+        [
+            new OverlayTextSegment(leftText, leftColor, IsDivineAmountText(leftText)),
+            new OverlayTextSegment(separator, Color.White, false),
+            new OverlayTextSegment(rightText, rightColor, IsDivineAmountText(rightText))
+        ];
+    }
+
+    private static bool IsDivineAmountText(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        var trimmed = text.Trim();
+        if (!trimmed.EndsWith("d", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var numericPart = trimmed[..^1];
+        return decimal.TryParse(numericPart, NumberStyles.Float, CultureInfo.InvariantCulture, out _);
+    }
+
+    private static bool TryParseDisplayedChaosEquivalent(string formattedAmount, PricingCacheOptions pricing, out decimal chaosEquivalent)
+    {
+        chaosEquivalent = 0m;
+        if (string.IsNullOrWhiteSpace(formattedAmount))
+        {
+            return false;
+        }
+
+        var trimmed = formattedAmount.Trim();
+        if (trimmed.EndsWith("c", StringComparison.OrdinalIgnoreCase))
+        {
+            var valueText = trimmed[..^1];
+            if (decimal.TryParse(valueText, NumberStyles.Float, CultureInfo.InvariantCulture, out var chaosValue))
+            {
+                chaosEquivalent = Math.Max(0m, chaosValue);
+                return true;
+            }
+
+            return false;
+        }
+
+        if (trimmed.EndsWith("d", StringComparison.OrdinalIgnoreCase))
+        {
+            var valueText = trimmed[..^1];
+            if (decimal.TryParse(valueText, NumberStyles.Float, CultureInfo.InvariantCulture, out var divineValue))
+            {
+                // Any divine-denominated price should be at or above the green threshold.
+                chaosEquivalent = Math.Max(pricing.GreenThresholdChaos, Math.Max(0m, divineValue));
+                return true;
+            }
+
+            return false;
+        }
+
+        return false;
     }
 
     private static Color GetPriceColor(decimal chaosValue, PricingCacheOptions pricing)
@@ -176,7 +267,8 @@ public sealed class ConsoleOverlayRenderer(
         overlay?.SafeClose();
     }
 
-    private sealed record OverlayRowEntry(int RowY, int RowHeight, string Text, Color Color);
+    private sealed record OverlayTextSegment(string Text, Color Color, bool Emphasize);
+    private sealed record OverlayRowEntry(int RowY, int RowHeight, IReadOnlyList<OverlayTextSegment> Segments);
 
     private sealed class PriceOverlayForm : Form
     {
@@ -294,12 +386,21 @@ public sealed class ConsoleOverlayRenderer(
             foreach (var entry in entries)
             {
                 var y = Math.Max(0, entry.RowY + ((entry.RowHeight - (int)_font.GetHeight(e.Graphics)) / 2));
-                DrawOutlinedText(e.Graphics, entry.Text, _font, entry.Color, 2f, y);
+                var x = 2f;
+                foreach (var segment in entry.Segments)
+                {
+                    x += DrawOutlinedText(e.Graphics, segment.Text, _font, segment.Color, segment.Emphasize, x, y);
+                }
             }
         }
 
-        private static void DrawOutlinedText(Graphics graphics, string text, Font font, Color fillColor, float x, float y)
+        private static float DrawOutlinedText(Graphics graphics, string text, Font font, Color fillColor, bool emphasize, float x, float y)
         {
+            if (string.IsNullOrEmpty(text))
+            {
+                return 0f;
+            }
+
             using var path = new GraphicsPath();
             path.AddString(
                 text,
@@ -315,10 +416,41 @@ public sealed class ConsoleOverlayRenderer(
                 StartCap = LineCap.Round,
                 EndCap = LineCap.Round
             };
+
+            if (emphasize)
+            {
+                // Divine-denominated prices get a subtle neon halo without changing base style.
+                using var outerGlowPen = new Pen(Color.FromArgb(150, 110, 255, 210), 8.2f)
+                {
+                    LineJoin = LineJoin.Round,
+                    StartCap = LineCap.Round,
+                    EndCap = LineCap.Round
+                };
+                using var innerGlowPen = new Pen(Color.FromArgb(190, 188, 255, 238), 5.4f)
+                {
+                    LineJoin = LineJoin.Round,
+                    StartCap = LineCap.Round,
+                    EndCap = LineCap.Round
+                };
+
+                using var coreGlowPen = new Pen(Color.FromArgb(220, 232, 255, 248), 3.2f)
+                {
+                    LineJoin = LineJoin.Round,
+                    StartCap = LineCap.Round,
+                    EndCap = LineCap.Round
+                };
+
+                graphics.DrawPath(outerGlowPen, path);
+                graphics.DrawPath(innerGlowPen, path);
+                graphics.DrawPath(coreGlowPen, path);
+            }
+
             using var fillBrush = new SolidBrush(fillColor);
 
             graphics.DrawPath(outlinePen, path);
             graphics.FillPath(fillBrush, path);
+
+            return graphics.MeasureString(text, font, PointF.Empty, StringFormat.GenericTypographic).Width;
         }
 
         protected override void OnDeactivate(EventArgs e)
