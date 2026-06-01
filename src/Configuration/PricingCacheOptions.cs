@@ -13,6 +13,7 @@ public sealed class PricingCacheOptions
     public string[] IncludedTypes { get; set; } =
     [
         "Currency",
+        "UncutGems",
         "Runes",
         "Verisium",
         "UniqueWeapons",

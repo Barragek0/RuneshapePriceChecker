@@ -9,6 +9,7 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient) : IPric
     private readonly ConcurrentDictionary<string, decimal> _exactPrices = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, decimal> _fallbackPrices = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, (decimal MinChaos, decimal MaxChaos)> _uniqueCategoryRanges = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, (decimal MinChaos, decimal MaxChaos)> _uncutGemRanges = new(StringComparer.OrdinalIgnoreCase);
     private decimal _divineOrbChaosValue = 150m;
     private static readonly Regex NonAlphaNumeric = new("[^A-Za-z0-9]+", RegexOptions.Compiled);
     private static readonly Regex LeadingQuantityWithX = new("^(?:\\d+|[AaIiLlTt|])\\s*[Xx]\\s+", RegexOptions.Compiled);
@@ -18,8 +19,6 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient) : IPric
     private static readonly Regex GForOInOrb = new("\\bGRB\\b", RegexOptions.Compiled);
     private static readonly Regex TrailingLevel = new("\\s+LEVEL\\s+\\d+$", RegexOptions.Compiled);
     private static readonly Regex TrailingOrb = new("\\s+ORB$", RegexOptions.Compiled);
-    private static readonly Regex TieredOrb = new("^(?:GREATER|PERFECT)\\s+(ORB OF .+)$", RegexOptions.Compiled);
-    private static readonly Regex TieredRune = new("^(?:GREATER|PERFECT)\\s+(.+\\s+RUNE)$", RegexOptions.Compiled);
 
     public PriceQuote? TryGetPriceQuote(string itemName)
     {
@@ -47,6 +46,14 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient) : IPric
             {
                 var minTotal = range.MinChaos * clampedQuantity;
                 var maxTotal = range.MaxChaos * clampedQuantity;
+                var label = $"{FormatAmount(minTotal)} - {FormatAmount(maxTotal)}";
+                return new PriceQuote(label, maxTotal, true);
+            }
+
+            if (TryResolveUncutGemRange(key, out var gemRange))
+            {
+                var minTotal = gemRange.MinChaos * clampedQuantity;
+                var maxTotal = gemRange.MaxChaos * clampedQuantity;
                 var label = $"{FormatAmount(minTotal)} - {FormatAmount(maxTotal)}";
                 return new PriceQuote(label, maxTotal, true);
             }
@@ -104,31 +111,15 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient) : IPric
 
             _exactPrices[normalized] = pair.Value;
 
-            var tieredMatch = TieredOrb.Match(normalized);
-            if (tieredMatch.Success)
+            if (PricingTextRules.TryGetTierFallbackKey(normalized, out var fallbackKey))
             {
-                var bareOrbName = tieredMatch.Groups[1].Value;
-                if (_fallbackPrices.TryGetValue(bareOrbName, out var existing))
+                if (_fallbackPrices.TryGetValue(fallbackKey, out var existing))
                 {
-                    _fallbackPrices[bareOrbName] = Math.Min(existing, pair.Value);
+                    _fallbackPrices[fallbackKey] = Math.Min(existing, pair.Value);
                 }
                 else
                 {
-                    _fallbackPrices[bareOrbName] = pair.Value;
-                }
-            }
-
-            var tieredRuneMatch = TieredRune.Match(normalized);
-            if (tieredRuneMatch.Success)
-            {
-                var bareRuneName = tieredRuneMatch.Groups[1].Value;
-                if (_fallbackPrices.TryGetValue(bareRuneName, out var existing))
-                {
-                    _fallbackPrices[bareRuneName] = Math.Min(existing, pair.Value);
-                }
-                else
-                {
-                    _fallbackPrices[bareRuneName] = pair.Value;
+                    _fallbackPrices[fallbackKey] = pair.Value;
                 }
             }
         }
@@ -145,10 +136,59 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient) : IPric
             _uniqueCategoryRanges[normalized] = pair.Value;
         }
 
+        RebuildUncutGemRanges();
+
         if (latest.DivineOrbChaosValue > 0)
         {
             _divineOrbChaosValue = latest.DivineOrbChaosValue;
         }
+    }
+
+    private void RebuildUncutGemRanges()
+    {
+        _uncutGemRanges.Clear();
+
+        foreach (var family in PricingTextRules.UncutGemFamilies)
+        {
+            decimal? min = null;
+            decimal? max = null;
+
+            foreach (var pair in _exactPrices)
+            {
+                if (!pair.Key.StartsWith(family, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                min = min.HasValue ? Math.Min(min.Value, pair.Value) : pair.Value;
+                max = max.HasValue ? Math.Max(max.Value, pair.Value) : pair.Value;
+            }
+
+            if (min.HasValue && max.HasValue)
+            {
+                _uncutGemRanges[family] = (min.Value, max.Value);
+            }
+        }
+    }
+
+    private bool TryResolveUncutGemRange(string normalizedItemName, out (decimal MinChaos, decimal MaxChaos) range)
+    {
+        range = default;
+
+        foreach (var family in PricingTextRules.UncutGemFamilies)
+        {
+            if (!normalizedItemName.StartsWith(family, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (_uncutGemRanges.TryGetValue(family, out range))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private bool TryResolveUniqueCategoryRange(string normalizedItemName, out (decimal MinChaos, decimal MaxChaos) range)
@@ -197,14 +237,7 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient) : IPric
 
     private string FormatAmount(decimal chaosValue)
     {
-        var chaos = Math.Max(0m, chaosValue);
-        if (_divineOrbChaosValue > 0m && chaos >= _divineOrbChaosValue)
-        {
-            var divine = chaos / _divineOrbChaosValue;
-            return $"{divine:0.#}d";
-        }
-
-        return $"{chaos:0.#}c";
+        return PricingTextRules.FormatAmount(chaosValue, _divineOrbChaosValue);
     }
 
     public static string Normalize(string? value)

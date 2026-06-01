@@ -12,18 +12,6 @@ public sealed class PoeNinjaClient(HttpClient httpClient, IOptionsMonitor<Pricin
 {
     private readonly IOptionsMonitor<PricingCacheOptions> _options = options;
     private static readonly Regex NonAlphaNumeric = new("[^A-Za-z0-9]+", RegexOptions.Compiled);
-    private static readonly Dictionary<string, string[]> IdAliases = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["gcp"] = ["Gemcutter's Prism"],
-        ["bauble"] = ["Glassblower's Bauble"],
-        ["etcher"] = ["Arcanist's Etcher"],
-        ["aug"] = ["Orb of Augmentation"],
-        ["transmute"] = ["Orb of Transmutation"],
-        ["regal"] = ["Regal Orb"],
-        ["chaos"] = ["Chaos Orb"],
-        ["divine"] = ["Divine Orb"],
-        ["exalted"] = ["Exalted Orb"]
-    };
     private const string DivineOrbKey = "DIVINE ORB";
 
     public async Task<PoeNinjaPricingSnapshot> FetchCurrentPricesAsync(CancellationToken cancellationToken)
@@ -187,14 +175,11 @@ public sealed class PoeNinjaClient(HttpClient httpClient, IOptionsMonitor<Pricin
                 yield return expanded;
             }
 
-            if (IdAliases.TryGetValue(id, out var aliases))
+            foreach (var alias in PricingTextRules.ExpandIdAliases(id))
             {
-                foreach (var alias in aliases)
+                if (!string.IsNullOrWhiteSpace(alias) && seen.Add(alias))
                 {
-                    if (!string.IsNullOrWhiteSpace(alias) && seen.Add(alias))
-                    {
-                        yield return alias;
-                    }
+                    yield return alias;
                 }
             }
         }

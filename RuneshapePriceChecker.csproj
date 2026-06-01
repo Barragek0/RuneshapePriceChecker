@@ -21,4 +21,8 @@
     </None>
     <Watch Include="src\appsettings.json" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="scripts\**\*.cs" />
+  </ItemGroup>
 </Project>

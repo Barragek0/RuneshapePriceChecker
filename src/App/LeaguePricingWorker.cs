@@ -1,10 +1,10 @@
 using RuneshapePriceChecker.Configuration;
 using RuneshapePriceChecker.Contracts;
+using RuneshapePriceChecker.Pricing;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Diagnostics;
-using System.Text.RegularExpressions;
 
 namespace RuneshapePriceChecker.App;
 
@@ -16,8 +16,6 @@ public sealed class LeaguePricingWorker(
     ILogger<LeaguePricingWorker> logger) : BackgroundService
 {
     private static readonly TimeSpan TargetLoopInterval = TimeSpan.FromMilliseconds(500);
-    private static readonly Regex QuantityPrefixWithX = new("^(?<quantity>\\d+|[AaIiLlTt|])\\s*[xX]\\s+(?<name>.+)$", RegexOptions.Compiled);
-    private static readonly Regex QuantityPrefixWithoutX = new("^(?<quantity>\\d+|[IiLl|])\\s+(?<name>.+)$", RegexOptions.Compiled);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -59,36 +57,8 @@ public sealed class LeaguePricingWorker(
 
     private static (string ItemName, int Quantity) ParseItemAndQuantity(string itemName)
     {
-        if (string.IsNullOrWhiteSpace(itemName))
-        {
-            return (string.Empty, 1);
-        }
-
-        var match = QuantityPrefixWithX.Match(itemName);
-        if (!match.Success)
-        {
-            match = QuantityPrefixWithoutX.Match(itemName);
-        }
-        if (!match.Success)
-        {
-            return (itemName.Trim(), 1);
-        }
-
-        var rawQuantity = match.Groups["quantity"].Value;
-        var normalizedName = match.Groups["name"].Value.Trim();
-        if (string.IsNullOrWhiteSpace(normalizedName))
-        {
-            return (itemName.Trim(), 1);
-        }
-
-        var quantity = rawQuantity switch
-        {
-            "a" or "A" or "i" or "I" or "l" or "L" or "t" or "T" or "|" => 1,
-            _ when int.TryParse(rawQuantity, out var parsed) && parsed > 0 => parsed,
-            _ => 1
-        };
-
-        return (normalizedName, quantity);
+        var parsed = PricingTextRules.ParseDetectedItem(itemName);
+        return (parsed.Name, parsed.Quantity);
     }
 
     private static void LogVerboseSnapshot(
