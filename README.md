@@ -10,6 +10,12 @@ It reads visible rows on the runeshape page with OCR, looks up live prices from 
 - .NET 8 SDK
 - Tesseract OCR installed and available in `PATH`. The tool will automatically install it if you don't have it.
 
+## How it Looks
+![example](https://i.vgy.me/1XkXx8.png)
+
+## Limitations
+- poeninja doesn't currently have prices listed for the new Skills or Supports, so prices for these can't be shown.
+
 ## Troubleshooting
 
 - No value on known items:
@@ -22,9 +28,6 @@ It reads visible rows on the runeshape page with OCR, looks up live prices from 
 	- Confirm your PoE2 resolution has a valid profile.
 - My resolution isn't supported:
 	- If you have the time and very simple coding knowledge, you can add a new profile by following a simple step-by-step guide in `ADDING_A_RESOLUTION.md`
-
-## What the tool shows
-![example](https://i.vgy.me/1XkXx8.png)
 
 ## Quick Start
 
