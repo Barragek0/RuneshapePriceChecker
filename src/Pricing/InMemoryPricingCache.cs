@@ -11,13 +11,15 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient) : IPric
     private readonly ConcurrentDictionary<string, (decimal MinChaos, decimal MaxChaos)> _uniqueCategoryRanges = new(StringComparer.OrdinalIgnoreCase);
     private decimal _divineOrbChaosValue = 150m;
     private static readonly Regex NonAlphaNumeric = new("[^A-Za-z0-9]+", RegexOptions.Compiled);
-    private static readonly Regex LeadingQuantity = new("^(?:\\d+|[AaIiLl|])\\s*[Xx]\\s+", RegexOptions.Compiled);
+    private static readonly Regex LeadingQuantityWithX = new("^(?:\\d+|[AaIiLlTt|])\\s*[Xx]\\s+", RegexOptions.Compiled);
+    private static readonly Regex LeadingQuantityWithoutX = new("^(?:\\d+|[IiLl|])\\s+", RegexOptions.Compiled);
     private static readonly Regex SplitPossessive = new("\\b([A-Z]+)\\s+[S5]\\s+([A-Z]+)\\b", RegexOptions.Compiled);
     private static readonly Regex ZeroForOInOrb = new("\\b0RB\\b", RegexOptions.Compiled);
     private static readonly Regex GForOInOrb = new("\\bGRB\\b", RegexOptions.Compiled);
     private static readonly Regex TrailingLevel = new("\\s+LEVEL\\s+\\d+$", RegexOptions.Compiled);
     private static readonly Regex TrailingOrb = new("\\s+ORB$", RegexOptions.Compiled);
     private static readonly Regex TieredOrb = new("^(?:GREATER|PERFECT)\\s+(ORB OF .+)$", RegexOptions.Compiled);
+    private static readonly Regex TieredRune = new("^(?:GREATER|PERFECT)\\s+(.+\\s+RUNE)$", RegexOptions.Compiled);
 
     public PriceQuote? TryGetPriceQuote(string itemName)
     {
@@ -115,6 +117,20 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient) : IPric
                     _fallbackPrices[bareOrbName] = pair.Value;
                 }
             }
+
+            var tieredRuneMatch = TieredRune.Match(normalized);
+            if (tieredRuneMatch.Success)
+            {
+                var bareRuneName = tieredRuneMatch.Groups[1].Value;
+                if (_fallbackPrices.TryGetValue(bareRuneName, out var existing))
+                {
+                    _fallbackPrices[bareRuneName] = Math.Min(existing, pair.Value);
+                }
+                else
+                {
+                    _fallbackPrices[bareRuneName] = pair.Value;
+                }
+            }
         }
 
         _uniqueCategoryRanges.Clear();
@@ -202,7 +218,8 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient) : IPric
             .Replace('’', '\'')
             .Replace("'", string.Empty);
 
-        normalized = LeadingQuantity.Replace(normalized, string.Empty);
+        normalized = LeadingQuantityWithX.Replace(normalized, string.Empty);
+        normalized = LeadingQuantityWithoutX.Replace(normalized, string.Empty);
         normalized = NonAlphaNumeric.Replace(normalized, " ");
         normalized = normalized.Trim().ToUpperInvariant();
         normalized = SplitPossessive.Replace(normalized, "$1S $2");

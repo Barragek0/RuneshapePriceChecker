@@ -16,6 +16,7 @@ public sealed class PoeNinjaClient(HttpClient httpClient, IOptionsMonitor<Pricin
     {
         ["gcp"] = ["Gemcutter's Prism"],
         ["bauble"] = ["Glassblower's Bauble"],
+        ["etcher"] = ["Arcanist's Etcher"],
         ["aug"] = ["Orb of Augmentation"],
         ["transmute"] = ["Orb of Transmutation"],
         ["regal"] = ["Regal Orb"],

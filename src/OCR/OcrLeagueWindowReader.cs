@@ -23,7 +23,8 @@ public sealed class OcrLeagueWindowReader(
     private readonly IOptionsMonitor<AppOptions> _appOptions = appOptions;
     private static readonly Regex MultiWhitespace = new("\\s+", RegexOptions.Compiled);
     private static readonly Regex NonNameChars = new("[^-A-Za-z0-9'’ ]+", RegexOptions.Compiled);
-    private static readonly Regex LeadingQuantity = new("^(?<quantity>\\d+|[AaIiLl|])\\s*[xX]\\s*(?<name>.+)$", RegexOptions.Compiled);
+    private static readonly Regex LeadingQuantityWithX = new("^(?<quantity>\\d+|[AaIiLlTt|])\\s*[xX]\\s*(?<name>.+)$", RegexOptions.Compiled);
+    private static readonly Regex LeadingQuantityWithoutX = new("^(?<quantity>\\d+|[IiLl|])\\s+(?<name>.+)$", RegexOptions.Compiled);
     private bool _tesseractUnavailable;
     private bool _windowCaptureUnavailableLogged;
     private bool _waitingForWindowContextLogged;
@@ -700,14 +701,18 @@ public sealed class OcrLeagueWindowReader(
         normalized = NonNameChars.Replace(normalized, " ");
         normalized = MultiWhitespace.Replace(normalized, " ").Trim();
 
-        var quantityMatch = LeadingQuantity.Match(normalized);
+        var quantityMatch = LeadingQuantityWithX.Match(normalized);
+        if (!quantityMatch.Success)
+        {
+            quantityMatch = LeadingQuantityWithoutX.Match(normalized);
+        }
         if (quantityMatch.Success)
         {
             var rawQuantity = quantityMatch.Groups["quantity"].Value;
             var name = quantityMatch.Groups["name"].Value.Trim();
             var quantity = rawQuantity switch
             {
-                "a" or "A" or "i" or "I" or "l" or "L" or "|" => 1,
+                "a" or "A" or "i" or "I" or "l" or "L" or "t" or "T" or "|" => 1,
                 _ when int.TryParse(rawQuantity, out var parsed) && parsed > 0 => parsed,
                 _ => 1
             };

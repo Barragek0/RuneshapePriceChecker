@@ -16,7 +16,8 @@ public sealed class LeaguePricingWorker(
     ILogger<LeaguePricingWorker> logger) : BackgroundService
 {
     private static readonly TimeSpan TargetLoopInterval = TimeSpan.FromMilliseconds(500);
-    private static readonly Regex QuantityPrefix = new("^(?<quantity>\\d+|[AaIiLl|])\\s*[xX]\\s+(?<name>.+)$", RegexOptions.Compiled);
+    private static readonly Regex QuantityPrefixWithX = new("^(?<quantity>\\d+|[AaIiLlTt|])\\s*[xX]\\s+(?<name>.+)$", RegexOptions.Compiled);
+    private static readonly Regex QuantityPrefixWithoutX = new("^(?<quantity>\\d+|[IiLl|])\\s+(?<name>.+)$", RegexOptions.Compiled);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -63,7 +64,11 @@ public sealed class LeaguePricingWorker(
             return (string.Empty, 1);
         }
 
-        var match = QuantityPrefix.Match(itemName);
+        var match = QuantityPrefixWithX.Match(itemName);
+        if (!match.Success)
+        {
+            match = QuantityPrefixWithoutX.Match(itemName);
+        }
         if (!match.Success)
         {
             return (itemName.Trim(), 1);
@@ -78,7 +83,7 @@ public sealed class LeaguePricingWorker(
 
         var quantity = rawQuantity switch
         {
-            "a" or "A" or "i" or "I" or "l" or "L" or "|" => 1,
+            "a" or "A" or "i" or "I" or "l" or "L" or "t" or "T" or "|" => 1,
             _ when int.TryParse(rawQuantity, out var parsed) && parsed > 0 => parsed,
             _ => 1
         };
