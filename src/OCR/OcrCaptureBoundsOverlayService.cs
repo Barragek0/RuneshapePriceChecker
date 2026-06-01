@@ -78,6 +78,9 @@ public sealed class OcrCaptureBoundsOverlayService(
         var profile = windowResolutionProvider.CurrentResolutionProfile;
         var rowTextHeight = profile?.RowTextHeight ?? options.RowTextHeight;
         var rowGapHeight = profile?.RowGapHeight ?? options.RowGapHeight;
+        var rowLateOffsetStartRow = profile?.RowLateOffsetStartRow ?? int.MaxValue;
+        var rowLateOffsetStepRows = profile?.RowLateOffsetStepRows ?? 1;
+        var rowLateOffsetStepPx = profile?.RowLateOffsetStepPx ?? 0;
         var rowCount = Math.Max(1, options.OcrRowCount);
         var rows = OcrRowLayout.BuildRowRectangles(
             frame.Width,
@@ -86,7 +89,10 @@ public sealed class OcrCaptureBoundsOverlayService(
             options.UseFixedRowGeometry,
             options.RowStartOffsetY,
             rowTextHeight,
-            rowGapHeight);
+            rowGapHeight,
+            rowLateOffsetStartRow,
+            rowLateOffsetStepRows,
+            rowLateOffsetStepPx);
 
         if (rows.Count < rowCount)
         {
@@ -111,7 +117,10 @@ public sealed class OcrCaptureBoundsOverlayService(
             options.UseFixedRowGeometry,
             options.RowStartOffsetY,
             rowTextHeight,
-            rowGapHeight);
+            rowGapHeight,
+            rowLateOffsetStartRow,
+            rowLateOffsetStepRows,
+            rowLateOffsetStepPx);
     }
 
     private void EnsureOverlayThreadStarted()
@@ -170,6 +179,9 @@ public sealed class OcrCaptureBoundsOverlayService(
         private int _rowStartOffsetY;
         private int _rowTextHeight = 1;
         private int _rowGapHeight;
+        private int _rowLateOffsetStartRow = int.MaxValue;
+        private int _rowLateOffsetStepRows = 1;
+        private int _rowLateOffsetStepPx;
 
         public BoundsOverlayForm()
         {
@@ -212,7 +224,10 @@ public sealed class OcrCaptureBoundsOverlayService(
                 _useFixedRowGeometry,
                 _rowStartOffsetY,
                 _rowTextHeight,
-                _rowGapHeight);
+                _rowGapHeight,
+                _rowLateOffsetStartRow,
+                _rowLateOffsetStepRows,
+                _rowLateOffsetStepPx);
 
             var cursorY = 0;
             foreach (var row in rows)
@@ -262,7 +277,10 @@ public sealed class OcrCaptureBoundsOverlayService(
             bool useFixedRowGeometry,
             int rowStartOffsetY,
             int rowTextHeight,
-            int rowGapHeight)
+            int rowGapHeight,
+            int rowLateOffsetStartRow,
+            int rowLateOffsetStepRows,
+            int rowLateOffsetStepPx)
         {
             if (IsDisposed)
             {
@@ -272,13 +290,16 @@ public sealed class OcrCaptureBoundsOverlayService(
             if (InvokeRequired)
             {
                 BeginInvoke(
-                    new Action<Rectangle, int, bool, int, int, int>(SafeShowFrame),
+                    new Action<Rectangle, int, bool, int, int, int, int, int, int>(SafeShowFrame),
                     frame,
                     rowCount,
                     useFixedRowGeometry,
                     rowStartOffsetY,
                     rowTextHeight,
-                    rowGapHeight);
+                    rowGapHeight,
+                    rowLateOffsetStartRow,
+                    rowLateOffsetStepRows,
+                    rowLateOffsetStepPx);
                 return;
             }
 
@@ -286,13 +307,19 @@ public sealed class OcrCaptureBoundsOverlayService(
             var clampedRowTextHeight = Math.Max(1, rowTextHeight);
             var clampedRowGap = Math.Max(0, rowGapHeight);
             var clampedRowStart = Math.Max(0, rowStartOffsetY);
+            var clampedLateOffsetStartRow = Math.Max(1, rowLateOffsetStartRow);
+            var clampedLateOffsetStepRows = Math.Max(1, rowLateOffsetStepRows);
+            var clampedLateOffsetStepPx = Math.Max(0, rowLateOffsetStepPx);
 
             if (_frame != frame ||
                 _rowCount != clampedRowCount ||
                 _useFixedRowGeometry != useFixedRowGeometry ||
                 _rowStartOffsetY != clampedRowStart ||
                 _rowTextHeight != clampedRowTextHeight ||
-                _rowGapHeight != clampedRowGap)
+                _rowGapHeight != clampedRowGap ||
+                _rowLateOffsetStartRow != clampedLateOffsetStartRow ||
+                _rowLateOffsetStepRows != clampedLateOffsetStepRows ||
+                _rowLateOffsetStepPx != clampedLateOffsetStepPx)
             {
                 _frame = frame;
                 _rowCount = clampedRowCount;
@@ -300,6 +327,9 @@ public sealed class OcrCaptureBoundsOverlayService(
                 _rowStartOffsetY = clampedRowStart;
                 _rowTextHeight = clampedRowTextHeight;
                 _rowGapHeight = clampedRowGap;
+                _rowLateOffsetStartRow = clampedLateOffsetStartRow;
+                _rowLateOffsetStepRows = clampedLateOffsetStepRows;
+                _rowLateOffsetStepPx = clampedLateOffsetStepPx;
                 Bounds = frame;
                 Invalidate();
             }

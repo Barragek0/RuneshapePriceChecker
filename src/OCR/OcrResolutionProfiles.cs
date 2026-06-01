@@ -5,7 +5,7 @@ public static class OcrResolutionProfiles
     private static readonly Dictionary<string, OcrResolutionProfile> Profiles =
         new(StringComparer.OrdinalIgnoreCase)
         {
-            ["1920x1080"] = new(1920, 1080, 255, 160, 285, 537, 23, 24)
+            ["1920x1080"] = new(1920, 1080, 255, 160, 285, 537, 23, 24, 8, 2, 2)
         };
 
     public static bool TryGet(string resolutionKey, out OcrResolutionProfile profile)
@@ -24,7 +24,10 @@ public sealed record OcrResolutionProfile(
     int CaptureWidth,
     int CaptureHeight,
     int RowTextHeight,
-    int RowGapHeight)
+    int RowGapHeight,
+    int RowLateOffsetStartRow,
+    int RowLateOffsetStepRows,
+    int RowLateOffsetStepPx)
 {
     public string Key => $"{WindowWidth}x{WindowHeight}";
 }

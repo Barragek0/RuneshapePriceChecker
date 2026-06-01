@@ -11,7 +11,10 @@ internal static class OcrRowLayout
         bool useFixedRowGeometry,
         int rowStartOffsetY,
         int rowTextHeight,
-        int rowGapHeight)
+        int rowGapHeight,
+        int rowLateOffsetStartRow,
+        int rowLateOffsetStepRows,
+        int rowLateOffsetStepPx)
     {
         rowCount = Math.Max(1, rowCount);
         width = Math.Max(1, width);
@@ -47,11 +50,21 @@ internal static class OcrRowLayout
         var startY = Math.Max(0, rowStartOffsetY);
         var textHeight = Math.Max(1, rowTextHeight);
         var gapHeight = Math.Max(0, rowGapHeight);
+        var lateOffsetStartRow = Math.Max(1, rowLateOffsetStartRow);
+        var lateOffsetStepRows = Math.Max(1, rowLateOffsetStepRows);
+        var lateOffsetStepPx = Math.Max(0, rowLateOffsetStepPx);
         var fixedRows = new List<Rectangle>(rowCount);
 
-        var y = startY;
         for (var rowIndex = 0; rowIndex < rowCount; rowIndex++)
         {
+            var rowNumber = rowIndex + 1;
+            var y = startY + (rowIndex * (textHeight + gapHeight));
+            if (lateOffsetStepPx > 0 && rowNumber >= lateOffsetStartRow)
+            {
+                var stepIndex = ((rowNumber - lateOffsetStartRow) / lateOffsetStepRows) + 1;
+                y += stepIndex * lateOffsetStepPx;
+            }
+
             if (y >= height)
             {
                 break;

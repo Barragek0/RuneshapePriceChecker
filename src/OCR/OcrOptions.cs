@@ -61,4 +61,22 @@ public sealed class OcrOptions
     public int RowNoiseMaskBottomPx { get; set; } = 1;
 
     public int RowSpeckleMaxArea { get; set; } = 20;
+
+    public int LeaguePanelAnchorSampleX { get; set; } = 0;
+
+    public int LeaguePanelAnchorSampleY { get; set; } = 12;
+
+    public int LeaguePanelAnchorSampleRadiusPx { get; set; } = 1;
+
+    public int LeaguePanelAnchorTargetR { get; set; } = 193;
+
+    public int LeaguePanelAnchorTargetG { get; set; } = 183;
+
+    public int LeaguePanelAnchorTargetB { get; set; } = 165;
+
+    public int LeaguePanelAnchorTolerance { get; set; } = 38;
+
+    public int LeaguePanelAnchorMinLuminance { get; set; } = 160;
+
+    public int LeaguePanelAnchorMaxChannelSpread { get; set; } = 42;
 }

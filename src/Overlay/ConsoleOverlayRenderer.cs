@@ -42,6 +42,9 @@ public sealed class ConsoleOverlayRenderer(
             var profile = windowResolutionProvider.CurrentResolutionProfile;
             var rowTextHeight = profile?.RowTextHeight ?? options.CurrentValue.RowTextHeight;
             var rowGapHeight = profile?.RowGapHeight ?? options.CurrentValue.RowGapHeight;
+            var rowLateOffsetStartRow = profile?.RowLateOffsetStartRow ?? int.MaxValue;
+            var rowLateOffsetStepRows = profile?.RowLateOffsetStepRows ?? 1;
+            var rowLateOffsetStepPx = profile?.RowLateOffsetStepPx ?? 0;
 
             var rows = OcrRowLayout.BuildRowRectangles(
                 captureRegion.Width,
@@ -50,7 +53,10 @@ public sealed class ConsoleOverlayRenderer(
                 options.CurrentValue.UseFixedRowGeometry,
                 options.CurrentValue.RowStartOffsetY,
                 rowTextHeight,
-                rowGapHeight);
+                rowGapHeight,
+                rowLateOffsetStartRow,
+                rowLateOffsetStepRows,
+                rowLateOffsetStepPx);
 
             var entries = BuildEntries(snapshot, pricesByItemName, rows, pricingOptions.CurrentValue);
 

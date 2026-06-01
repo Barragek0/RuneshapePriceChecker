@@ -15,8 +15,6 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient) : IPric
     private static readonly Regex LeadingQuantityWithX = new("^(?:\\d+|[AaIiLlTt|])\\s*[Xx]\\s+", RegexOptions.Compiled);
     private static readonly Regex LeadingQuantityWithoutX = new("^(?:\\d+|[IiLl|])\\s+", RegexOptions.Compiled);
     private static readonly Regex SplitPossessive = new("\\b([A-Z]+)\\s+[S5]\\s+([A-Z]+)\\b", RegexOptions.Compiled);
-    private static readonly Regex ZeroForOInOrb = new("\\b0RB\\b", RegexOptions.Compiled);
-    private static readonly Regex GForOInOrb = new("\\bGRB\\b", RegexOptions.Compiled);
     private static readonly Regex TrailingLevel = new("\\s+LEVEL\\s+\\d+$", RegexOptions.Compiled);
     private static readonly Regex TrailingOrb = new("\\s+ORB$", RegexOptions.Compiled);
 
@@ -256,8 +254,7 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient) : IPric
         normalized = NonAlphaNumeric.Replace(normalized, " ");
         normalized = normalized.Trim().ToUpperInvariant();
         normalized = SplitPossessive.Replace(normalized, "$1S $2");
-        normalized = ZeroForOInOrb.Replace(normalized, "ORB");
-        normalized = GForOInOrb.Replace(normalized, "ORB");
+        normalized = PricingTextRules.ApplyNormalizedWordSwaps(normalized);
 
         return normalized;
     }

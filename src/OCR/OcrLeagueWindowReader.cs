@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using RuneshapePriceChecker.Configuration;
 using RuneshapePriceChecker.Contracts;
+using RuneshapePriceChecker.Pricing;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -23,12 +24,11 @@ public sealed class OcrLeagueWindowReader(
     private readonly IOptionsMonitor<AppOptions> _appOptions = appOptions;
     private static readonly Regex MultiWhitespace = new("\\s+", RegexOptions.Compiled);
     private static readonly Regex NonNameChars = new("[^-A-Za-z0-9'’ ]+", RegexOptions.Compiled);
-    private static readonly Regex LeadingQuantityWithX = new("^(?<quantity>\\d+|[AaIiLlTt|])\\s*[xX]\\s*(?<name>.+)$", RegexOptions.Compiled);
-    private static readonly Regex LeadingQuantityWithoutX = new("^(?<quantity>\\d+|[IiLl|])\\s+(?<name>.+)$", RegexOptions.Compiled);
     private bool _tesseractUnavailable;
     private bool _windowCaptureUnavailableLogged;
     private bool _waitingForWindowContextLogged;
     private bool _waitingForForegroundWindowLogged;
+    private bool _waitingForLeagueListingPanelLogged;
     private bool _debugImageDirectoryLogged;
     private bool _tesseractExecutionConfirmedLogged;
     private DateTimeOffset _lastDebugImageSavedAtUtc = DateTimeOffset.MinValue;
@@ -84,6 +84,11 @@ public sealed class OcrLeagueWindowReader(
     {
         attemptedRecognition = false;
         var options = _options.CurrentValue;
+        if (options.SaveDebugImages)
+        {
+            EnsureDebugImageDirectoryExists(options);
+        }
+
         if (!windowResolutionProvider.IsPoe2WindowForeground || !IsPoe2ForegroundNow())
         {
             if (_appOptions.CurrentValue.EnableDebugLogging && !_waitingForForegroundWindowLogged)
@@ -114,6 +119,28 @@ public sealed class OcrLeagueWindowReader(
         ValidateRegion(region);
 
         using var capturedBitmap = CaptureBitmap(region, out var captureMethod, options);
+        if (!IsLeaguePanelAnchorColorMatch(capturedBitmap, options, out var anchorSignal))
+        {
+            if (_appOptions.CurrentValue.EnableDebugLogging && !_waitingForLeagueListingPanelLogged)
+            {
+                _waitingForLeagueListingPanelLogged = true;
+                logger.LogInformation(
+                    "OCR paused: waiting for league listing panel anchor color. Signal X={X} Y={Y} RGB=({R},{G},{B}) L={Luminance} Spread={Spread} Distance={Distance:F1}.",
+                    anchorSignal.X,
+                    anchorSignal.Y,
+                    anchorSignal.R,
+                    anchorSignal.G,
+                    anchorSignal.B,
+                    anchorSignal.Luminance,
+                    anchorSignal.ChannelSpread,
+                    anchorSignal.DistanceToTarget);
+            }
+
+            return string.Empty;
+        }
+
+        _waitingForLeagueListingPanelLogged = false;
+
         using var ocrBitmap = options.EnableImagePreprocessing
             ? PreprocessForOcr(capturedBitmap, options)
             : (Bitmap)capturedBitmap.Clone();
@@ -149,6 +176,9 @@ public sealed class OcrLeagueWindowReader(
         var profile = windowResolutionProvider.CurrentResolutionProfile;
         var rowTextHeight = profile?.RowTextHeight ?? options.RowTextHeight;
         var rowGapHeight = profile?.RowGapHeight ?? options.RowGapHeight;
+        var rowLateOffsetStartRow = profile?.RowLateOffsetStartRow ?? int.MaxValue;
+        var rowLateOffsetStepRows = profile?.RowLateOffsetStepRows ?? 1;
+        var rowLateOffsetStepPx = profile?.RowLateOffsetStepPx ?? 0;
 
         var rowRects = OcrRowLayout.BuildRowRectangles(
             bitmap.Width,
@@ -157,7 +187,10 @@ public sealed class OcrLeagueWindowReader(
             options.UseFixedRowGeometry,
             options.RowStartOffsetY,
             rowTextHeight,
-            rowGapHeight);
+            rowGapHeight,
+            rowLateOffsetStartRow,
+            rowLateOffsetStepRows,
+            rowLateOffsetStepPx);
         if (rowRects.Count == 1)
         {
             using var cleaned = PrepareRowBitmapForOcr(bitmap, options);
@@ -326,6 +359,88 @@ public sealed class OcrLeagueWindowReader(
         {
             bitmap.UnlockBits(data);
         }
+    }
+
+    private sealed record LeaguePanelAnchorSignal(
+        int X,
+        int Y,
+        int R,
+        int G,
+        int B,
+        int Luminance,
+        int ChannelSpread,
+        double DistanceToTarget);
+
+    private static bool IsLeaguePanelAnchorColorMatch(Bitmap bitmap, OcrOptions options, out LeaguePanelAnchorSignal signal)
+    {
+        signal = new LeaguePanelAnchorSignal(0, 0, 0, 0, 0, 0, 0, double.MaxValue);
+        if (bitmap.Width <= 0 || bitmap.Height <= 0)
+        {
+            return false;
+        }
+
+        var sampleX = Math.Clamp(options.LeaguePanelAnchorSampleX, 0, bitmap.Width - 1);
+        var sampleY = Math.Clamp(options.LeaguePanelAnchorSampleY, 0, bitmap.Height - 1);
+        var sampleRadius = Math.Clamp(options.LeaguePanelAnchorSampleRadiusPx, 0, 3);
+
+        var minX = Math.Max(0, sampleX - sampleRadius);
+        var maxX = Math.Min(bitmap.Width - 1, sampleX + sampleRadius);
+        var minY = Math.Max(0, sampleY - sampleRadius);
+        var maxY = Math.Min(bitmap.Height - 1, sampleY + sampleRadius);
+
+        var rgbPixels = ReadRgbPixels(bitmap);
+        var sampleCount = 0;
+        var sumR = 0;
+        var sumG = 0;
+        var sumB = 0;
+
+        for (var y = minY; y <= maxY; y++)
+        {
+            var rowOffset = y * bitmap.Width;
+            for (var x = minX; x <= maxX; x++)
+            {
+                var pixelIndex = rowOffset + x;
+                var rgbIndex = pixelIndex * 3;
+                sumR += rgbPixels[rgbIndex];
+                sumG += rgbPixels[rgbIndex + 1];
+                sumB += rgbPixels[rgbIndex + 2];
+                sampleCount++;
+            }
+        }
+
+        if (sampleCount == 0)
+        {
+            return false;
+        }
+
+        var r = sumR / sampleCount;
+        var g = sumG / sampleCount;
+        var b = sumB / sampleCount;
+        var maxChannel = Math.Max(r, Math.Max(g, b));
+        var minChannel = Math.Min(r, Math.Min(g, b));
+        var spread = maxChannel - minChannel;
+        var luminance = ((299 * r) + (587 * g) + (114 * b)) / 1000;
+
+        var dr = r - options.LeaguePanelAnchorTargetR;
+        var dg = g - options.LeaguePanelAnchorTargetG;
+        var db = b - options.LeaguePanelAnchorTargetB;
+        var distanceToTarget = Math.Sqrt((dr * dr) + (dg * dg) + (db * db));
+
+        signal = new LeaguePanelAnchorSignal(
+            sampleX,
+            sampleY,
+            r,
+            g,
+            b,
+            luminance,
+            spread,
+            distanceToTarget);
+
+        var isNearTargetPalette = distanceToTarget <= Math.Max(1, options.LeaguePanelAnchorTolerance);
+        var isLightNeutral = luminance >= options.LeaguePanelAnchorMinLuminance &&
+            spread <= options.LeaguePanelAnchorMaxChannelSpread;
+
+        return isNearTargetPalette || isLightNeutral;
     }
 
     private static bool TryCaptureFromWindowClient(WindowCaptureContext context, OcrCaptureRegion absoluteRegion, out Bitmap bitmap)
@@ -595,12 +710,30 @@ public sealed class OcrLeagueWindowReader(
     {
         if (string.IsNullOrWhiteSpace(options.DebugImageDirectory))
         {
-            return Path.Combine(Path.GetTempPath(), "RuneshapePriceChecker", "ocr-debug");
+            return Path.Combine(AppContext.BaseDirectory, "ocr-debug");
         }
 
         return Path.IsPathRooted(options.DebugImageDirectory)
             ? options.DebugImageDirectory
             : Path.Combine(AppContext.BaseDirectory, options.DebugImageDirectory);
+    }
+
+    private void EnsureDebugImageDirectoryExists(OcrOptions options)
+    {
+        var directory = ResolveDebugImageDirectory(options);
+        try
+        {
+            Directory.CreateDirectory(directory);
+            if (!_debugImageDirectoryLogged)
+            {
+                _debugImageDirectoryLogged = true;
+                logger.LogInformation("OCR debug image output enabled. Directory: {Path}", Path.GetFullPath(directory));
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to create OCR debug image directory: {Path}", directory);
+        }
     }
 
     private string ExecuteTesseract(string imagePath, int psm, OcrOptions options)
@@ -701,26 +834,10 @@ public sealed class OcrLeagueWindowReader(
         normalized = NonNameChars.Replace(normalized, " ");
         normalized = MultiWhitespace.Replace(normalized, " ").Trim();
 
-        var quantityMatch = LeadingQuantityWithX.Match(normalized);
-        if (!quantityMatch.Success)
+        var parsed = PricingTextRules.ParseDetectedItem(normalized);
+        if (!string.IsNullOrWhiteSpace(parsed.Name))
         {
-            quantityMatch = LeadingQuantityWithoutX.Match(normalized);
-        }
-        if (quantityMatch.Success)
-        {
-            var rawQuantity = quantityMatch.Groups["quantity"].Value;
-            var name = quantityMatch.Groups["name"].Value.Trim();
-            var quantity = rawQuantity switch
-            {
-                "a" or "A" or "i" or "I" or "l" or "L" or "t" or "T" or "|" => 1,
-                _ when int.TryParse(rawQuantity, out var parsed) && parsed > 0 => parsed,
-                _ => 1
-            };
-
-            if (!string.IsNullOrWhiteSpace(name))
-            {
-                normalized = $"{quantity}x {name}";
-            }
+            normalized = $"{parsed.Quantity}x {parsed.Name}";
         }
 
         return normalized.Trim(' ', '-', '\'', ',');

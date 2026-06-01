@@ -88,13 +88,6 @@ Settings reload automatically every 5 seconds through `SettingsController`.
 
 If an item is not recognized or not available in the current pricing data, it doesn't show a value.
 
-## OCR Resolution Profiles
-
-OCR capture coordinates are profile-driven.
-
-- Profile file: `src/OCR/OcrResolutionProfiles.cs`
-- Add/update guide: `ADDING_A_RESOLUTION.md`
-
 If your PoE2 resolution is unsupported, OCR and overlay pricing are disabled and an error popup lists supported resolutions.
 
 ## Price Sources
