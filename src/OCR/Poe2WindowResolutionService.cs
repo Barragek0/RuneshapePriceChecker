@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Windows.Forms;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -16,6 +17,8 @@ public interface IPoe2WindowResolutionProvider
     string? CurrentResolutionKey { get; }
 
     WindowCaptureContext? CurrentWindowCaptureContext { get; }
+
+    bool IsPoe2WindowForeground { get; }
 }
 
 public sealed record WindowCaptureContext(
@@ -29,13 +32,15 @@ public sealed class Poe2WindowResolutionService(
     IOptionsMonitor<OcrOptions> options,
     ILogger<Poe2WindowResolutionService> logger) : BackgroundService, IPoe2WindowResolutionProvider
 {
-    private static readonly string[] BrowserProcesses = ["brave", "chrome", "msedge", "firefox", "opera"];
+    private sealed record Poe2WindowCandidate(IntPtr WindowHandle, uint ProcessId);
     private readonly IOptionsMonitor<OcrOptions> _options = options;
 
     private volatile OcrCaptureRegion? _currentCaptureRegion;
     private volatile OcrResolutionProfile? _currentResolutionProfile;
     private volatile string? _currentResolutionKey;
     private volatile WindowCaptureContext? _currentWindowCaptureContext;
+    private volatile bool _isPoe2WindowForeground;
+    private bool? _lastForegroundState;
     private string? _unsupportedResolutionPopupShownForKey;
 
     public OcrCaptureRegion? CurrentCaptureRegion => _currentCaptureRegion;
@@ -45,6 +50,8 @@ public sealed class Poe2WindowResolutionService(
     public string? CurrentResolutionKey => _currentResolutionKey;
 
     public WindowCaptureContext? CurrentWindowCaptureContext => _currentWindowCaptureContext;
+
+    public bool IsPoe2WindowForeground => _isPoe2WindowForeground;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -66,13 +73,33 @@ public sealed class Poe2WindowResolutionService(
 
     private void RefreshWindowState()
     {
-        var handle = FindPoe2WindowHandle();
-        if (handle == IntPtr.Zero)
+        var candidates = FindPoe2WindowCandidates();
+        if (candidates.Count == 0)
         {
+            _isPoe2WindowForeground = false;
+            LogForegroundStateIfChanged(_isPoe2WindowForeground);
             _currentWindowCaptureContext = null;
             _currentResolutionProfile = null;
             return;
         }
+
+        var foregroundHandle = NativeMethods.GetForegroundWindowHandle();
+        var foregroundProcessId = NativeMethods.GetProcessIdForWindow(foregroundHandle);
+        var foregroundTitle = NativeMethods.GetWindowTitle(foregroundHandle);
+
+        var foregroundCandidate = candidates.FirstOrDefault(c =>
+            NativeMethods.AreWindowFamilyRelated(c.WindowHandle, foregroundHandle));
+
+        var isForegroundByWindowFamily = foregroundCandidate is not null;
+        var isForegroundByTitle = !string.IsNullOrWhiteSpace(foregroundTitle) &&
+            foregroundTitle.Equals("Path of Exile 2", StringComparison.OrdinalIgnoreCase);
+        var isForegroundByProcess = foregroundProcessId != 0 &&
+            candidates.Any(c => c.ProcessId == foregroundProcessId);
+
+        _isPoe2WindowForeground = isForegroundByWindowFamily || isForegroundByTitle || isForegroundByProcess;
+        LogForegroundStateIfChanged(_isPoe2WindowForeground);
+
+        var handle = foregroundCandidate?.WindowHandle ?? candidates[0].WindowHandle;
 
         if (!NativeMethods.GetClientRect(handle, out var rect))
         {
@@ -161,6 +188,24 @@ public sealed class Poe2WindowResolutionService(
             region.Height);
     }
 
+    private void LogForegroundStateIfChanged(bool isForeground)
+    {
+        if (_lastForegroundState == isForeground)
+        {
+            return;
+        }
+
+        _lastForegroundState = isForeground;
+        if (isForeground)
+        {
+            logger.LogInformation("PoE2 foreground detected; OCR scanning is active.");
+        }
+        else
+        {
+            logger.LogInformation("PoE2 is not foreground; OCR scanning is paused.");
+        }
+    }
+
     private static bool TryCreateWindowRelativeRegion(
         NativeMethods.POINT topLeft,
         int windowWidth,
@@ -200,18 +245,20 @@ public sealed class Poe2WindowResolutionService(
         return true;
     }
 
-    private static IntPtr FindPoe2WindowHandle()
+    private static List<Poe2WindowCandidate> FindPoe2WindowCandidates()
     {
-        var process = Process
+        return Process
             .GetProcesses()
             .Where(p => p.MainWindowHandle != IntPtr.Zero)
             .Where(p => !string.IsNullOrWhiteSpace(p.MainWindowTitle))
-            .Where(p => p.MainWindowTitle.Contains("Path of Exile 2", StringComparison.OrdinalIgnoreCase))
-            .Where(p => !BrowserProcesses.Contains(p.ProcessName, StringComparer.OrdinalIgnoreCase))
-            .OrderByDescending(p => p.MainWindowHandle)
-            .FirstOrDefault();
-
-        return process?.MainWindowHandle ?? IntPtr.Zero;
+            .Where(p => p.MainWindowTitle.Equals("Path of Exile 2", StringComparison.OrdinalIgnoreCase))
+            .Select(p =>
+            {
+                var processId = (uint)p.Id;
+                return new Poe2WindowCandidate(p.MainWindowHandle, processId);
+            })
+            .OrderByDescending(p => p.WindowHandle)
+            .ToList();
     }
 
     private void ShowUnsupportedResolutionPopupIfNeeded(string detectedResolution)
@@ -278,5 +325,72 @@ public sealed class Poe2WindowResolutionService(
 
         [DllImport("user32.dll")]
         public static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetAncestor(IntPtr hWnd, uint gaFlags);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsChild(IntPtr hWndParent, IntPtr hWnd);
+
+        public static IntPtr GetForegroundWindowHandle()
+        {
+            return GetForegroundWindow();
+        }
+
+        public static uint GetProcessIdForWindow(IntPtr windowHandle)
+        {
+            if (windowHandle == IntPtr.Zero)
+            {
+                return 0;
+            }
+
+            _ = GetWindowThreadProcessId(windowHandle, out var processId);
+            return processId;
+        }
+
+        public static string GetWindowTitle(IntPtr windowHandle)
+        {
+            if (windowHandle == IntPtr.Zero)
+            {
+                return string.Empty;
+            }
+
+            var builder = new StringBuilder(512);
+            _ = GetWindowText(windowHandle, builder, builder.Capacity);
+            return builder.ToString();
+        }
+
+        public static bool AreWindowFamilyRelated(IntPtr candidateWindowHandle, IntPtr foregroundWindowHandle)
+        {
+            if (candidateWindowHandle == IntPtr.Zero || foregroundWindowHandle == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            if (candidateWindowHandle == foregroundWindowHandle)
+            {
+                return true;
+            }
+
+            if (IsChild(candidateWindowHandle, foregroundWindowHandle) || IsChild(foregroundWindowHandle, candidateWindowHandle))
+            {
+                return true;
+            }
+
+            const uint gaRoot = 2;
+            var candidateRoot = GetAncestor(candidateWindowHandle, gaRoot);
+            var foregroundRoot = GetAncestor(foregroundWindowHandle, gaRoot);
+
+            return candidateRoot != IntPtr.Zero && candidateRoot == foregroundRoot;
+        }
     }
 }

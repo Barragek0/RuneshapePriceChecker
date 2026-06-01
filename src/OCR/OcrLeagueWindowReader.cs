@@ -27,6 +27,7 @@ public sealed class OcrLeagueWindowReader(
     private bool _tesseractUnavailable;
     private bool _windowCaptureUnavailableLogged;
     private bool _waitingForWindowContextLogged;
+    private bool _waitingForForegroundWindowLogged;
     private bool _debugImageDirectoryLogged;
     private bool _tesseractExecutionConfirmedLogged;
     private DateTimeOffset _lastDebugImageSavedAtUtc = DateTimeOffset.MinValue;
@@ -76,6 +77,19 @@ public sealed class OcrLeagueWindowReader(
     private string CaptureAndRecognize()
     {
         var options = _options.CurrentValue;
+        if (!windowResolutionProvider.IsPoe2WindowForeground)
+        {
+            if (_appOptions.CurrentValue.EnableDebugLogging && !_waitingForForegroundWindowLogged)
+            {
+                _waitingForForegroundWindowLogged = true;
+                logger.LogInformation("OCR paused: waiting for Path of Exile 2 to be the active foreground window.");
+            }
+
+            return string.Empty;
+        }
+
+        _waitingForForegroundWindowLogged = false;
+
         if (options.UseWindowClientCapture && windowResolutionProvider.CurrentWindowCaptureContext is null)
         {
             if (_appOptions.CurrentValue.EnableDebugLogging && !_waitingForWindowContextLogged)
