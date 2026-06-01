@@ -1,0 +1,92 @@
+using System.Text;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging.Console;
+using Microsoft.Extensions.Options;
+
+namespace RuneshapePriceChecker.App;
+
+public sealed class CompactConsoleFormatter : ConsoleFormatter
+{
+    public const string FormatterName = "runeshapepricechecker-compact";
+
+    private readonly IOptionsMonitor<SimpleConsoleFormatterOptions> _options;
+
+    public CompactConsoleFormatter(IOptionsMonitor<SimpleConsoleFormatterOptions> options)
+        : base(FormatterName)
+    {
+        _options = options;
+    }
+
+    public override void Write<TState>(in LogEntry<TState> logEntry, IExternalScopeProvider? scopeProvider, TextWriter textWriter)
+    {
+        var formatter = logEntry.Formatter;
+        if (formatter is null)
+        {
+            return;
+        }
+
+        var message = formatter(logEntry.State, logEntry.Exception);
+        if (string.IsNullOrEmpty(message) && logEntry.Exception is null)
+        {
+            return;
+        }
+
+        var options = _options.CurrentValue;
+        var builder = new StringBuilder();
+
+        if (!string.IsNullOrEmpty(options.TimestampFormat))
+        {
+            builder.Append(DateTimeOffset.Now.ToString(options.TimestampFormat));
+        }
+
+        builder.Append(GetLogLevelText(logEntry.LogLevel));
+        builder.Append(": ");
+        builder.Append(ShortenCategory(logEntry.Category));
+        builder.Append('[');
+        builder.Append(logEntry.EventId.Id);
+        builder.Append("] ");
+        builder.AppendLine(message);
+
+        if (logEntry.Exception is not null)
+        {
+            builder.AppendLine(logEntry.Exception.ToString());
+        }
+
+        textWriter.Write(builder.ToString());
+    }
+
+    private static string ShortenCategory(string category)
+    {
+        if (category.StartsWith("RuneshapePriceChecker.", StringComparison.Ordinal))
+        {
+            return category["RuneshapePriceChecker.".Length..];
+        }
+
+        if (category.StartsWith("System.Net.Http.HttpClient.", StringComparison.Ordinal))
+        {
+            return "HttpClient." + category["System.Net.Http.HttpClient.".Length..];
+        }
+
+        if (category.StartsWith("System.Net.Http.", StringComparison.Ordinal))
+        {
+            return category["System.Net.Http.".Length..];
+        }
+
+        return category;
+    }
+
+    private static string GetLogLevelText(LogLevel level)
+    {
+        return level switch
+        {
+            LogLevel.Trace => "trace",
+            LogLevel.Debug => "debug",
+            LogLevel.Information => "info",
+            LogLevel.Warning => "warn",
+            LogLevel.Error => "error",
+            LogLevel.Critical => "critical",
+            _ => "none"
+        };
+    }
+}

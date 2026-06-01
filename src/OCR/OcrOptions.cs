@@ -1,0 +1,64 @@
+namespace RuneshapePriceChecker.OCR;
+
+public sealed class OcrOptions
+{
+    public string TesseractExePath { get; set; } = "tesseract";
+
+    public string Language { get; set; } = "eng";
+
+    public int PageSegmentationMode { get; set; } = 6;
+
+    public int CommandTimeoutSeconds { get; set; } = 5;
+
+    public int ResolutionPollIntervalSeconds { get; set; } = 1;
+
+    public bool UseWindowClientCapture { get; set; } = true;
+
+    public bool EnableImagePreprocessing { get; set; } = true;
+
+    public int BinarizationThreshold { get; set; } = 145;
+
+    public bool EnableTextColorFiltering { get; set; } = true;
+
+    public int TextColorTargetR { get; set; } = 50;
+
+    public int TextColorTargetG { get; set; } = 42;
+
+    public int TextColorTargetB { get; set; } = 34;
+
+    public int TextColorTolerance { get; set; } = 52;
+
+    public int TextColorMaxLuminance { get; set; } = 145;
+
+    public int TextColorMaxChannelSpread { get; set; } = 34;
+
+    public bool SaveDebugImages { get; set; } = false;
+
+    public int DebugImageIntervalSeconds { get; set; } = 15;
+
+    public string DebugImageDirectory { get; set; } = string.Empty;
+
+    public bool ShowCaptureBoundsOverlay { get; set; } = false;
+
+    public int CaptureBoundsOverlayIntervalMs { get; set; } = 250;
+
+    public int OcrRowCount { get; set; } = 12;
+
+    public int RowPageSegmentationMode { get; set; } = 7;
+
+    public bool UseFixedRowGeometry { get; set; } = true;
+
+    public int RowStartOffsetY { get; set; } = 0;
+
+    public int RowTextHeight { get; set; } = 23;
+
+    public int RowGapHeight { get; set; } = 24;
+
+    public int RowUpscaleFactor { get; set; } = 2;
+
+    public int RowNoiseMaskTopPx { get; set; } = 1;
+
+    public int RowNoiseMaskBottomPx { get; set; } = 1;
+
+    public int RowSpeckleMaxArea { get; set; } = 20;
+}

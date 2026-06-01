@@ -1,0 +1,36 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build Executable (Release)",
+            "type": "shell",
+            "command": "dotnet",
+            "args": [
+                "build",
+                "RuneshapePriceChecker.csproj",
+                "-c",
+                "Release"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": "$msCompile",
+            "detail": "Compiles RuneshapePriceChecker to Release executable output."
+        },
+        {
+            "label": "Run with Hot Reload",
+            "type": "shell",
+            "command": "dotnet",
+            "args": [
+                "watch",
+                "--project",
+                "RuneshapePriceChecker.csproj",
+                "run"
+            ],
+            "isBackground": true,
+            "problemMatcher": "$msCompile",
+            "detail": "Runs RuneshapePriceChecker with .NET Hot Reload for development."
+        }
+    ]
+}
