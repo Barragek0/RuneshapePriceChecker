@@ -23,7 +23,7 @@ public sealed class OcrLeagueWindowReader(
     private readonly IOptionsMonitor<AppOptions> _appOptions = appOptions;
     private static readonly Regex MultiWhitespace = new("\\s+", RegexOptions.Compiled);
     private static readonly Regex NonNameChars = new("[^-A-Za-z0-9'’ ]+", RegexOptions.Compiled);
-    private static readonly Regex LeadingQuantity = new("^(?<quantity>\\d+|[IiLl|])\\s*[xX]\\s*(?<name>.+)$", RegexOptions.Compiled);
+    private static readonly Regex LeadingQuantity = new("^(?<quantity>\\d+|[AaIiLl|])\\s*[xX]\\s*(?<name>.+)$", RegexOptions.Compiled);
     private bool _tesseractUnavailable;
     private bool _windowCaptureUnavailableLogged;
     private bool _waitingForWindowContextLogged;
@@ -43,7 +43,12 @@ public sealed class OcrLeagueWindowReader(
 
         try
         {
-            var rawText = CaptureAndRecognize();
+            var rawText = CaptureAndRecognize(out var attemptedRecognition);
+            if (!attemptedRecognition)
+            {
+                return new LeagueWindowSnapshot(Array.Empty<string>(), capturedAt);
+            }
+
             if (_appOptions.CurrentValue.EnableDebugLogging && !_tesseractExecutionConfirmedLogged)
             {
                 _tesseractExecutionConfirmedLogged = true;
@@ -74,10 +79,11 @@ public sealed class OcrLeagueWindowReader(
         }
     }
 
-    private string CaptureAndRecognize()
+    private string CaptureAndRecognize(out bool attemptedRecognition)
     {
+        attemptedRecognition = false;
         var options = _options.CurrentValue;
-        if (!windowResolutionProvider.IsPoe2WindowForeground)
+        if (!windowResolutionProvider.IsPoe2WindowForeground || !IsPoe2ForegroundNow())
         {
             if (_appOptions.CurrentValue.EnableDebugLogging && !_waitingForForegroundWindowLogged)
             {
@@ -115,7 +121,26 @@ public sealed class OcrLeagueWindowReader(
             ? TryStartDebugCapture(capturedBitmap, ocrBitmap, region, captureMethod)
             : null;
 
+        attemptedRecognition = true;
         return ExecuteTesseractByRows(ocrBitmap, debugContext, options);
+    }
+
+    private bool IsPoe2ForegroundNow()
+    {
+        var context = windowResolutionProvider.CurrentWindowCaptureContext;
+        if (context is null)
+        {
+            return false;
+        }
+
+        var foregroundHandle = NativeMethods.GetForegroundWindow();
+        if (foregroundHandle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        return foregroundHandle == context.WindowHandle ||
+               NativeMethods.AreWindowFamilyRelated(context.WindowHandle, foregroundHandle);
     }
 
     private string ExecuteTesseractByRows(Bitmap bitmap, DebugCaptureContext? debugContext, OcrOptions options)
@@ -682,7 +707,7 @@ public sealed class OcrLeagueWindowReader(
             var name = quantityMatch.Groups["name"].Value.Trim();
             var quantity = rawQuantity switch
             {
-                "i" or "I" or "l" or "L" or "|" => 1,
+                "a" or "A" or "i" or "I" or "l" or "L" or "|" => 1,
                 _ when int.TryParse(rawQuantity, out var parsed) && parsed > 0 => parsed,
                 _ => 1
             };
@@ -1112,6 +1137,9 @@ public sealed class OcrLeagueWindowReader(
     private static class NativeMethods
     {
         [DllImport("user32.dll")]
+        public static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll")]
         public static extern IntPtr GetDC(IntPtr hWnd);
 
         [DllImport("user32.dll")]
@@ -1133,5 +1161,35 @@ public sealed class OcrLeagueWindowReader(
         [DllImport("user32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint nFlags);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetAncestor(IntPtr hWnd, uint gaFlags);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsChild(IntPtr hWndParent, IntPtr hWnd);
+
+        public static bool AreWindowFamilyRelated(IntPtr candidateWindowHandle, IntPtr foregroundWindowHandle)
+        {
+            if (candidateWindowHandle == IntPtr.Zero || foregroundWindowHandle == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            if (candidateWindowHandle == foregroundWindowHandle)
+            {
+                return true;
+            }
+
+            if (IsChild(candidateWindowHandle, foregroundWindowHandle) || IsChild(foregroundWindowHandle, candidateWindowHandle))
+            {
+                return true;
+            }
+
+            const uint gaRoot = 2;
+            var candidateRoot = GetAncestor(candidateWindowHandle, gaRoot);
+            var foregroundRoot = GetAncestor(foregroundWindowHandle, gaRoot);
+
+            return candidateRoot != IntPtr.Zero && candidateRoot == foregroundRoot;
+        }
     }
 }

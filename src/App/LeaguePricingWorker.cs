@@ -16,7 +16,7 @@ public sealed class LeaguePricingWorker(
     ILogger<LeaguePricingWorker> logger) : BackgroundService
 {
     private static readonly TimeSpan TargetLoopInterval = TimeSpan.FromMilliseconds(500);
-    private static readonly Regex QuantityPrefix = new("^(?<quantity>\\d+|[IiLl|])\\s*[xX]\\s+(?<name>.+)$", RegexOptions.Compiled);
+    private static readonly Regex QuantityPrefix = new("^(?<quantity>\\d+|[AaIiLl|])\\s*[xX]\\s+(?<name>.+)$", RegexOptions.Compiled);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -78,7 +78,7 @@ public sealed class LeaguePricingWorker(
 
         var quantity = rawQuantity switch
         {
-            "i" or "I" or "l" or "L" or "|" => 1,
+            "a" or "A" or "i" or "I" or "l" or "L" or "|" => 1,
             _ when int.TryParse(rawQuantity, out var parsed) && parsed > 0 => parsed,
             _ => 1
         };
@@ -93,7 +93,6 @@ public sealed class LeaguePricingWorker(
     {
         if (snapshot.ItemNames.Count == 0)
         {
-            logger.LogInformation("Detected 0 items.");
             return;
         }
 
