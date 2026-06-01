@@ -23,6 +23,9 @@ It reads visible rows on the runeshape page with OCR, looks up live prices from 
 - My resolution isn't supported:
 	- If you have the time and very simple coding knowledge, you can add a new profile by following a simple step-by-step guide in `ADDING_A_RESOLUTION.md`
 
+## What the tool shows
+![example](https://i.vgy.me/3hhWcW.png)
+
 ## Quick Start
 
 ```powershell
