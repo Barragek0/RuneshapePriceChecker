@@ -15,6 +15,7 @@ It reads visible rows on the runeshape page with OCR, looks up live prices from 
 
 ## Limitations
 - poeninja doesn't currently have prices listed for the new Skills or Supports, so prices for these can't be shown.
+- Currently only supports 1080p, if you have a higher resolution monitor and a bit of spare time and basic coding knowledge please read `ADDING_A_RESOLUTION.md` for a step-by-step guide on how you can add another resolution.
 
 ## Troubleshooting
 
