@@ -21,14 +21,14 @@ It reads visible rows on the runeshape page with OCR, looks up live prices from 
 
 - No value on known items:
 	- Confirm the item exists in the selected league on poe.ninja.
-	- Wait for the next cache refresh or restart the app after configuration changes.
-	- Enable debug logging to inspect OCR output and normalized matches.
-	- If n/a appears next to an item that is available on poe ninja with a price, or if the text isn't matching correctly, submit an issue.
+	- Enable debug logging in `src/appsettings.json` to inspect OCR output and normalized matches.
+	- If n/a appears in logging next to an item that is available on poe ninja with a price, or if the text isn't matching correctly, submit an issue.
 - No OCR output:
 	- Confirm Tesseract is installed and in `PATH`.
-	- Confirm your PoE2 resolution has a valid profile.
+	- Confirm you're in `borderless windowed` on a supported resolution.
+    - Confirm you're tabbed into the game, so the game is in the foreground.
 - My resolution isn't supported:
-	- If you have the time and very simple coding knowledge, you can add a new profile by following a simple step-by-step guide in `ADDING_A_RESOLUTION.md`
+	- I unfortunately only have 1080p monitors, so I couldn't add higher resolutions. If you have the time and basic coding knowledge, you can add a new profile by following a simple step-by-step guide in `ADDING_A_RESOLUTION.md`.
 
 ## Quick Start
 
@@ -46,7 +46,7 @@ dotnet watch --project RuneshapePriceChecker.csproj run
 
 ## Configuration
 
-Runtime settings are intentionally minimal and live in `src/appsettings.json`.
+Runtime settings live in `src/appsettings.json`.
 
 ```json
 {
