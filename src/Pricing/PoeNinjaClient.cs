@@ -41,6 +41,7 @@ public sealed class PoeNinjaClient(HttpClient httpClient, IOptionsMonitor<Pricin
 
             await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
             using var document = await JsonDocument.ParseAsync(contentStream, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var primaryToChaosMultiplier = ResolvePrimaryToChaosMultiplier(document.RootElement);
 
             var parsedCount = 0;
             if (!document.RootElement.TryGetProperty("lines", out var lines) || lines.ValueKind != JsonValueKind.Array)
@@ -51,7 +52,7 @@ public sealed class PoeNinjaClient(HttpClient httpClient, IOptionsMonitor<Pricin
 
             foreach (var line in lines.EnumerateArray())
             {
-                if (!TryExtractPrice(line, out var chaosPrice))
+                if (!TryExtractPrice(line, primaryToChaosMultiplier, out var chaosPrice))
                 {
                     continue;
                 }
@@ -114,16 +115,9 @@ public sealed class PoeNinjaClient(HttpClient httpClient, IOptionsMonitor<Pricin
         return options.ExchangeOverviewPath.TrimStart('/');
     }
 
-    private static bool TryExtractPrice(JsonElement line, out decimal chaosPrice)
+    private static bool TryExtractPrice(JsonElement line, decimal primaryToChaosMultiplier, out decimal chaosPrice)
     {
         chaosPrice = 0m;
-
-        if (line.TryGetProperty("primaryValue", out var primaryValueElement) &&
-            TryReadDecimal(primaryValueElement, out chaosPrice) &&
-            chaosPrice > 0)
-        {
-            return true;
-        }
 
         if (line.TryGetProperty("chaosValue", out var chaosValueElement) &&
             TryReadDecimal(chaosValueElement, out chaosPrice) &&
@@ -139,7 +133,41 @@ public sealed class PoeNinjaClient(HttpClient httpClient, IOptionsMonitor<Pricin
             return true;
         }
 
+        if (line.TryGetProperty("primaryValue", out var primaryValueElement) &&
+            TryReadDecimal(primaryValueElement, out var primaryValue) &&
+            primaryValue > 0)
+        {
+            chaosPrice = primaryValue * Math.Max(0.0001m, primaryToChaosMultiplier);
+            return chaosPrice > 0;
+        }
+
         return false;
+    }
+
+    private static decimal ResolvePrimaryToChaosMultiplier(JsonElement root)
+    {
+        if (!root.TryGetProperty("core", out var core) || core.ValueKind != JsonValueKind.Object)
+        {
+            return 1m;
+        }
+
+        if (core.TryGetProperty("primary", out var primaryElement) &&
+            primaryElement.ValueKind == JsonValueKind.String &&
+            string.Equals(primaryElement.GetString(), "chaos", StringComparison.OrdinalIgnoreCase))
+        {
+            return 1m;
+        }
+
+        if (core.TryGetProperty("rates", out var rates) &&
+            rates.ValueKind == JsonValueKind.Object &&
+            rates.TryGetProperty("chaos", out var chaosRateElement) &&
+            TryReadDecimal(chaosRateElement, out var chaosRate) &&
+            chaosRate > 0)
+        {
+            return chaosRate;
+        }
+
+        return 1m;
     }
 
     private static IEnumerable<string> ExtractCandidateKeys(JsonElement line)

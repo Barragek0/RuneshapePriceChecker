@@ -88,6 +88,8 @@ Settings reload automatically every 5 seconds through `SettingsController`.
 
 If an item is not recognized or not available in the current pricing data, it doesn't show a value.
 
+OCR resolution profiles now include both static late-row offsets and adaptive row-shift detection parameters.
+
 If your PoE2 resolution is unsupported, OCR and overlay pricing are disabled and an error popup lists supported resolutions.
 
 ## Price Sources

@@ -189,6 +189,11 @@ public static class PricingTextRules
         }
 
         var truncatedChaos = TruncateToSingleDecimal(chaos);
+        if (chaos > 0m && truncatedChaos <= 0m)
+        {
+            return "<0.1c";
+        }
+
         return $"{truncatedChaos.ToString("0.#", CultureInfo.InvariantCulture)}c";
     }
 

@@ -14,11 +14,14 @@ internal static class OcrRowLayout
         int rowGapHeight,
         int rowLateOffsetStartRow,
         int rowLateOffsetStepRows,
-        int rowLateOffsetStepPx)
+        int rowLateOffsetStepPx,
+        IReadOnlyCollection<int>? adaptiveShiftStartRows,
+        int adaptiveShiftPx)
     {
         rowCount = Math.Max(1, rowCount);
         width = Math.Max(1, width);
         height = Math.Max(1, height);
+        adaptiveShiftPx = Math.Max(0, adaptiveShiftPx);
 
         if (!useFixedRowGeometry)
         {
@@ -53,12 +56,32 @@ internal static class OcrRowLayout
         var lateOffsetStartRow = Math.Max(1, rowLateOffsetStartRow);
         var lateOffsetStepRows = Math.Max(1, rowLateOffsetStepRows);
         var lateOffsetStepPx = Math.Max(0, rowLateOffsetStepPx);
+        var adaptiveRows = adaptiveShiftStartRows?
+            .Where(row => row > 0)
+            .Distinct()
+            .OrderBy(row => row)
+            .ToArray() ?? [];
         var fixedRows = new List<Rectangle>(rowCount);
 
         for (var rowIndex = 0; rowIndex < rowCount; rowIndex++)
         {
             var rowNumber = rowIndex + 1;
             var y = startY + (rowIndex * (textHeight + gapHeight));
+
+            if (adaptiveShiftPx > 0 && adaptiveRows.Length > 0)
+            {
+                var dynamicStepCount = 0;
+                for (var i = 0; i < adaptiveRows.Length; i++)
+                {
+                    if (adaptiveRows[i] <= rowNumber)
+                    {
+                        dynamicStepCount++;
+                    }
+                }
+
+                y += dynamicStepCount * adaptiveShiftPx;
+            }
+
             if (lateOffsetStepPx > 0 && rowNumber >= lateOffsetStartRow)
             {
                 var stepIndex = ((rowNumber - lateOffsetStartRow) / lateOffsetStepRows) + 1;
@@ -77,7 +100,6 @@ internal static class OcrRowLayout
             }
 
             fixedRows.Add(new Rectangle(0, y, width, currentHeight));
-            y += textHeight + gapHeight;
         }
 
         return fixedRows.Count > 0

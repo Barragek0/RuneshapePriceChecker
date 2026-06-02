@@ -13,6 +13,7 @@ namespace RuneshapePriceChecker.Overlay;
 
 public sealed class ConsoleOverlayRenderer(
     IPoe2WindowResolutionProvider windowResolutionProvider,
+    IAdaptiveRowShiftState adaptiveRowShiftState,
     IOptionsMonitor<OcrOptions> options,
     IOptionsMonitor<PricingCacheOptions> pricingOptions,
     ILogger<ConsoleOverlayRenderer> logger) : IOverlayRenderer, IDisposable
@@ -45,6 +46,7 @@ public sealed class ConsoleOverlayRenderer(
             var rowLateOffsetStartRow = profile?.RowLateOffsetStartRow ?? int.MaxValue;
             var rowLateOffsetStepRows = profile?.RowLateOffsetStepRows ?? 1;
             var rowLateOffsetStepPx = profile?.RowLateOffsetStepPx ?? 0;
+            var adaptiveSnapshot = adaptiveRowShiftState.GetSnapshot();
 
             var rows = OcrRowLayout.BuildRowRectangles(
                 captureRegion.Width,
@@ -56,7 +58,9 @@ public sealed class ConsoleOverlayRenderer(
                 rowGapHeight,
                 rowLateOffsetStartRow,
                 rowLateOffsetStepRows,
-                rowLateOffsetStepPx);
+                rowLateOffsetStepPx,
+                adaptiveSnapshot.ShiftStartRows,
+                adaptiveSnapshot.IsActive ? adaptiveSnapshot.ShiftPx : 0);
 
             var entries = BuildEntries(snapshot, pricesByItemName, rows, pricingOptions.CurrentValue);
 

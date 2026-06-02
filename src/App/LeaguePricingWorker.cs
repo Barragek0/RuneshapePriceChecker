@@ -12,6 +12,7 @@ public sealed class LeaguePricingWorker(
     ILeagueWindowReader reader,
     IPricingCache pricingCache,
     IOverlayRenderer overlayRenderer,
+    IOptionsMonitor<PricingCacheOptions> pricingOptions,
     IOptionsMonitor<AppOptions> appOptions,
     ILogger<LeaguePricingWorker> logger) : BackgroundService
 {
@@ -31,7 +32,16 @@ public sealed class LeaguePricingWorker(
                 foreach (var itemName in snapshot.ItemNames)
                 {
                     var (normalizedItemName, quantity) = ParseItemAndQuantity(itemName);
-                    prices[itemName] = pricingCache.TryGetPriceQuote(normalizedItemName, quantity);
+                    var quote = pricingCache.TryGetPriceQuote(normalizedItemName, quantity);
+
+                    // The game can show this generic label with unknown internals.
+                    // Render a visible orange unknown marker instead of hiding the row.
+                    if (quote is null && IsRareUniqueItem(normalizedItemName))
+                    {
+                        quote = new PriceQuote("?", pricingOptions.CurrentValue.OrangeThresholdChaos, false);
+                    }
+
+                    prices[itemName] = quote;
                 }
 
                 if (appOptions.CurrentValue.EnableDebugLogging)
@@ -59,6 +69,11 @@ public sealed class LeaguePricingWorker(
     {
         var parsed = PricingTextRules.ParseDetectedItem(itemName);
         return (parsed.Name, parsed.Quantity);
+    }
+
+    private static bool IsRareUniqueItem(string itemName)
+    {
+        return itemName.Equals("Rare Unique Item", StringComparison.OrdinalIgnoreCase);
     }
 
     private static void LogVerboseSnapshot(

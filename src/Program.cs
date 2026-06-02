@@ -52,6 +52,7 @@ var host = Host.CreateDefaultBuilder(args)
 
         services.AddSingleton<Poe2WindowResolutionService>();
         services.AddSingleton<IPoe2WindowResolutionProvider>(sp => sp.GetRequiredService<Poe2WindowResolutionService>());
+        services.AddSingleton<IAdaptiveRowShiftState, AdaptiveRowShiftState>();
 
         services.AddSingleton<ILeagueWindowReader, OcrLeagueWindowReader>();
         services.AddSingleton<IOverlayRenderer, ConsoleOverlayRenderer>();

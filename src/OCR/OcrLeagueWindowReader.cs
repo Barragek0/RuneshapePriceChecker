@@ -16,14 +16,20 @@ public sealed class OcrLeagueWindowReader(
     IOptionsMonitor<OcrOptions> options,
     IOptionsMonitor<AppOptions> appOptions,
     IPoe2WindowResolutionProvider windowResolutionProvider,
+    IAdaptiveRowShiftState adaptiveRowShiftState,
     ILogger<OcrLeagueWindowReader> logger) : ILeagueWindowReader
 {
     private sealed record DebugCaptureContext(string DirectoryPath, string Prefix);
 
     private readonly IOptionsMonitor<OcrOptions> _options = options;
     private readonly IOptionsMonitor<AppOptions> _appOptions = appOptions;
+    private readonly IAdaptiveRowShiftState _adaptiveRowShiftState = adaptiveRowShiftState;
     private static readonly Regex MultiWhitespace = new("\\s+", RegexOptions.Compiled);
     private static readonly Regex NonNameChars = new("[^-A-Za-z0-9'’ ]+", RegexOptions.Compiled);
+    private const int DefaultAdaptiveShiftProbeWidthPx = 40;
+    private const int DefaultAdaptiveShiftStepPx = 40;
+    private const int DefaultAdaptiveShiftMaxPx = 160;
+    private const int DefaultAdaptiveShiftProbeMinDarkPixels = 20;
     private bool _tesseractUnavailable;
     private bool _windowCaptureUnavailableLogged;
     private bool _waitingForWindowContextLogged;
@@ -36,9 +42,11 @@ public sealed class OcrLeagueWindowReader(
     public LeagueWindowSnapshot ReadSnapshot()
     {
         var capturedAt = DateTimeOffset.UtcNow;
+        var adaptiveParams = GetAdaptiveParams(windowResolutionProvider.CurrentResolutionProfile);
 
         if (_tesseractUnavailable)
         {
+            _adaptiveRowShiftState.Update([], adaptiveParams.StepPx, false);
             return new LeagueWindowSnapshot(Array.Empty<string>(), capturedAt);
         }
 
@@ -47,6 +55,7 @@ public sealed class OcrLeagueWindowReader(
             var rawText = CaptureAndRecognize(out var attemptedRecognition);
             if (!attemptedRecognition)
             {
+                _adaptiveRowShiftState.Update([], adaptiveParams.StepPx, false);
                 return new LeagueWindowSnapshot(Array.Empty<string>(), capturedAt);
             }
 
@@ -71,11 +80,13 @@ public sealed class OcrLeagueWindowReader(
             logger.LogWarning(
                 "OCR disabled: {Reason} If startup auto-install did not complete, install Tesseract and restart RuneshapePriceChecker.",
                 ex.Message);
+            _adaptiveRowShiftState.Update([], adaptiveParams.StepPx, false);
             return new LeagueWindowSnapshot(Array.Empty<string>(), capturedAt);
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "OCR capture/recognition failed.");
+            _adaptiveRowShiftState.Update([], adaptiveParams.StepPx, false);
             return new LeagueWindowSnapshot(Array.Empty<string>(), capturedAt);
         }
     }
@@ -84,6 +95,7 @@ public sealed class OcrLeagueWindowReader(
     {
         attemptedRecognition = false;
         var options = _options.CurrentValue;
+        var adaptiveParams = GetAdaptiveParams(windowResolutionProvider.CurrentResolutionProfile);
         if (options.SaveDebugImages)
         {
             EnsureDebugImageDirectoryExists(options);
@@ -91,6 +103,7 @@ public sealed class OcrLeagueWindowReader(
 
         if (!windowResolutionProvider.IsPoe2WindowForeground || !IsPoe2ForegroundNow())
         {
+            _adaptiveRowShiftState.Update([], adaptiveParams.StepPx, false);
             if (_appOptions.CurrentValue.EnableDebugLogging && !_waitingForForegroundWindowLogged)
             {
                 _waitingForForegroundWindowLogged = true;
@@ -104,6 +117,7 @@ public sealed class OcrLeagueWindowReader(
 
         if (options.UseWindowClientCapture && windowResolutionProvider.CurrentWindowCaptureContext is null)
         {
+            _adaptiveRowShiftState.Update([], adaptiveParams.StepPx, false);
             if (_appOptions.CurrentValue.EnableDebugLogging && !_waitingForWindowContextLogged)
             {
                 _waitingForWindowContextLogged = true;
@@ -121,6 +135,7 @@ public sealed class OcrLeagueWindowReader(
         using var capturedBitmap = CaptureBitmap(region, out var captureMethod, options);
         if (!IsLeaguePanelAnchorColorMatch(capturedBitmap, options, out var anchorSignal))
         {
+            _adaptiveRowShiftState.Update([], adaptiveParams.StepPx, false);
             if (_appOptions.CurrentValue.EnableDebugLogging && !_waitingForLeagueListingPanelLogged)
             {
                 _waitingForLeagueListingPanelLogged = true;
@@ -174,11 +189,25 @@ public sealed class OcrLeagueWindowReader(
     private string ExecuteTesseractByRows(Bitmap bitmap, DebugCaptureContext? debugContext, OcrOptions options)
     {
         var profile = windowResolutionProvider.CurrentResolutionProfile;
+        var adaptiveParams = GetAdaptiveParams(profile);
         var rowTextHeight = profile?.RowTextHeight ?? options.RowTextHeight;
         var rowGapHeight = profile?.RowGapHeight ?? options.RowGapHeight;
         var rowLateOffsetStartRow = profile?.RowLateOffsetStartRow ?? int.MaxValue;
         var rowLateOffsetStepRows = profile?.RowLateOffsetStepRows ?? 1;
         var rowLateOffsetStepPx = profile?.RowLateOffsetStepPx ?? 0;
+        var adaptiveShiftStartRows = ComputeAdaptiveShiftStartRows(
+            bitmap,
+            options,
+            rowTextHeight,
+            rowGapHeight,
+            rowLateOffsetStartRow,
+            rowLateOffsetStepRows,
+            rowLateOffsetStepPx,
+            adaptiveParams.ProbeWidthPx,
+            adaptiveParams.StepPx,
+            adaptiveParams.MaxPx,
+            adaptiveParams.ProbeMinDarkPixels);
+        _adaptiveRowShiftState.Update(adaptiveShiftStartRows, adaptiveParams.StepPx, adaptiveShiftStartRows.Count > 0);
 
         var rowRects = OcrRowLayout.BuildRowRectangles(
             bitmap.Width,
@@ -190,7 +219,9 @@ public sealed class OcrLeagueWindowReader(
             rowGapHeight,
             rowLateOffsetStartRow,
             rowLateOffsetStepRows,
-            rowLateOffsetStepPx);
+            rowLateOffsetStepPx,
+            adaptiveShiftStartRows,
+            adaptiveParams.StepPx);
         if (rowRects.Count == 1)
         {
             using var cleaned = PrepareRowBitmapForOcr(bitmap, options);
@@ -945,6 +976,117 @@ public sealed class OcrLeagueWindowReader(
         }
 
         return spread <= options.TextColorMaxChannelSpread;
+    }
+
+    private static HashSet<int> ComputeAdaptiveShiftStartRows(
+        Bitmap bitmap,
+        OcrOptions options,
+        int rowTextHeight,
+        int rowGapHeight,
+        int rowLateOffsetStartRow,
+        int rowLateOffsetStepRows,
+        int rowLateOffsetStepPx,
+        int probeWidthPx,
+        int stepPx,
+        int maxPx,
+        int probeMinDarkPixels)
+    {
+        if (!options.UseFixedRowGeometry || bitmap.Width <= 0 || bitmap.Height <= 0)
+        {
+            return [];
+        }
+
+        var shifts = new HashSet<int>();
+        var rgb = ReadRgbPixels(bitmap);
+        var cumulativeShift = 0;
+        var rowCount = Math.Max(1, options.OcrRowCount);
+        var probeWidth = Math.Min(Math.Max(1, probeWidthPx), bitmap.Width);
+
+        for (var rowIndex = 0; rowIndex < rowCount; rowIndex++)
+        {
+            var rowNumber = rowIndex + 1;
+            var y = options.RowStartOffsetY + (rowIndex * (rowTextHeight + rowGapHeight));
+
+            if (rowLateOffsetStepPx > 0 && rowNumber >= rowLateOffsetStartRow)
+            {
+                var stepIndex = ((rowNumber - rowLateOffsetStartRow) / Math.Max(1, rowLateOffsetStepRows)) + 1;
+                y += stepIndex * rowLateOffsetStepPx;
+            }
+
+            y += cumulativeShift;
+            if (y >= bitmap.Height)
+            {
+                break;
+            }
+
+            var probeHeight = Math.Min(Math.Max(1, rowTextHeight), bitmap.Height - y);
+            if (probeHeight <= 0)
+            {
+                break;
+            }
+
+            if (cumulativeShift < maxPx &&
+                HasDarkTextSignal(rgb, bitmap.Width, y, probeWidth, probeHeight, options, probeMinDarkPixels))
+            {
+                shifts.Add(rowNumber);
+                cumulativeShift = Math.Min(maxPx, cumulativeShift + stepPx);
+            }
+        }
+
+        return shifts;
+    }
+
+    private static bool HasDarkTextSignal(
+        byte[] rgbPixels,
+        int bitmapWidth,
+        int y,
+        int probeWidth,
+        int probeHeight,
+        OcrOptions options,
+        int probeMinDarkPixels)
+    {
+        var darkPixels = 0;
+        var maxLuminance = Math.Min(180, options.TextColorMaxLuminance + 35);
+        var maxSpread = Math.Max(options.TextColorMaxChannelSpread, 48);
+
+        for (var py = 0; py < probeHeight; py++)
+        {
+            var rowOffset = (y + py) * bitmapWidth;
+            for (var px = 0; px < probeWidth; px++)
+            {
+                var pixelIndex = rowOffset + px;
+                var rgbIndex = pixelIndex * 3;
+                var r = rgbPixels[rgbIndex];
+                var g = rgbPixels[rgbIndex + 1];
+                var b = rgbPixels[rgbIndex + 2];
+
+                var max = Math.Max(r, Math.Max(g, b));
+                var min = Math.Min(r, Math.Min(g, b));
+                var spread = max - min;
+                var luminance = ((299 * r) + (587 * g) + (114 * b)) / 1000;
+
+                if (luminance <= maxLuminance && spread <= maxSpread)
+                {
+                    darkPixels++;
+                    if (darkPixels >= Math.Max(1, probeMinDarkPixels))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static (int ProbeWidthPx, int StepPx, int MaxPx, int ProbeMinDarkPixels) GetAdaptiveParams(OcrResolutionProfile? profile)
+    {
+        var probeWidthPx = profile?.AdaptiveShiftProbeWidthPx ?? DefaultAdaptiveShiftProbeWidthPx;
+        var stepPx = profile?.AdaptiveShiftStepPx ?? DefaultAdaptiveShiftStepPx;
+        var maxPx = profile?.AdaptiveShiftMaxPx ?? DefaultAdaptiveShiftMaxPx;
+        var probeMinDarkPixels = profile?.AdaptiveShiftProbeMinDarkPixels ?? DefaultAdaptiveShiftProbeMinDarkPixels;
+
+        return (Math.Max(1, probeWidthPx), Math.Max(1, stepPx), Math.Max(stepPx, maxPx), Math.Max(1, probeMinDarkPixels));
     }
 
     private static int GetLocalMean(int[] integral, int width, int height, int x, int y, int radius)

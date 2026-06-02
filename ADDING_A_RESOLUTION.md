@@ -1,56 +1,80 @@
 # Adding a New OCR Resolution Profile
 
-This guide explains how to add support for a new Path of Exile 2 client resolution.
+This guide explains how to add support for a new resolution.
 
-## Before You Start
+## 1) Prepare
 
-1. Run PoE2 in borderless windowed mode.
-2. Set `App:EnableDebugLogging` and `OCR:ShowCaptureBoundsOverlay` to `true` in `src/appsettings.json` while tuning.
+1. Run Path of Exile 2 in borderless windowed mode.
+2. In `src/appsettings.json`, set these to `true` while tuning:
+	- `App:EnableDebugLogging`
+	- `OCR:ShowCaptureBoundsOverlay`
+3. Start the app once and note the unsupported resolution key from the popup (example: `2560x1440`).
 
-## Step-by-Step
+## 2) Add the New Profile
 
-1. Find your PoE2 client resolution.
-2. Run the app and wait for the unsupported-resolution popup.
-3. Note the exact resolution key shown in the popup (example: `2560x1440`).
-4. Open `src/OCR/OcrResolutionProfiles.cs`.
-5. Duplicate the `1920x1080` profile entry.
-6. Replace the key and first two numbers with your resolution.
-7. Keep the existing capture and row values first, then fine-tune:
+1. Open `src/OCR/OcrResolutionProfiles.cs`.
+2. Copy the `1920x1080` line and paste it below.
+3. Change only the key and first two numbers to your resolution.
+
+Example:
 
 ```csharp
-["2560x1440"] = new(2560, 1440, 255, 160, 285, 537, 23, 24, 8, 2, 2)
+["2560x1440"] = new(2560, 1440, 255, 160, 285, 537, 23, 24, 8, 2, 2, 40, 38, 160, 20)
 ```
-8. Restart the app.
-9. Check the red overlay box and row lines.
-10. If the box is too far left, increase `CaptureOffsetX`.
-11. If the box is too far right, decrease `CaptureOffsetX`.
-12. If the box is too high, increase `CaptureOffsetY`.
-13. If the box is too low, decrease `CaptureOffsetY`.
-14. If the box is too narrow, increase `CaptureWidth`.
-15. If the box is too wide, decrease `CaptureWidth`.
-16. If the box is too short, increase `CaptureHeight`.
-17. If the box is too tall, decrease `CaptureHeight`.
-18. Adjust base row tuning:
-19. Increase `RowTextHeight` if each row's text area is too short.
-20. Decrease `RowTextHeight` if each row overlaps into the next row.
-21. Increase `RowGapHeight` if row spacing is too tight.
-22. Decrease `RowGapHeight` if row spacing is too large.
-23. Adjust late-row correction only if lower rows drift/crop:
-24. Set `RowLateOffsetStartRow` to the first row number where drift starts.
-25. Set `RowLateOffsetStepRows` to how many rows share the same extra offset block.
-26. Set `RowLateOffsetStepPx` to pixels added per block.
-27. Repeat small edits until OCR logs stable item names and overlay lines align.
 
-### Late-Row Offset Rule
+4. Save and restart the app.
 
-For row number `r`:
+## 3) Tune the Red OCR Box First
 
-- If `r < RowLateOffsetStartRow`, extra pixel offset is `0`.
-- If `r >= RowLateOffsetStartRow`, extra pixel offset is:
+The red box must cover the item list area before row tuning will work.
 
-`(((r - RowLateOffsetStartRow) / RowLateOffsetStepRows) + 1) * RowLateOffsetStepPx`
+Here is an example of how the box looks on 1080p, its vital that you match it to look as close to this as you can, so that the tool functions correctly on your resolution:
 
-Example using `8, 2, 2`:
+![1080p OCR bounds example](https://i.vgy.me/3hhWcW.png)
+
+
+Use these rules:
+
+| If this is wrong | Change this value |
+|---|---|
+| Box too far left | Increase `CaptureOffsetX` |
+| Box too far right | Decrease `CaptureOffsetX` |
+| Box too high | Increase `CaptureOffsetY` |
+| Box too low | Decrease `CaptureOffsetY` |
+| Box too narrow | Increase `CaptureWidth` |
+| Box too wide | Decrease `CaptureWidth` |
+| Box too short | Increase `CaptureHeight` |
+| Box too tall | Decrease `CaptureHeight` |
+
+Adjust by small amounts (1 to 2 px), restart, and check again.
+
+## 4) Tune Row Height and Spacing
+
+After the red box is correct, tune row geometry:
+
+| Problem | Change |
+|---|---|
+| Text area is too short | Increase `RowTextHeight` |
+| Rows overlap into each other | Decrease `RowTextHeight` |
+| Rows are packed too tightly | Increase `RowGapHeight` |
+| Rows are too far apart | Decrease `RowGapHeight` |
+
+## 5) Tune Late-Row Drift (Only If Needed)
+
+Use this only when lower rows drift or get cut off.
+
+- `RowLateOffsetStartRow`: first row where drift starts.
+- `RowLateOffsetStepRows`: how many rows share the same extra offset block.
+- `RowLateOffsetStepPx`: pixels added per block.
+
+Rule:
+
+- If row `< RowLateOffsetStartRow`, extra offset is `0`.
+- Otherwise:
+
+`(((row - RowLateOffsetStartRow) / RowLateOffsetStepRows) + 1) * RowLateOffsetStepPx`
+
+Example with `8, 2, 2`:
 
 - Row 7: `+0`
 - Row 8: `+2`
@@ -58,22 +82,36 @@ Example using `8, 2, 2`:
 - Row 10: `+4`
 - Row 11: `+4`
 
-## Quick Defaults
+## 6) Tune Adaptive Push-Down (Only If Needed)
 
-1. Start with `RowTextHeight=23` and `RowGapHeight=24`.
-2. Start late-row correction disabled with `RowLateOffsetStepPx=0`.
-3. Enable late-row correction only if lower rows are cut off.
-4. Change by 1-2 pixels at a time.
-5. Restart after each edit and re-check overlay/OCR logs.
+Use this only when extra top rows appear and push everything down dynamically.
 
-## Validation Checklist
+- `AdaptiveShiftProbeWidthPx`: width of the left probe strip.
+- `AdaptiveShiftStepPx`: shift added per detected overflow event.
+- `AdaptiveShiftMaxPx`: max total adaptive shift.
+- `AdaptiveShiftProbeMinDarkPixels`: sensitivity threshold.
+
+How it works:
+
+1. OCR checks a small left strip for dark text-like pixels.
+2. If enough dark pixels are found, that row triggers a push-down event.
+3. Each event shifts that row and rows below by `AdaptiveShiftStepPx`.
+4. Total shift is capped by `AdaptiveShiftMaxPx`.
+5. Overlay and OCR use the same row positioning and backend code.
+
+Current 1080p reference values:
+
+- `AdaptiveShiftProbeWidthPx = 40`
+- `AdaptiveShiftStepPx = 38`
+- `AdaptiveShiftMaxPx = 160`
+- `AdaptiveShiftProbeMinDarkPixels = 20`
+
+## 7) Final Checklist
 
 1. No unsupported-resolution popup appears for your resolution.
 2. Red capture box fully covers the in-game item list text area.
-3. Red row lines align with each visible item row. Areas with black lines indicate areas that are not scanned.
-4. Lower rows (where drift usually happens) still align and are not cropped.
-5. Debug logs show consistent OCR item detection.
-6. Overlay prices align next to the same rows.
+3. Red row lines match visible item rows.
+4. Lower rows stay aligned and are not cropped.
+5. OCR logs show stable item names.
+6. Overlay prices align with the same rows.
 
-Here is an example of how the box and prices should look:
-![1080p OCR bounds example](https://i.vgy.me/3hhWcW.png)

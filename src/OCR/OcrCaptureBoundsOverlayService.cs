@@ -9,6 +9,7 @@ namespace RuneshapePriceChecker.OCR;
 
 public sealed class OcrCaptureBoundsOverlayService(
     IPoe2WindowResolutionProvider windowResolutionProvider,
+    IAdaptiveRowShiftState adaptiveRowShiftState,
     IOptionsMonitor<OcrOptions> options,
     ILogger<OcrCaptureBoundsOverlayService> logger) : BackgroundService
 {
@@ -81,6 +82,7 @@ public sealed class OcrCaptureBoundsOverlayService(
         var rowLateOffsetStartRow = profile?.RowLateOffsetStartRow ?? int.MaxValue;
         var rowLateOffsetStepRows = profile?.RowLateOffsetStepRows ?? 1;
         var rowLateOffsetStepPx = profile?.RowLateOffsetStepPx ?? 0;
+        var adaptiveSnapshot = adaptiveRowShiftState.GetSnapshot();
         var rowCount = Math.Max(1, options.OcrRowCount);
         var rows = OcrRowLayout.BuildRowRectangles(
             frame.Width,
@@ -92,7 +94,9 @@ public sealed class OcrCaptureBoundsOverlayService(
             rowGapHeight,
             rowLateOffsetStartRow,
             rowLateOffsetStepRows,
-            rowLateOffsetStepPx);
+            rowLateOffsetStepPx,
+            adaptiveSnapshot.ShiftStartRows,
+            adaptiveSnapshot.IsActive ? adaptiveSnapshot.ShiftPx : 0);
 
         if (rows.Count < rowCount)
         {
@@ -120,7 +124,9 @@ public sealed class OcrCaptureBoundsOverlayService(
             rowGapHeight,
             rowLateOffsetStartRow,
             rowLateOffsetStepRows,
-            rowLateOffsetStepPx);
+            rowLateOffsetStepPx,
+            adaptiveSnapshot.ShiftStartRows,
+            adaptiveSnapshot.IsActive ? adaptiveSnapshot.ShiftPx : 0);
     }
 
     private void EnsureOverlayThreadStarted()
@@ -182,6 +188,8 @@ public sealed class OcrCaptureBoundsOverlayService(
         private int _rowLateOffsetStartRow = int.MaxValue;
         private int _rowLateOffsetStepRows = 1;
         private int _rowLateOffsetStepPx;
+        private int[] _adaptiveShiftRows = [];
+        private int _adaptiveShiftPx;
 
         public BoundsOverlayForm()
         {
@@ -227,7 +235,9 @@ public sealed class OcrCaptureBoundsOverlayService(
                 _rowGapHeight,
                 _rowLateOffsetStartRow,
                 _rowLateOffsetStepRows,
-                _rowLateOffsetStepPx);
+                _rowLateOffsetStepPx,
+                _adaptiveShiftRows,
+                _adaptiveShiftPx);
 
             var cursorY = 0;
             foreach (var row in rows)
@@ -280,7 +290,9 @@ public sealed class OcrCaptureBoundsOverlayService(
             int rowGapHeight,
             int rowLateOffsetStartRow,
             int rowLateOffsetStepRows,
-            int rowLateOffsetStepPx)
+            int rowLateOffsetStepPx,
+            IReadOnlyCollection<int> adaptiveShiftRows,
+            int adaptiveShiftPx)
         {
             if (IsDisposed)
             {
@@ -290,7 +302,7 @@ public sealed class OcrCaptureBoundsOverlayService(
             if (InvokeRequired)
             {
                 BeginInvoke(
-                    new Action<Rectangle, int, bool, int, int, int, int, int, int>(SafeShowFrame),
+                    new Action<Rectangle, int, bool, int, int, int, int, int, int, IReadOnlyCollection<int>, int>(SafeShowFrame),
                     frame,
                     rowCount,
                     useFixedRowGeometry,
@@ -299,7 +311,9 @@ public sealed class OcrCaptureBoundsOverlayService(
                     rowGapHeight,
                     rowLateOffsetStartRow,
                     rowLateOffsetStepRows,
-                    rowLateOffsetStepPx);
+                    rowLateOffsetStepPx,
+                    adaptiveShiftRows,
+                    adaptiveShiftPx);
                 return;
             }
 
@@ -310,6 +324,12 @@ public sealed class OcrCaptureBoundsOverlayService(
             var clampedLateOffsetStartRow = Math.Max(1, rowLateOffsetStartRow);
             var clampedLateOffsetStepRows = Math.Max(1, rowLateOffsetStepRows);
             var clampedLateOffsetStepPx = Math.Max(0, rowLateOffsetStepPx);
+            var clampedAdaptiveShiftPx = Math.Max(0, adaptiveShiftPx);
+            var clampedAdaptiveShiftRows = adaptiveShiftRows?
+                .Where(row => row > 0)
+                .Distinct()
+                .OrderBy(row => row)
+                .ToArray() ?? [];
 
             if (_frame != frame ||
                 _rowCount != clampedRowCount ||
@@ -319,7 +339,9 @@ public sealed class OcrCaptureBoundsOverlayService(
                 _rowGapHeight != clampedRowGap ||
                 _rowLateOffsetStartRow != clampedLateOffsetStartRow ||
                 _rowLateOffsetStepRows != clampedLateOffsetStepRows ||
-                _rowLateOffsetStepPx != clampedLateOffsetStepPx)
+                _rowLateOffsetStepPx != clampedLateOffsetStepPx ||
+                _adaptiveShiftPx != clampedAdaptiveShiftPx ||
+                !_adaptiveShiftRows.SequenceEqual(clampedAdaptiveShiftRows))
             {
                 _frame = frame;
                 _rowCount = clampedRowCount;
@@ -330,6 +352,8 @@ public sealed class OcrCaptureBoundsOverlayService(
                 _rowLateOffsetStartRow = clampedLateOffsetStartRow;
                 _rowLateOffsetStepRows = clampedLateOffsetStepRows;
                 _rowLateOffsetStepPx = clampedLateOffsetStepPx;
+                _adaptiveShiftPx = clampedAdaptiveShiftPx;
+                _adaptiveShiftRows = clampedAdaptiveShiftRows;
                 Bounds = frame;
                 Invalidate();
             }
