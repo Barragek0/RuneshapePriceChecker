@@ -198,30 +198,12 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient) : IPric
             return true;
         }
 
-        if (!normalizedItemName.StartsWith("UNIQUE ", StringComparison.OrdinalIgnoreCase))
+        if (TryResolveCombinedJewelleryRange(normalizedItemName, out range))
         {
-            return false;
+            return true;
         }
 
-        var categoryTail = normalizedItemName["UNIQUE ".Length..].Trim();
-        if (string.IsNullOrWhiteSpace(categoryTail))
-        {
-            return false;
-        }
-
-        var singularTail = categoryTail.EndsWith("S", StringComparison.OrdinalIgnoreCase)
-            ? categoryTail[..^1]
-            : categoryTail;
-
-        var candidates = new[]
-        {
-            $"UNIQUE {categoryTail}",
-            $"UNIQUE {singularTail}",
-            $"UNIQUE {categoryTail.Replace("ARMOR", "ARMOUR", StringComparison.OrdinalIgnoreCase)}",
-            $"UNIQUE {categoryTail.Replace("ARMOUR", "ARMOR", StringComparison.OrdinalIgnoreCase)}"
-        };
-
-        foreach (var candidate in candidates)
+        foreach (var candidate in PricingTextRules.BuildUniqueCategoryLookupCandidates(normalizedItemName))
         {
             var normalizedCandidate = Normalize(candidate);
             if (_uniqueCategoryRanges.TryGetValue(normalizedCandidate, out range))
@@ -231,6 +213,46 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient) : IPric
         }
 
         return false;
+    }
+
+    private bool TryResolveCombinedJewelleryRange(string normalizedItemName, out (decimal MinChaos, decimal MaxChaos) range)
+    {
+        range = default;
+
+        if (!normalizedItemName.Equals("UNIQUE JEWELLERY", StringComparison.OrdinalIgnoreCase) &&
+            !normalizedItemName.Equals("UNIQUE JEWELRY", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        decimal? min = null;
+        decimal? max = null;
+
+        foreach (var pair in _uniqueCategoryRanges)
+        {
+            var key = pair.Key;
+            if (!key.StartsWith("UNIQUE ", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (!key.Contains("RING", StringComparison.OrdinalIgnoreCase) &&
+                !key.Contains("AMULET", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            min = min.HasValue ? Math.Min(min.Value, pair.Value.MinChaos) : pair.Value.MinChaos;
+            max = max.HasValue ? Math.Max(max.Value, pair.Value.MaxChaos) : pair.Value.MaxChaos;
+        }
+
+        if (!min.HasValue || !max.HasValue)
+        {
+            return false;
+        }
+
+        range = (min.Value, max.Value);
+        return true;
     }
 
     private string FormatAmount(decimal chaosValue)

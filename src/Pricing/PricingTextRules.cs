@@ -179,6 +179,44 @@ public static class PricingTextRules
         return false;
     }
 
+    public static IEnumerable<string> BuildUniqueCategoryLookupCandidates(string normalizedItemName)
+    {
+        if (string.IsNullOrWhiteSpace(normalizedItemName) ||
+            !normalizedItemName.StartsWith("UNIQUE ", StringComparison.OrdinalIgnoreCase))
+        {
+            yield break;
+        }
+
+        var categoryTail = normalizedItemName["UNIQUE ".Length..].Trim();
+        if (string.IsNullOrWhiteSpace(categoryTail))
+        {
+            yield break;
+        }
+
+        var singularTail = categoryTail.EndsWith("S", StringComparison.OrdinalIgnoreCase)
+            ? categoryTail[..^1]
+            : categoryTail;
+
+        var candidateSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            $"UNIQUE {categoryTail}",
+            $"UNIQUE {singularTail}",
+            $"UNIQUE {categoryTail.Replace("ARMOR", "ARMOUR", StringComparison.OrdinalIgnoreCase)}",
+            $"UNIQUE {categoryTail.Replace("ARMOUR", "ARMOR", StringComparison.OrdinalIgnoreCase)}"
+        };
+
+        AddAccessoryFamilyVariants(candidateSet, categoryTail);
+        AddAccessoryFamilyVariants(candidateSet, singularTail);
+
+        foreach (var candidate in candidateSet)
+        {
+            if (!string.IsNullOrWhiteSpace(candidate))
+            {
+                yield return candidate;
+            }
+        }
+    }
+
     public static string FormatAmount(decimal chaosValue, decimal divineOrbChaosValue)
     {
         var chaos = Math.Max(0m, chaosValue);
@@ -200,6 +238,33 @@ public static class PricingTextRules
     private static decimal TruncateToSingleDecimal(decimal value)
     {
         return Math.Truncate(value * 10m) / 10m;
+    }
+
+    private static void AddAccessoryFamilyVariants(HashSet<string> candidateSet, string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        var toAccessoriesPlural = value
+            .Replace("JEWELLERY", "ACCESSORIES", StringComparison.OrdinalIgnoreCase)
+            .Replace("JEWELRY", "ACCESSORIES", StringComparison.OrdinalIgnoreCase)
+            .Replace("RINGS", "ACCESSORIES", StringComparison.OrdinalIgnoreCase)
+            .Replace("RING", "ACCESSORY", StringComparison.OrdinalIgnoreCase)
+            .Replace("AMULETS", "ACCESSORIES", StringComparison.OrdinalIgnoreCase)
+            .Replace("AMULET", "ACCESSORY", StringComparison.OrdinalIgnoreCase);
+
+        var toAccessoriesSingular = toAccessoriesPlural
+            .Replace("ACCESSORIES", "ACCESSORY", StringComparison.OrdinalIgnoreCase);
+
+        var toJewellery = value
+            .Replace("ACCESSORIES", "JEWELLERY", StringComparison.OrdinalIgnoreCase)
+            .Replace("ACCESSORY", "JEWELLERY", StringComparison.OrdinalIgnoreCase);
+
+        candidateSet.Add($"UNIQUE {toAccessoriesPlural}");
+        candidateSet.Add($"UNIQUE {toAccessoriesSingular}");
+        candidateSet.Add($"UNIQUE {toJewellery}");
     }
 }
 
