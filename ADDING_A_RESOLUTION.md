@@ -5,8 +5,7 @@ This guide explains how to add support for a new Path of Exile 2 client resoluti
 ## Before You Start
 
 1. Run PoE2 in borderless windowed mode.
-2. Keep `App:EnableDebugLogging` set to `true` in `src/appsettings.json` while tuning.
-3. In `src/OCR/OcrOptions.cs`, set `ShowCaptureBoundsOverlay` to `true` while tuning.
+2. Set `App:EnableDebugLogging` and `OCR:ShowCaptureBoundsOverlay` to `true` in `src/appsettings.json` while tuning.
 
 ## Step-by-Step
 
@@ -46,8 +45,8 @@ This guide explains how to add support for a new Path of Exile 2 client resoluti
 
 For row number `r`:
 
-- If `r < RowLateOffsetStartRow`, extra offset is `0`.
-- If `r >= RowLateOffsetStartRow`, extra offset is:
+- If `r < RowLateOffsetStartRow`, extra pixel offset is `0`.
+- If `r >= RowLateOffsetStartRow`, extra pixel offset is:
 
 `(((r - RowLateOffsetStartRow) / RowLateOffsetStepRows) + 1) * RowLateOffsetStepPx`
 
