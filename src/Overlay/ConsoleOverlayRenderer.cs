@@ -101,7 +101,9 @@ public sealed class ConsoleOverlayRenderer(
 
     private static IReadOnlyList<OverlayTextSegment> BuildTextSegments(PriceQuote quote, PricingCacheOptions pricing)
     {
-        var fallbackColor = GetPriceColor(quote.RepresentativeChaosValue, pricing);
+        var fallbackColor = TryParseDisplayedChaosEquivalent(quote.Label, pricing, out var parsedDisplayValue)
+            ? GetPriceColor(parsedDisplayValue, pricing)
+            : GetPriceColor(quote.RepresentativeChaosValue, pricing);
 
         if (!quote.IsRange)
         {
@@ -173,9 +175,33 @@ public sealed class ConsoleOverlayRenderer(
         }
 
         var trimmed = formattedAmount.Trim();
+
+        if (trimmed.EndsWith("ex", StringComparison.OrdinalIgnoreCase))
+        {
+            var valueText = trimmed[..^2].Trim();
+            if (valueText.StartsWith('<'))
+            {
+                valueText = valueText[1..];
+            }
+
+            if (decimal.TryParse(valueText, NumberStyles.Float, CultureInfo.InvariantCulture, out var exaltValue))
+            {
+                // In exalt display mode, thresholds are tuned for the displayed unit value.
+                chaosEquivalent = Math.Max(0m, exaltValue);
+                return true;
+            }
+
+            return false;
+        }
+
         if (trimmed.EndsWith("c", StringComparison.OrdinalIgnoreCase))
         {
-            var valueText = trimmed[..^1];
+            var valueText = trimmed[..^1].Trim();
+            if (valueText.StartsWith('<'))
+            {
+                valueText = valueText[1..];
+            }
+
             if (decimal.TryParse(valueText, NumberStyles.Float, CultureInfo.InvariantCulture, out var chaosValue))
             {
                 chaosEquivalent = Math.Max(0m, chaosValue);
@@ -187,7 +213,12 @@ public sealed class ConsoleOverlayRenderer(
 
         if (trimmed.EndsWith("d", StringComparison.OrdinalIgnoreCase))
         {
-            var valueText = trimmed[..^1];
+            var valueText = trimmed[..^1].Trim();
+            if (valueText.StartsWith('<'))
+            {
+                valueText = valueText[1..];
+            }
+
             if (decimal.TryParse(valueText, NumberStyles.Float, CultureInfo.InvariantCulture, out var divineValue))
             {
                 // Any divine-denominated price should be at or above the green threshold.
