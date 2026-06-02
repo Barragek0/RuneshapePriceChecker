@@ -28,7 +28,6 @@ public sealed class OcrLeagueWindowReader(
     private static readonly Regex NonNameChars = new("[^-A-Za-z0-9'’ ]+", RegexOptions.Compiled);
     private static readonly Regex QuantityPrefixToken = new("^(?<quantity>[A-Za-z0-9|]{1,2})\\s*[xX]\\b", RegexOptions.Compiled);
     private static readonly Regex LeadingQuantityDigits = new("(?<quantity>\\d{1,2})\\s*[xX]?", RegexOptions.Compiled);
-    private static readonly Regex QuantityPrefixGuard = new("^\\s*(?:\\d{1,2}\\s*[xX]|[xX])", RegexOptions.Compiled);
     private static readonly Regex LeadingGuardNumberToken = new("^\\s*(?<num>\\d{1,2})(?:\\D.*)?$", RegexOptions.Compiled);
     private const int DefaultAdaptiveShiftProbeWidthPx = 26;
     private const int DefaultAdaptiveShiftStepPx = 35;
@@ -1390,11 +1389,7 @@ public sealed class OcrLeagueWindowReader(
                 prefixProbe.RawRetryStartsWithPrefix));
         }
 
-        var disabledByQuantityPrefixGuard = suppressedByQuantityPrefix.Count > 0;
-        if (disabledByQuantityPrefixGuard && shifts.Count > 0)
-        {
-            shifts.Clear();
-        }
+        var disabledByQuantityPrefixGuard = suppressedByQuantityPrefix.Count > 0 && shifts.Count == 0;
 
         return new AdaptiveShiftComputationResult(
             shifts,
@@ -1496,8 +1491,6 @@ public sealed class OcrLeagueWindowReader(
         int probeMinDarkPixels)
     {
         var darkPixels = 0;
-        var maxLuminance = Math.Min(180, options.TextColorMaxLuminance + 35);
-        var maxSpread = Math.Max(options.TextColorMaxChannelSpread, 48);
 
         for (var py = 0; py < probeHeight; py++)
         {
@@ -1505,17 +1498,7 @@ public sealed class OcrLeagueWindowReader(
             for (var px = 0; px < probeWidth; px++)
             {
                 var pixelIndex = rowOffset + px;
-                var rgbIndex = pixelIndex * 3;
-                var r = rgbPixels[rgbIndex];
-                var g = rgbPixels[rgbIndex + 1];
-                var b = rgbPixels[rgbIndex + 2];
-
-                var max = Math.Max(r, Math.Max(g, b));
-                var min = Math.Min(r, Math.Min(g, b));
-                var spread = max - min;
-                var luminance = ((299 * r) + (587 * g) + (114 * b)) / 1000;
-
-                if (luminance <= maxLuminance && spread <= maxSpread)
+                if (IsLikelyTextColor(rgbPixels, pixelIndex, options))
                 {
                     darkPixels++;
                     if (darkPixels >= Math.Max(1, probeMinDarkPixels))
@@ -1537,12 +1520,12 @@ public sealed class OcrLeagueWindowReader(
             return false;
         }
 
-        if (QuantityPrefixGuard.IsMatch(trimmed))
+        if (trimmed[0] is 'x' or 'X')
         {
             return true;
         }
 
-        // OCR sometimes drops the trailing x in narrow guard probes; accept clean leading 1..10.
+        // OCR sometimes drops the trailing x in narrow guard probes; accept only clean leading 1..10.
         var numberMatch = LeadingGuardNumberToken.Match(trimmed);
         if (!numberMatch.Success)
         {
