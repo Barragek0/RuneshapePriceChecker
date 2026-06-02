@@ -30,38 +30,161 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient, IOption
     public PriceQuote? TryGetPriceQuote(string itemName, int quantity)
     {
         var clampedQuantity = Math.Max(1, quantity);
-        foreach (var key in BuildLookupCandidates(itemName))
+        var keys = BuildLookupCandidates(itemName).ToArray();
+        foreach (var key in keys)
         {
-            if (_exactPrices.TryGetValue(key, out var exactChaosValue))
+            var quote = TryGetPriceQuoteForKey(key, clampedQuantity);
+            if (quote is not null)
             {
-                var totalChaosValue = exactChaosValue * clampedQuantity;
-                return new PriceQuote(FormatAmount(totalChaosValue), totalChaosValue, false);
+                return quote;
             }
+        }
 
-            if (_fallbackPrices.TryGetValue(key, out var fallbackChaosValue))
+        if (TryResolveSingleLetterOffCandidate(keys, out var correctedKey))
+        {
+            var correctedQuote = TryGetPriceQuoteForKey(correctedKey, clampedQuantity);
+            if (correctedQuote is not null)
             {
-                var totalChaosValue = fallbackChaosValue * clampedQuantity;
-                return new PriceQuote(FormatAmount(totalChaosValue), totalChaosValue, false);
-            }
-
-            if (TryResolveUniqueCategoryRange(key, out var range))
-            {
-                var minTotal = range.MinChaos * clampedQuantity;
-                var maxTotal = range.MaxChaos * clampedQuantity;
-                var label = $"{FormatAmount(minTotal)} - {FormatAmount(maxTotal)}";
-                return new PriceQuote(label, maxTotal, true);
-            }
-
-            if (TryResolveUncutGemRange(key, out var gemRange))
-            {
-                var minTotal = gemRange.MinChaos * clampedQuantity;
-                var maxTotal = gemRange.MaxChaos * clampedQuantity;
-                var label = $"{FormatAmount(minTotal)} - {FormatAmount(maxTotal)}";
-                return new PriceQuote(label, maxTotal, true);
+                return correctedQuote with
+                {
+                    MatchDetail = $"Very close match triggered: {correctedKey}={correctedQuote.Label}"
+                };
             }
         }
 
         return null;
+    }
+
+    private PriceQuote? TryGetPriceQuoteForKey(string key, int quantity)
+    {
+        if (_exactPrices.TryGetValue(key, out var exactChaosValue))
+        {
+            var totalChaosValue = exactChaosValue * quantity;
+            return new PriceQuote(FormatAmount(totalChaosValue), totalChaosValue, false);
+        }
+
+        if (_fallbackPrices.TryGetValue(key, out var fallbackChaosValue))
+        {
+            var totalChaosValue = fallbackChaosValue * quantity;
+            return new PriceQuote(FormatAmount(totalChaosValue), totalChaosValue, false);
+        }
+
+        if (TryResolveUniqueCategoryRange(key, out var range))
+        {
+            var minTotal = range.MinChaos * quantity;
+            var maxTotal = range.MaxChaos * quantity;
+            var label = $"{FormatAmount(minTotal)} - {FormatAmount(maxTotal)}";
+            return new PriceQuote(label, maxTotal, true);
+        }
+
+        if (TryResolveUncutGemRange(key, out var gemRange))
+        {
+            var minTotal = gemRange.MinChaos * quantity;
+            var maxTotal = gemRange.MaxChaos * quantity;
+            var label = $"{FormatAmount(minTotal)} - {FormatAmount(maxTotal)}";
+            return new PriceQuote(label, maxTotal, true);
+        }
+
+        return null;
+    }
+
+    private bool TryResolveSingleLetterOffCandidate(IReadOnlyList<string> keys, out string correctedKey)
+    {
+        correctedKey = string.Empty;
+        var matchCount = 0;
+
+        foreach (var key in keys)
+        {
+            if (key.Length < 7)
+            {
+                continue;
+            }
+
+            foreach (var known in EnumerateKnownLookupKeys())
+            {
+                if (!IsSingleSubstitutionAway(key, known))
+                {
+                    continue;
+                }
+
+                correctedKey = known;
+                matchCount++;
+                if (matchCount > 1)
+                {
+                    correctedKey = string.Empty;
+                    return false;
+                }
+            }
+        }
+
+        return matchCount == 1;
+    }
+
+    private IEnumerable<string> EnumerateKnownLookupKeys()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var key in _exactPrices.Keys)
+        {
+            if (seen.Add(key))
+            {
+                yield return key;
+            }
+        }
+
+        foreach (var key in _fallbackPrices.Keys)
+        {
+            if (seen.Add(key))
+            {
+                yield return key;
+            }
+        }
+
+        foreach (var key in _uniqueCategoryRanges.Keys)
+        {
+            if (seen.Add(key))
+            {
+                yield return key;
+            }
+        }
+
+        foreach (var key in _uncutGemRanges.Keys)
+        {
+            if (seen.Add(key))
+            {
+                yield return key;
+            }
+        }
+    }
+
+    private static bool IsSingleSubstitutionAway(string source, string candidate)
+    {
+        if (string.IsNullOrWhiteSpace(source) || string.IsNullOrWhiteSpace(candidate))
+        {
+            return false;
+        }
+
+        if (source.Length != candidate.Length)
+        {
+            return false;
+        }
+
+        var differences = 0;
+        for (var i = 0; i < source.Length; i++)
+        {
+            if (source[i] == candidate[i])
+            {
+                continue;
+            }
+
+            differences++;
+            if (differences > 1)
+            {
+                return false;
+            }
+        }
+
+        return differences == 1;
     }
 
     private static IEnumerable<string> BuildLookupCandidates(string itemName)

@@ -122,7 +122,10 @@ public sealed class LeaguePricingWorker(
         {
             var quote = prices.TryGetValue(itemName, out var currentQuote) ? currentQuote : null;
             var display = quote is null ? "n/a" : quote.Label;
-            return $"{itemName}={display}";
+            var matchDetail = string.IsNullOrWhiteSpace(quote?.MatchDetail)
+                ? string.Empty
+                : $" ({quote.MatchDetail})";
+            return $"{itemName}={display}{matchDetail}";
         });
 
         logger.LogInformation("Detected {Count} items with prices: {Entries}", snapshot.ItemNames.Count, string.Join(" | ", entries));
