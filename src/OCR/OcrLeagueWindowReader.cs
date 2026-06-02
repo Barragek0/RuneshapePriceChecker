@@ -26,10 +26,13 @@ public sealed class OcrLeagueWindowReader(
     private readonly IAdaptiveRowShiftState _adaptiveRowShiftState = adaptiveRowShiftState;
     private static readonly Regex MultiWhitespace = new("\\s+", RegexOptions.Compiled);
     private static readonly Regex NonNameChars = new("[^-A-Za-z0-9'’ ]+", RegexOptions.Compiled);
+    private static readonly Regex QuantityPrefixToken = new("^(?<quantity>[A-Za-z0-9|]{1,2})\\s*[xX]\\b", RegexOptions.Compiled);
+    private static readonly Regex LeadingQuantityDigits = new("(?<quantity>\\d{1,2})\\s*[xX]?", RegexOptions.Compiled);
     private const int DefaultAdaptiveShiftProbeWidthPx = 40;
     private const int DefaultAdaptiveShiftStepPx = 40;
     private const int DefaultAdaptiveShiftMaxPx = 160;
     private const int DefaultAdaptiveShiftProbeMinDarkPixels = 20;
+    private const int MaxParallelRowOcr = 4;
     private bool _tesseractUnavailable;
     private bool _windowCaptureUnavailableLogged;
     private bool _waitingForWindowContextLogged;
@@ -226,35 +229,58 @@ public sealed class OcrLeagueWindowReader(
         {
             using var cleaned = PrepareRowBitmapForOcr(bitmap, options);
             using var upscaled = UpscaleForOcr(cleaned, options.RowUpscaleFactor);
+            using var bordered = AddWhiteBorder(upscaled, 2);
             if (debugContext is not null)
             {
                 TrySaveRowDebugImage(debugContext, upscaled, 0, rowRects[0]);
             }
 
-            return ExecuteTesseractForBitmap(upscaled, options.PageSegmentationMode, options);
+            var rowText = ExecuteTesseractForBitmap(bordered, options.PageSegmentationMode, options).Trim();
+            rowText = TryRefineAmbiguousQuantityPrefix(rowText, upscaled, options);
+            return rowText;
         }
 
-        var rowTexts = new List<string>(rowRects.Count);
-
-        for (var rowIndex = 0; rowIndex < rowRects.Count; rowIndex++)
+        var rowBitmaps = new Bitmap[rowRects.Count];
+        try
         {
-            var rowRect = rowRects[rowIndex];
-            using var rowBitmap = bitmap.Clone(rowRect, PixelFormat.Format24bppRgb);
-            using var cleanedRow = PrepareRowBitmapForOcr(rowBitmap, options);
-            using var upscaledRow = UpscaleForOcr(cleanedRow, options.RowUpscaleFactor);
-            if (debugContext is not null)
+            for (var rowIndex = 0; rowIndex < rowRects.Count; rowIndex++)
             {
-                TrySaveRowDebugImage(debugContext, upscaledRow, rowIndex, rowRect);
+                rowBitmaps[rowIndex] = bitmap.Clone(rowRects[rowIndex], PixelFormat.Format24bppRgb);
             }
 
-            var rowText = ExecuteTesseractForBitmap(upscaledRow, options.RowPageSegmentationMode, options).Trim();
-            if (!string.IsNullOrWhiteSpace(rowText))
+            var rowTexts = new string[rowRects.Count];
+            var parallelism = Math.Clamp(Math.Min(Environment.ProcessorCount, MaxParallelRowOcr), 1, MaxParallelRowOcr);
+            Parallel.For(
+                0,
+                rowRects.Count,
+                new ParallelOptions { MaxDegreeOfParallelism = parallelism },
+                rowIndex =>
+                {
+                    using var rowBitmap = rowBitmaps[rowIndex];
+                    using var cleanedRow = PrepareRowBitmapForOcr(rowBitmap, options);
+                    using var upscaledRow = UpscaleForOcr(cleanedRow, options.RowUpscaleFactor);
+                    using var borderedRow = AddWhiteBorder(upscaledRow, 2);
+                    if (debugContext is not null)
+                    {
+                        TrySaveRowDebugImage(debugContext, upscaledRow, rowIndex, rowRects[rowIndex]);
+                    }
+
+                    var rowText = ExecuteTesseractForBitmap(borderedRow, options.RowPageSegmentationMode, options).Trim();
+                    rowText = TryRefineAmbiguousQuantityPrefix(rowText, upscaledRow, options);
+                    rowTexts[rowIndex] = rowText;
+                });
+
+            return string.Join(
+                Environment.NewLine,
+                rowTexts.Where(static text => !string.IsNullOrWhiteSpace(text)));
+        }
+        finally
+        {
+            for (var i = 0; i < rowBitmaps.Length; i++)
             {
-                rowTexts.Add(rowText);
+                rowBitmaps[i]?.Dispose();
             }
         }
-
-        return string.Join(Environment.NewLine, rowTexts);
     }
 
     private void TrySaveRowDebugImage(DebugCaptureContext context, Bitmap rowBitmap, int rowIndex, Rectangle rowRect)
@@ -278,7 +304,21 @@ public sealed class OcrLeagueWindowReader(
         try
         {
             bitmap.Save(filePath, ImageFormat.Png);
-            return ExecuteTesseract(filePath, psm, options);
+            return ExecuteTesseract(filePath, psm, options, null);
+        }
+        finally
+        {
+            TryDelete(filePath);
+        }
+    }
+
+    private string ExecuteTesseractForBitmap(Bitmap bitmap, int psm, OcrOptions options, IReadOnlyList<string>? extraConfigs)
+    {
+        var filePath = Path.Combine(Path.GetTempPath(), $"runeshapepricechecker-ocr-{Guid.NewGuid():N}.png");
+        try
+        {
+            bitmap.Save(filePath, ImageFormat.Png);
+            return ExecuteTesseract(filePath, psm, options, extraConfigs);
         }
         finally
         {
@@ -767,7 +807,7 @@ public sealed class OcrLeagueWindowReader(
         }
     }
 
-    private string ExecuteTesseract(string imagePath, int psm, OcrOptions options)
+    private string ExecuteTesseract(string imagePath, int psm, OcrOptions options, IReadOnlyList<string>? extraConfigs)
     {
         if (!IsExecutableAvailable(options.TesseractExePath))
         {
@@ -778,7 +818,7 @@ public sealed class OcrLeagueWindowReader(
         var startInfo = new ProcessStartInfo
         {
             FileName = options.TesseractExePath,
-            Arguments = BuildTesseractArguments(imagePath, options.Language, psm),
+            Arguments = BuildTesseractArguments(imagePath, options.Language, psm, extraConfigs),
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -874,7 +914,7 @@ public sealed class OcrLeagueWindowReader(
         return normalized.Trim(' ', '-', '\'', ',');
     }
 
-    private static string BuildTesseractArguments(string imagePath, string language, int psm)
+    private static string BuildTesseractArguments(string imagePath, string language, int psm, IReadOnlyList<string>? extraConfigs)
     {
         var args = new StringBuilder();
         args.Append('"').Append(imagePath).Append('"');
@@ -886,7 +926,146 @@ public sealed class OcrLeagueWindowReader(
         args.Append(" -c tessedit_do_invert=0");
         args.Append(" -c load_system_dawg=0");
         args.Append(" -c load_freq_dawg=0");
+        if (extraConfigs is not null)
+        {
+            foreach (var config in extraConfigs)
+            {
+                if (string.IsNullOrWhiteSpace(config))
+                {
+                    continue;
+                }
+
+                args.Append(" -c ").Append(config.Trim());
+            }
+        }
+
         return args.ToString();
+    }
+
+    private string TryRefineAmbiguousQuantityPrefix(string rowText, Bitmap upscaledRow, OcrOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(rowText))
+        {
+            return string.Empty;
+        }
+
+        var prefixMatch = QuantityPrefixToken.Match(rowText.Trim());
+        if (!prefixMatch.Success)
+        {
+            return rowText;
+        }
+
+        var rawToken = prefixMatch.Groups["quantity"].Value;
+        if (int.TryParse(rawToken, out var parsedNumeric) && parsedNumeric > 0)
+        {
+            return rowText;
+        }
+
+        if (!IsAmbiguousQuantityToken(rawToken))
+        {
+            return rowText;
+        }
+
+        using var quantityProbe = BuildQuantityProbeBitmap(upscaledRow);
+        using var borderedProbe = AddWhiteBorder(quantityProbe, 2);
+        var quantityOcr = ExecuteTesseractForBitmap(
+            borderedProbe,
+            8,
+            options,
+            ["tessedit_char_whitelist=0123456789xX", "classify_bln_numeric_mode=1"]);
+
+        var quantityMatch = LeadingQuantityDigits.Match(quantityOcr.Trim());
+        if (quantityMatch.Success &&
+            int.TryParse(quantityMatch.Groups["quantity"].Value, out var quantity) &&
+            quantity > 0)
+        {
+            var suffix = rowText[prefixMatch.Length..].TrimStart();
+            return string.IsNullOrWhiteSpace(suffix)
+                ? $"{quantity}x"
+                : $"{quantity}x {suffix}";
+        }
+
+        return rowText;
+    }
+
+    private static bool IsAmbiguousQuantityToken(string token)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return false;
+        }
+
+        var normalized = token.Trim().ToUpperInvariant();
+        return normalized is "A" or "I" or "L" or "T" or "|" or "O" or "0" or "B" or "S";
+    }
+
+    private static Bitmap BuildQuantityProbeBitmap(Bitmap source)
+    {
+        var width = source.Width;
+        var height = source.Height;
+        var rect = new Rectangle(0, 0, width, height);
+        var data = source.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+        try
+        {
+            var minX = width;
+            var minY = height;
+            var maxX = -1;
+            var maxY = -1;
+
+            var length = Math.Abs(data.Stride) * height;
+            var bytes = new byte[length];
+            Marshal.Copy(data.Scan0, bytes, 0, length);
+
+            for (var y = 0; y < height; y++)
+            {
+                var rowOffset = y * data.Stride;
+                for (var x = 0; x < width; x++)
+                {
+                    var luminance = bytes[rowOffset + (x * 3)];
+                    if (luminance > 128)
+                    {
+                        continue;
+                    }
+
+                    minX = Math.Min(minX, x);
+                    minY = Math.Min(minY, y);
+                    maxX = Math.Max(maxX, x);
+                    maxY = Math.Max(maxY, y);
+                }
+            }
+
+            if (maxX < minX || maxY < minY)
+            {
+                return (Bitmap)source.Clone();
+            }
+
+            var textWidth = maxX - minX + 1;
+            var probeWidth = Math.Clamp((textWidth / 3) + 8, 24, Math.Min(width - minX, 96));
+            var probeX = Math.Clamp(minX - 2, 0, Math.Max(0, width - probeWidth));
+            var probeY = Math.Clamp(minY - 2, 0, Math.Max(0, height - (maxY - minY + 5)));
+            var probeHeight = Math.Clamp((maxY - minY + 5), 10, height - probeY);
+            var probeRect = new Rectangle(probeX, probeY, probeWidth, probeHeight);
+            return source.Clone(probeRect, PixelFormat.Format24bppRgb);
+        }
+        finally
+        {
+            source.UnlockBits(data);
+        }
+    }
+
+    private static Bitmap AddWhiteBorder(Bitmap source, int borderPx)
+    {
+        var border = Math.Clamp(borderPx, 0, 8);
+        if (border == 0)
+        {
+            return (Bitmap)source.Clone();
+        }
+
+        var bordered = new Bitmap(source.Width + (border * 2), source.Height + (border * 2), PixelFormat.Format24bppRgb);
+        using var graphics = Graphics.FromImage(bordered);
+        graphics.Clear(Color.White);
+        graphics.DrawImage(source, border, border, source.Width, source.Height);
+        return bordered;
     }
 
     private static int[] BuildIntegralImage(byte[] grayscalePixels, int width, int height)

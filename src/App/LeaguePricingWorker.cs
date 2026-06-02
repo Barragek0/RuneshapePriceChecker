@@ -20,13 +20,40 @@ public sealed class LeaguePricingWorker(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        var latestSnapshot = new LeagueWindowSnapshot(Array.Empty<string>(), DateTimeOffset.UtcNow);
+        var hasCompletedSnapshot = false;
+        Task<LeagueWindowSnapshot>? inFlightSnapshotTask = null;
+
         while (!stoppingToken.IsCancellationRequested)
         {
             var loopStarted = Stopwatch.GetTimestamp();
 
             try
             {
-                var snapshot = reader.ReadSnapshot();
+                inFlightSnapshotTask ??= StartSnapshotReadTask(reader, stoppingToken);
+
+                if (inFlightSnapshotTask.IsCompleted)
+                {
+                    try
+                    {
+                        latestSnapshot = await inFlightSnapshotTask.ConfigureAwait(false);
+                        hasCompletedSnapshot = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "OCR snapshot read failed.");
+                    }
+
+                    if (!stoppingToken.IsCancellationRequested)
+                    {
+                        inFlightSnapshotTask = StartSnapshotReadTask(reader, stoppingToken);
+                    }
+                }
+
+                var snapshot = hasCompletedSnapshot
+                    ? latestSnapshot
+                    : new LeagueWindowSnapshot(Array.Empty<string>(), DateTimeOffset.UtcNow);
+
                 var prices = new Dictionary<string, PriceQuote?>(StringComparer.OrdinalIgnoreCase);
 
                 foreach (var itemName in snapshot.ItemNames)
@@ -63,6 +90,11 @@ public sealed class LeaguePricingWorker(
                 await Task.Delay(remainingDelay, stoppingToken).ConfigureAwait(false);
             }
         }
+    }
+
+    private static Task<LeagueWindowSnapshot> StartSnapshotReadTask(ILeagueWindowReader reader, CancellationToken stoppingToken)
+    {
+        return Task.Run(reader.ReadSnapshot, stoppingToken);
     }
 
     private static (string ItemName, int Quantity) ParseItemAndQuantity(string itemName)

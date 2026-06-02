@@ -105,7 +105,7 @@ public sealed class ConsoleOverlayRenderer(
 
         if (!quote.IsRange)
         {
-            return [new OverlayTextSegment(quote.Label, fallbackColor, IsDivineAmountText(quote.Label))];
+            return [new OverlayTextSegment(quote.Label, fallbackColor, GetDivineGlowStrength(quote.Label))];
         }
 
         // The separator must stay as " -", otherwise it looks weird sometimes
@@ -113,7 +113,7 @@ public sealed class ConsoleOverlayRenderer(
         var splitIndex = quote.Label.IndexOf(separator, StringComparison.Ordinal);
         if (splitIndex < 0)
         {
-            return [new OverlayTextSegment(quote.Label, fallbackColor, IsDivineAmountText(quote.Label))];
+            return [new OverlayTextSegment(quote.Label, fallbackColor, GetDivineGlowStrength(quote.Label))];
         }
 
         var leftText = quote.Label[..splitIndex];
@@ -129,27 +129,39 @@ public sealed class ConsoleOverlayRenderer(
 
         return
         [
-            new OverlayTextSegment(leftText, leftColor, IsDivineAmountText(leftText)),
-            new OverlayTextSegment(separator, Color.White, false),
-            new OverlayTextSegment(rightText, rightColor, IsDivineAmountText(rightText))
+            new OverlayTextSegment(leftText, leftColor, GetDivineGlowStrength(leftText)),
+            new OverlayTextSegment(separator, Color.White, 0f),
+            new OverlayTextSegment(rightText, rightColor, GetDivineGlowStrength(rightText))
         ];
     }
 
-    private static bool IsDivineAmountText(string text)
+    private static float GetDivineGlowStrength(string text)
     {
         if (string.IsNullOrWhiteSpace(text))
         {
-            return false;
+            return 0f;
         }
 
         var trimmed = text.Trim();
         if (!trimmed.EndsWith("d", StringComparison.OrdinalIgnoreCase))
         {
-            return false;
+            return 0f;
         }
 
         var numericPart = trimmed[..^1];
-        return decimal.TryParse(numericPart, NumberStyles.Float, CultureInfo.InvariantCulture, out _);
+        if (!decimal.TryParse(numericPart, NumberStyles.Float, CultureInfo.InvariantCulture, out var divineValue))
+        {
+            return 0f;
+        }
+
+        if (divineValue <= 0m)
+        {
+            return 0f;
+        }
+
+        var clamped = decimal.Min(100m, decimal.Max(1m, divineValue));
+        var normalized = (float)((clamped - 1m) / 99m);
+        return 0.62f + (normalized * 0.35f);
     }
 
     private static bool TryParseDisplayedChaosEquivalent(string formattedAmount, PricingCacheOptions pricing, out decimal chaosEquivalent)
@@ -277,7 +289,7 @@ public sealed class ConsoleOverlayRenderer(
         overlay?.SafeClose();
     }
 
-    private sealed record OverlayTextSegment(string Text, Color Color, bool Emphasize);
+    private sealed record OverlayTextSegment(string Text, Color Color, float GlowStrength);
     private sealed record OverlayRowEntry(int RowY, int RowHeight, IReadOnlyList<OverlayTextSegment> Segments);
 
     private sealed class PriceOverlayForm : Form
@@ -399,12 +411,12 @@ public sealed class ConsoleOverlayRenderer(
                 var x = 2f;
                 foreach (var segment in entry.Segments)
                 {
-                    x += DrawOutlinedText(e.Graphics, segment.Text, _font, segment.Color, segment.Emphasize, x, y);
+                    x += DrawOutlinedText(e.Graphics, segment.Text, _font, segment.Color, segment.GlowStrength, x, y);
                 }
             }
         }
 
-        private static float DrawOutlinedText(Graphics graphics, string text, Font font, Color fillColor, bool emphasize, float x, float y)
+        private static float DrawOutlinedText(Graphics graphics, string text, Font font, Color fillColor, float glowStrength, float x, float y)
         {
             if (string.IsNullOrEmpty(text))
             {
@@ -427,23 +439,32 @@ public sealed class ConsoleOverlayRenderer(
                 EndCap = LineCap.Round
             };
 
-            if (emphasize)
+            var glow = Math.Clamp(glowStrength, 0f, 1f);
+            if (glow > 0f)
             {
-                // Divine-denominated prices get a subtle neon halo without changing base style.
-                using var outerGlowPen = new Pen(Color.FromArgb(150, 110, 255, 210), 8.2f)
+                // Scale smoothly from visible (1d) to strong (100d+) without overwhelming text.
+                var outerAlpha = (int)Math.Round(110 + (70 * glow));
+                var innerAlpha = (int)Math.Round(130 + (80 * glow));
+                var coreAlpha = (int)Math.Round(150 + (80 * glow));
+
+                var outerWidth = 5.5f + (3.2f * glow);
+                var innerWidth = 3.5f + (2.2f * glow);
+                var coreWidth = 2.0f + (1.4f * glow);
+
+                using var outerGlowPen = new Pen(Color.FromArgb(outerAlpha, 196, 136, 28), outerWidth)
                 {
                     LineJoin = LineJoin.Round,
                     StartCap = LineCap.Round,
                     EndCap = LineCap.Round
                 };
-                using var innerGlowPen = new Pen(Color.FromArgb(190, 188, 255, 238), 5.4f)
+                using var innerGlowPen = new Pen(Color.FromArgb(innerAlpha, 235, 178, 52), innerWidth)
                 {
                     LineJoin = LineJoin.Round,
                     StartCap = LineCap.Round,
                     EndCap = LineCap.Round
                 };
 
-                using var coreGlowPen = new Pen(Color.FromArgb(220, 232, 255, 248), 3.2f)
+                using var coreGlowPen = new Pen(Color.FromArgb(coreAlpha, 255, 223, 120), coreWidth)
                 {
                     LineJoin = LineJoin.Round,
                     StartCap = LineCap.Round,

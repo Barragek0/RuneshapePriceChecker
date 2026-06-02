@@ -74,7 +74,7 @@ public sealed class OcrOptions
 
     public int LeaguePanelAnchorTargetB { get; set; } = 165;
 
-    public int LeaguePanelAnchorTolerance { get; set; } = 38;
+    public int LeaguePanelAnchorTolerance { get; set; } = 35;
 
     public int LeaguePanelAnchorMinLuminance { get; set; } = 160;
 
