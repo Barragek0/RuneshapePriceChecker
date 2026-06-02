@@ -13,6 +13,7 @@ public sealed class PoeNinjaClient(HttpClient httpClient, IOptionsMonitor<Pricin
     private readonly IOptionsMonitor<PricingCacheOptions> _options = options;
     private static readonly Regex NonAlphaNumeric = new("[^A-Za-z0-9]+", RegexOptions.Compiled);
     private const string DivineOrbKey = "DIVINE ORB";
+    private const string ExaltedOrbKey = "EXALTED ORB";
 
     public async Task<PoeNinjaPricingSnapshot> FetchCurrentPricesAsync(CancellationToken cancellationToken)
     {
@@ -102,7 +103,11 @@ public sealed class PoeNinjaClient(HttpClient httpClient, IOptionsMonitor<Pricin
             ? divineValue
             : 150m;
 
-        return new PoeNinjaPricingSnapshot(exactPrices, uniqueCategoryRanges, divineOrbChaosValue);
+        var exaltedOrbChaosValue = exactPrices.TryGetValue(ExaltedOrbKey, out var exaltedValue) && exaltedValue > 0m
+            ? exaltedValue
+            : 0m;
+
+        return new PoeNinjaPricingSnapshot(exactPrices, uniqueCategoryRanges, divineOrbChaosValue, exaltedOrbChaosValue);
     }
 
     private static string GetEndpointForType(string type, PricingCacheOptions options)

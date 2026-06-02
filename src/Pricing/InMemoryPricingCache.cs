@@ -1,20 +1,24 @@
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Options;
+using RuneshapePriceChecker.Configuration;
 using RuneshapePriceChecker.Contracts;
 
 namespace RuneshapePriceChecker.Pricing;
 
-public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient) : IPricingCache
+public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient, IOptionsMonitor<PricingCacheOptions> pricingOptions) : IPricingCache
 {
     private readonly ConcurrentDictionary<string, decimal> _exactPrices = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, decimal> _fallbackPrices = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, (decimal MinChaos, decimal MaxChaos)> _uniqueCategoryRanges = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, (decimal MinChaos, decimal MaxChaos)> _uncutGemRanges = new(StringComparer.OrdinalIgnoreCase);
     private decimal _divineOrbChaosValue = 150m;
+    private decimal _exaltedOrbChaosValue;
     private static readonly Regex NonAlphaNumeric = new("[^A-Za-z0-9]+", RegexOptions.Compiled);
     private static readonly Regex LeadingQuantityWithX = new("^(?:\\d+|[AaIiLlTt|])\\s*[Xx]\\s+", RegexOptions.Compiled);
     private static readonly Regex LeadingQuantityWithoutX = new("^(?:\\d+|[IiLl|])\\s+", RegexOptions.Compiled);
     private static readonly Regex SplitPossessive = new("\\b([A-Z]+)\\s+[S5]\\s+([A-Z]+)\\b", RegexOptions.Compiled);
+    private static readonly Regex TrailingLevelNumber = new("\\s+LEVEL\\s+(?<level>\\d+)$", RegexOptions.Compiled);
     private static readonly Regex TrailingLevel = new("\\s+LEVEL\\s+\\d+$", RegexOptions.Compiled);
     private static readonly Regex TrailingOrb = new("\\s+ORB$", RegexOptions.Compiled);
 
@@ -72,6 +76,17 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient) : IPric
         if (seen.Add(normalized))
         {
             yield return normalized;
+        }
+
+        var levelMatch = TrailingLevelNumber.Match(normalized);
+        if (levelMatch.Success)
+        {
+            var levelNumber = levelMatch.Groups["level"].Value;
+            var withNumericLevel = TrailingLevelNumber.Replace(normalized, $" {levelNumber}").Trim();
+            if (!string.IsNullOrWhiteSpace(withNumericLevel) && seen.Add(withNumericLevel))
+            {
+                yield return withNumericLevel;
+            }
         }
 
         var withoutLevel = TrailingLevel.Replace(normalized, string.Empty).Trim();
@@ -139,6 +154,11 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient) : IPric
         if (latest.DivineOrbChaosValue > 0)
         {
             _divineOrbChaosValue = latest.DivineOrbChaosValue;
+        }
+
+        if (latest.ExaltedOrbChaosValue > 0)
+        {
+            _exaltedOrbChaosValue = latest.ExaltedOrbChaosValue;
         }
     }
 
@@ -257,7 +277,11 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient) : IPric
 
     private string FormatAmount(decimal chaosValue)
     {
-        return PricingTextRules.FormatAmount(chaosValue, _divineOrbChaosValue);
+        return PricingTextRules.FormatAmount(
+            chaosValue,
+            _divineOrbChaosValue,
+            _exaltedOrbChaosValue,
+            pricingOptions.CurrentValue.DisplayCurrency);
     }
 
     public static string Normalize(string? value)

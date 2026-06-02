@@ -65,7 +65,7 @@ public sealed class LeaguePricingWorker(
                     // Render a visible orange unknown marker instead of hiding the row.
                     if (quote is null && IsRareUniqueItem(normalizedItemName))
                     {
-                        quote = new PriceQuote("?", pricingOptions.CurrentValue.OrangeThresholdChaos, false);
+                        quote = new PriceQuote("?", pricingOptions.CurrentValue.OrangeThreshold, false);
                     }
 
                     prices[itemName] = quote;

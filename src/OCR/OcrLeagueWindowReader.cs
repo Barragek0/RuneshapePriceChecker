@@ -28,10 +28,12 @@ public sealed class OcrLeagueWindowReader(
     private static readonly Regex NonNameChars = new("[^-A-Za-z0-9'’ ]+", RegexOptions.Compiled);
     private static readonly Regex QuantityPrefixToken = new("^(?<quantity>[A-Za-z0-9|]{1,2})\\s*[xX]\\b", RegexOptions.Compiled);
     private static readonly Regex LeadingQuantityDigits = new("(?<quantity>\\d{1,2})\\s*[xX]?", RegexOptions.Compiled);
-    private const int DefaultAdaptiveShiftProbeWidthPx = 40;
-    private const int DefaultAdaptiveShiftStepPx = 40;
+    private static readonly Regex QuantityPrefixDigitsWithX = new("^\\s*\\d{1,2}\\s*[xX]\\b", RegexOptions.Compiled);
+    private const int DefaultAdaptiveShiftProbeWidthPx = 24;
+    private const int DefaultAdaptiveShiftStepPx = 35;
     private const int DefaultAdaptiveShiftMaxPx = 160;
     private const int DefaultAdaptiveShiftProbeMinDarkPixels = 20;
+    private const int MinQuantityGuardProbeWidthPx = 96;
     private const int MaxParallelRowOcr = 4;
     private bool _tesseractUnavailable;
     private bool _windowCaptureUnavailableLogged;
@@ -40,6 +42,8 @@ public sealed class OcrLeagueWindowReader(
     private bool _waitingForLeagueListingPanelLogged;
     private bool _debugImageDirectoryLogged;
     private bool _tesseractExecutionConfirmedLogged;
+    private string _lastCaptureMethod = string.Empty;
+    private string _lastAdaptiveShiftStateSignature = string.Empty;
     private DateTimeOffset _lastDebugImageSavedAtUtc = DateTimeOffset.MinValue;
 
     public LeagueWindowSnapshot ReadSnapshot()
@@ -136,6 +140,13 @@ public sealed class OcrLeagueWindowReader(
         ValidateRegion(region);
 
         using var capturedBitmap = CaptureBitmap(region, out var captureMethod, options);
+        if (_appOptions.CurrentValue.EnableDebugLogging &&
+            !string.Equals(_lastCaptureMethod, captureMethod, StringComparison.OrdinalIgnoreCase))
+        {
+            _lastCaptureMethod = captureMethod;
+            logger.LogInformation("OCR capture source active: {CaptureMethod}.", captureMethod);
+        }
+
         if (!IsLeaguePanelAnchorColorMatch(capturedBitmap, options, out var anchorSignal))
         {
             _adaptiveRowShiftState.Update([], adaptiveParams.StepPx, false);
@@ -198,7 +209,7 @@ public sealed class OcrLeagueWindowReader(
         var rowLateOffsetStartRow = profile?.RowLateOffsetStartRow ?? int.MaxValue;
         var rowLateOffsetStepRows = profile?.RowLateOffsetStepRows ?? 1;
         var rowLateOffsetStepPx = profile?.RowLateOffsetStepPx ?? 0;
-        var adaptiveShiftStartRows = ComputeAdaptiveShiftStartRows(
+        var adaptiveDecision = ComputeAdaptiveShiftStartRows(
             bitmap,
             options,
             rowTextHeight,
@@ -210,7 +221,11 @@ public sealed class OcrLeagueWindowReader(
             adaptiveParams.StepPx,
             adaptiveParams.MaxPx,
             adaptiveParams.ProbeMinDarkPixels);
-        _adaptiveRowShiftState.Update(adaptiveShiftStartRows, adaptiveParams.StepPx, adaptiveShiftStartRows.Count > 0);
+        _adaptiveRowShiftState.Update(
+            adaptiveDecision.ShiftStartRows,
+            adaptiveParams.StepPx,
+            adaptiveDecision.ShiftStartRows.Count > 0);
+        LogAdaptiveShiftDecision(adaptiveDecision, adaptiveParams);
 
         var rowRects = OcrRowLayout.BuildRowRectangles(
             bitmap.Width,
@@ -223,7 +238,7 @@ public sealed class OcrLeagueWindowReader(
             rowLateOffsetStartRow,
             rowLateOffsetStepRows,
             rowLateOffsetStepPx,
-            adaptiveShiftStartRows,
+            adaptiveDecision.ShiftStartRows,
             adaptiveParams.StepPx);
         if (rowRects.Count == 1)
         {
@@ -1157,7 +1172,15 @@ public sealed class OcrLeagueWindowReader(
         return spread <= options.TextColorMaxChannelSpread;
     }
 
-    private static HashSet<int> ComputeAdaptiveShiftStartRows(
+    private sealed record AdaptiveShiftComputationResult(
+        HashSet<int> ShiftStartRows,
+        HashSet<int> SuppressedByQuantityPrefixRows,
+        bool DisabledByQuantityPrefixGuard,
+        IReadOnlyList<string> ProbeSamples);
+
+    private sealed record QuantityPrefixProbeResult(bool HasPrefix, string ProbeText, int ProbeWidthPx);
+
+    private AdaptiveShiftComputationResult ComputeAdaptiveShiftStartRows(
         Bitmap bitmap,
         OcrOptions options,
         int rowTextHeight,
@@ -1172,10 +1195,12 @@ public sealed class OcrLeagueWindowReader(
     {
         if (!options.UseFixedRowGeometry || bitmap.Width <= 0 || bitmap.Height <= 0)
         {
-            return [];
+            return new AdaptiveShiftComputationResult([], [], false, []);
         }
 
         var shifts = new HashSet<int>();
+        var suppressedByQuantityPrefix = new HashSet<int>();
+        var probeSamples = new List<string>(capacity: 8);
         var rgb = ReadRgbPixels(bitmap);
         var cumulativeShift = 0;
         var rowCount = Math.Max(1, options.OcrRowCount);
@@ -1207,12 +1232,77 @@ public sealed class OcrLeagueWindowReader(
             if (cumulativeShift < maxPx &&
                 HasDarkTextSignal(rgb, bitmap.Width, y, probeWidth, probeHeight, options, probeMinDarkPixels))
             {
+                var prefixProbe = ProbeQuantityPrefix(bitmap, y, probeWidth, probeHeight, options);
+                if (_appOptions.CurrentValue.EnableDebugLogging)
+                {
+                    var normalizedProbeText = MultiWhitespace.Replace(prefixProbe.ProbeText ?? string.Empty, " ").Trim();
+                    if (normalizedProbeText.Length > 0)
+                    {
+                        var compact = normalizedProbeText.Length > 24
+                            ? normalizedProbeText[..24]
+                            : normalizedProbeText;
+                        probeSamples.Add($"r{rowNumber}='{compact}'");
+                    }
+                }
+
+                if (prefixProbe.HasPrefix)
+                {
+                    suppressedByQuantityPrefix.Add(rowNumber);
+                    continue;
+                }
+
                 shifts.Add(rowNumber);
                 cumulativeShift = Math.Min(maxPx, cumulativeShift + stepPx);
             }
         }
 
-        return shifts;
+        var disabledByQuantityPrefixGuard = suppressedByQuantityPrefix.Count > 0;
+        if (disabledByQuantityPrefixGuard && shifts.Count > 0)
+        {
+            shifts.Clear();
+        }
+
+        return new AdaptiveShiftComputationResult(
+            shifts,
+            suppressedByQuantityPrefix,
+            disabledByQuantityPrefixGuard,
+            probeSamples);
+    }
+
+    private QuantityPrefixProbeResult ProbeQuantityPrefix(Bitmap bitmap, int y, int probeWidth, int probeHeight, OcrOptions options)
+    {
+        try
+        {
+            var x = 0;
+            var probeWidthForGuard = Math.Max(probeWidth, MinQuantityGuardProbeWidthPx);
+            var width = Math.Clamp(probeWidthForGuard, 1, bitmap.Width - x);
+            var height = Math.Clamp(probeHeight, 1, bitmap.Height - y);
+            var probeRect = new Rectangle(x, y, width, height);
+
+            using var rowProbe = bitmap.Clone(probeRect, PixelFormat.Format24bppRgb);
+            using var cleanedProbe = PrepareRowBitmapForOcr(rowProbe, options);
+            using var upscaledProbe = UpscaleForOcr(cleanedProbe, options.RowUpscaleFactor);
+            using var borderedProbe = AddWhiteBorder(upscaledProbe, 2);
+            var probeText = ExecuteTesseractForBitmap(
+                borderedProbe,
+                8,
+                options,
+                ["tessedit_char_whitelist=0123456789xX", "classify_bln_numeric_mode=1"]);
+
+            return new QuantityPrefixProbeResult(
+                QuantityPrefixDigitsWithX.IsMatch(probeText.Trim()),
+                probeText,
+                width);
+        }
+        catch (Exception ex)
+        {
+            if (_appOptions.CurrentValue.EnableDebugLogging)
+            {
+                logger.LogDebug(ex, "Quantity-prefix guard probe OCR failed; adaptive fallback will use dark-signal heuristic.");
+            }
+
+            return new QuantityPrefixProbeResult(false, string.Empty, Math.Clamp(probeWidth, 1, bitmap.Width));
+        }
     }
 
     private static bool HasDarkTextSignal(
@@ -1256,6 +1346,53 @@ public sealed class OcrLeagueWindowReader(
         }
 
         return false;
+    }
+
+    private void LogAdaptiveShiftDecision(
+        AdaptiveShiftComputationResult decision,
+        (int ProbeWidthPx, int StepPx, int MaxPx, int ProbeMinDarkPixels) adaptiveParams)
+    {
+        if (!_appOptions.CurrentValue.EnableDebugLogging)
+        {
+            return;
+        }
+
+        var activeRows = decision.ShiftStartRows.Count == 0
+            ? "<none>"
+            : string.Join(",", decision.ShiftStartRows.OrderBy(static row => row));
+        var suppressedRows = decision.SuppressedByQuantityPrefixRows.Count == 0
+            ? "<none>"
+            : string.Join(",", decision.SuppressedByQuantityPrefixRows.OrderBy(static row => row));
+        var probeSamples = decision.ProbeSamples.Count == 0
+            ? "<none>"
+            : string.Join(", ", decision.ProbeSamples);
+        var signature = $"active=[{activeRows}]|suppressed=[{suppressedRows}]|disabled={decision.DisabledByQuantityPrefixGuard}|step={adaptiveParams.StepPx}|probe={adaptiveParams.ProbeWidthPx}";
+        if (string.Equals(signature, _lastAdaptiveShiftStateSignature, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _lastAdaptiveShiftStateSignature = signature;
+
+        if (decision.ShiftStartRows.Count > 0)
+        {
+            logger.LogInformation(
+                "Adaptive row-bump fallback ENABLED. Shift rows={ActiveRows}; step={StepPx}px; probeWidth={ProbeWidth}px; maxShift={MaxPx}px; darkPixelThreshold={MinDark}. Quantity-prefix guard suppressed rows={SuppressedRows}. Probe OCR samples={ProbeSamples}.",
+                activeRows,
+                adaptiveParams.StepPx,
+                adaptiveParams.ProbeWidthPx,
+                adaptiveParams.MaxPx,
+                adaptiveParams.ProbeMinDarkPixels,
+                suppressedRows,
+                probeSamples);
+            return;
+        }
+
+        logger.LogInformation(
+            "Adaptive row-bump fallback DISABLED. No shift rows active. Quantity-prefix guard suppressed rows={SuppressedRows}; guardDisabledFallback={GuardDisabled}; probe OCR samples={ProbeSamples}.",
+            suppressedRows,
+            decision.DisabledByQuantityPrefixGuard,
+            probeSamples);
     }
 
     private static (int ProbeWidthPx, int StepPx, int MaxPx, int ProbeMinDarkPixels) GetAdaptiveParams(OcrResolutionProfile? profile)

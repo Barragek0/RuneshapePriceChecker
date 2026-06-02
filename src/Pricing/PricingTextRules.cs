@@ -217,9 +217,35 @@ public static class PricingTextRules
         }
     }
 
-    public static string FormatAmount(decimal chaosValue, decimal divineOrbChaosValue)
+    public static string FormatAmount(
+        decimal chaosValue,
+        decimal divineOrbChaosValue,
+        decimal exaltedOrbChaosValue,
+        string? displayCurrency)
     {
         var chaos = Math.Max(0m, chaosValue);
+
+        var useExaltedDisplay =
+            string.Equals(displayCurrency, "exalt", StringComparison.OrdinalIgnoreCase) &&
+            exaltedOrbChaosValue > 0m;
+
+        if (useExaltedDisplay)
+        {
+            if (divineOrbChaosValue > 0m && chaos >= divineOrbChaosValue)
+            {
+                var divine = TruncateToSingleDecimal(chaos / divineOrbChaosValue);
+                return $"{divine.ToString("0.#", CultureInfo.InvariantCulture)}d";
+            }
+
+            var exalted = TruncateToSingleDecimal(chaos / exaltedOrbChaosValue);
+            if (chaos > 0m && exalted <= 0m)
+            {
+                return "<0.1ex";
+            }
+
+            return $"{exalted.ToString("0.#", CultureInfo.InvariantCulture)}ex";
+        }
+
         if (divineOrbChaosValue > 0m && chaos >= divineOrbChaosValue)
         {
             var divine = TruncateToSingleDecimal(chaos / divineOrbChaosValue);

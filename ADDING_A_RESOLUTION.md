@@ -19,7 +19,7 @@ This guide explains how to add support for a new resolution.
 Example:
 
 ```csharp
-["2560x1440"] = new(2560, 1440, 255, 160, 285, 537, 23, 24, 8, 2, 2, 40, 35, 160, 20)
+["2560x1440"] = new(2560, 1440, 255, 160, 285, 537, 23, 24, 8, 2, 2, 24, 35, 160, 20)
 ```
 
 4. Save and restart the app.
@@ -101,7 +101,7 @@ How it works:
 
 Current 1080p reference values:
 
-- `AdaptiveShiftProbeWidthPx = 40`
+- `AdaptiveShiftProbeWidthPx = 24`
 - `AdaptiveShiftStepPx = 35`
 - `AdaptiveShiftMaxPx = 160`
 - `AdaptiveShiftProbeMinDarkPixels = 20`

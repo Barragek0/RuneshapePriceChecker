@@ -13,6 +13,7 @@ public sealed class PricingCacheOptions
     public string[] IncludedTypes { get; set; } =
     [
         "Currency",
+        "Expedition",
         "UncutGems",
         "Runes",
         "Verisium",
@@ -23,9 +24,12 @@ public sealed class PricingCacheOptions
 
     public TimeSpan RefreshInterval { get; set; } = TimeSpan.FromMinutes(10);
 
-    public decimal RedThresholdChaos { get; set; } = 0.5m;
+    public decimal RedThreshold { get; set; } = 0.5m;
 
-    public decimal OrangeThresholdChaos { get; set; } = 1m;
+    public decimal OrangeThreshold { get; set; } = 1m;
 
-    public decimal GreenThresholdChaos { get; set; } = 5m;
+    public decimal GreenThreshold { get; set; } = 5m;
+
+    // Allowed values: "exalt" or "chaos".
+    public string DisplayCurrency { get; set; } = "exalt";
 }

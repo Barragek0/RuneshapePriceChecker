@@ -191,7 +191,7 @@ public sealed class ConsoleOverlayRenderer(
             if (decimal.TryParse(valueText, NumberStyles.Float, CultureInfo.InvariantCulture, out var divineValue))
             {
                 // Any divine-denominated price should be at or above the green threshold.
-                chaosEquivalent = Math.Max(pricing.GreenThresholdChaos, Math.Max(0m, divineValue));
+                chaosEquivalent = Math.Max(pricing.GreenThreshold, Math.Max(0m, divineValue));
                 return true;
             }
 
@@ -204,9 +204,9 @@ public sealed class ConsoleOverlayRenderer(
     private static Color GetPriceColor(decimal chaosValue, PricingCacheOptions pricing)
     {
         var chaos = Math.Max(0m, chaosValue);
-        var redThreshold = pricing.RedThresholdChaos;
-        var orangeThreshold = pricing.OrangeThresholdChaos;
-        var greenThreshold = pricing.GreenThresholdChaos;
+        var redThreshold = pricing.RedThreshold;
+        var orangeThreshold = pricing.OrangeThreshold;
+        var greenThreshold = pricing.GreenThreshold;
 
         var red = Color.FromArgb(255, 255, 72, 72);
         var orange = Color.FromArgb(255, 255, 196, 54);

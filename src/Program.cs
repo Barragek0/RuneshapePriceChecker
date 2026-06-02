@@ -33,9 +33,11 @@ var host = Host.CreateDefaultBuilder(args)
                 !string.IsNullOrWhiteSpace(options.League) &&
                 options.IncludedTypes is { Length: > 0 } &&
                 options.RefreshInterval > TimeSpan.Zero &&
-                options.RedThresholdChaos >= 0m &&
-                options.OrangeThresholdChaos > options.RedThresholdChaos &&
-                options.GreenThresholdChaos > options.OrangeThresholdChaos,
+                options.RedThreshold >= 0m &&
+                options.OrangeThreshold > options.RedThreshold &&
+                options.GreenThreshold > options.OrangeThreshold &&
+                (string.Equals(options.DisplayCurrency, "chaos", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(options.DisplayCurrency, "exalt", StringComparison.OrdinalIgnoreCase)),
                 "Pricing configuration is invalid. Check src/appsettings.json:Pricing values.")
             .ValidateOnStart();
         services.AddOptions<OcrOptions>()
