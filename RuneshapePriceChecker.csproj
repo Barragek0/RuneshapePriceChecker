@@ -25,4 +25,17 @@
   <ItemGroup>
     <Compile Remove="scripts\**\*.cs" />
   </ItemGroup>
+
+  <Target Name="PackageReleaseZip" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' and '$(DesignTimeBuild)' != 'true'">
+    <PropertyGroup>
+      <ReleaseZipPath>$(BaseOutputPath)$(Configuration)\RuneshapePriceChecker.zip</ReleaseZipPath>
+      <TargetDirTrimmed>$([System.String]::Copy('$(TargetDir)').TrimEnd('\\'))</TargetDirTrimmed>
+      <TargetDirContentsPattern>$([System.String]::Concat('$(TargetDirTrimmed)', '\\*'))</TargetDirContentsPattern>
+    </PropertyGroup>
+
+    <MakeDir Directories="$(BaseOutputPath)$(Configuration)" />
+    <Delete Files="$(ReleaseZipPath)" ContinueOnError="true" />
+    <Exec
+      Command="powershell -NoProfile -ExecutionPolicy Bypass -Command &quot;Compress-Archive -Path '$(TargetDirContentsPattern)' -DestinationPath '$(ReleaseZipPath)' -CompressionLevel Optimal&quot;" />
+  </Target>
 </Project>
