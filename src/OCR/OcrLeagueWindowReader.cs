@@ -31,7 +31,6 @@ public sealed class OcrLeagueWindowReader(
     private static readonly Regex LeadingGuardNumberToken = new("^\\s*(?<num>\\d{1,2})(?:\\D.*)?$", RegexOptions.Compiled);
     private const int DefaultAdaptiveShiftProbeWidthPx = 26;
     private const int DefaultAdaptiveShiftStepPx = 35;
-    private const int DefaultAdaptiveShiftMaxPx = 160;
     private const int DefaultAdaptiveShiftProbeMinDarkPixels = 20;
     private const int MaxParallelRowOcr = 4;
     private bool _tesseractUnavailable;
@@ -218,7 +217,6 @@ public sealed class OcrLeagueWindowReader(
             rowLateOffsetStepPx,
             adaptiveParams.ProbeWidthPx,
             adaptiveParams.StepPx,
-            adaptiveParams.MaxPx,
             adaptiveParams.ProbeMinDarkPixels);
         _adaptiveRowShiftState.Update(
             adaptiveDecision.ShiftStartRows,
@@ -1258,7 +1256,6 @@ public sealed class OcrLeagueWindowReader(
         int rowLateOffsetStepPx,
         int probeWidthPx,
         int stepPx,
-        int maxPx,
         int probeMinDarkPixels)
     {
         if (!options.UseFixedRowGeometry || bitmap.Width <= 0 || bitmap.Height <= 0)
@@ -1323,11 +1320,7 @@ public sealed class OcrLeagueWindowReader(
                 break;
             }
 
-            var hasDarkSignal = false;
-            if (cumulativeShift < maxPx)
-            {
-                hasDarkSignal = HasDarkTextSignal(rgb, bitmap.Width, y, probeWidth, probeHeight, options, probeMinDarkPixels);
-            }
+            var hasDarkSignal = HasDarkTextSignal(rgb, bitmap.Width, y, probeWidth, probeHeight, options, probeMinDarkPixels);
 
             if (!hasDarkSignal)
             {
@@ -1339,7 +1332,7 @@ public sealed class OcrLeagueWindowReader(
                     false,
                     false,
                     string.Empty,
-                    cumulativeShift >= maxPx ? "max-shift-reached" : "no-dark-signal",
+                    "no-dark-signal",
                     false,
                     string.Empty,
                     string.Empty,
@@ -1373,7 +1366,7 @@ public sealed class OcrLeagueWindowReader(
             }
 
             shifts.Add(rowNumber);
-            cumulativeShift = Math.Min(maxPx, cumulativeShift + stepPx);
+            cumulativeShift += stepPx;
             guardObservations.Add(new QuantityPrefixGuardRowObservation(
                 rowNumber,
                 y,
@@ -1417,8 +1410,12 @@ public sealed class OcrLeagueWindowReader(
             using var rowProbe = bitmap.Clone(probeRect, PixelFormat.Format24bppRgb);
             if (debugContext is not null)
             {
-                // Save the pre-upscale guard probe so Nbg.png width matches profile probe width.
                 TrySaveBackupGuardDebugImage(debugContext, rowProbe, rowNumber);
+            }
+
+            if (!PrefixProbeHasTextColorPixels(rowProbe, options))
+            {
+                return new QuantityPrefixProbeResult(false, string.Empty, width, false, string.Empty, string.Empty, false);
             }
 
             using var cleanedProbe = PrepareRowBitmapForOcr(rowProbe, options);
@@ -1512,6 +1509,28 @@ public sealed class OcrLeagueWindowReader(
         return false;
     }
 
+    private static bool PrefixProbeHasTextColorPixels(Bitmap probeBitmap, OcrOptions options)
+    {
+        var rgb = ReadRgbPixels(probeBitmap);
+        var textColorPixels = 0;
+        var totalPixels = probeBitmap.Width * probeBitmap.Height;
+        var required = Math.Max(30, totalPixels / 4);
+
+        for (var i = 0; i < totalPixels; i++)
+        {
+            if (IsLikelyTextColor(rgb, i, options))
+            {
+                textColorPixels++;
+                if (textColorPixels >= required)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     private static bool MatchesQuantityPrefixGuard(string probeText)
     {
         var trimmed = probeText?.Trim() ?? string.Empty;
@@ -1542,7 +1561,7 @@ public sealed class OcrLeagueWindowReader(
 
     private void LogAdaptiveShiftDecision(
         AdaptiveShiftComputationResult decision,
-        (int ProbeWidthPx, int StepPx, int MaxPx, int ProbeMinDarkPixels) adaptiveParams)
+        (int ProbeWidthPx, int StepPx, int ProbeMinDarkPixels) adaptiveParams)
     {
         if (!_appOptions.CurrentValue.EnableDebugLogging)
         {
@@ -1572,14 +1591,13 @@ public sealed class OcrLeagueWindowReader(
         {
             logger.LogInformation(
                 "Adaptive row-bump fallback ENABLED. Shift rows={ActiveRows}; " + Environment.NewLine +
-                "step={StepPx}px; probeWidth={ProbeWidth}px; maxShift={MaxPx}px; darkPixelThreshold={MinDark}. " + Environment.NewLine +
+                "step={StepPx}px; probeWidth={ProbeWidth}px; darkPixelThreshold={MinDark}. " + Environment.NewLine +
                 "Quantity-prefix guard suppressed rows={SuppressedRows}. " + Environment.NewLine +
                 "Quantity-prefix guard summary=" + Environment.NewLine +
                 "{GuardSummary}.",
                 activeRows,
                 adaptiveParams.StepPx,
                 adaptiveParams.ProbeWidthPx,
-                adaptiveParams.MaxPx,
                 adaptiveParams.ProbeMinDarkPixels,
                 suppressedRows,
                 guardSummary);
@@ -1596,14 +1614,13 @@ public sealed class OcrLeagueWindowReader(
             guardSummary);
     }
 
-    private static (int ProbeWidthPx, int StepPx, int MaxPx, int ProbeMinDarkPixels) GetAdaptiveParams(OcrResolutionProfile? profile)
+    private static (int ProbeWidthPx, int StepPx, int ProbeMinDarkPixels) GetAdaptiveParams(OcrResolutionProfile? profile)
     {
         var probeWidthPx = profile?.AdaptiveShiftProbeWidthPx ?? DefaultAdaptiveShiftProbeWidthPx;
         var stepPx = profile?.AdaptiveShiftStepPx ?? DefaultAdaptiveShiftStepPx;
-        var maxPx = profile?.AdaptiveShiftMaxPx ?? DefaultAdaptiveShiftMaxPx;
         var probeMinDarkPixels = profile?.AdaptiveShiftProbeMinDarkPixels ?? DefaultAdaptiveShiftProbeMinDarkPixels;
 
-        return (Math.Max(1, probeWidthPx), Math.Max(1, stepPx), Math.Max(stepPx, maxPx), Math.Max(1, probeMinDarkPixels));
+        return (Math.Max(1, probeWidthPx), Math.Max(1, stepPx), Math.Max(1, probeMinDarkPixels));
     }
 
     private static int GetLocalMean(int[] integral, int width, int height, int x, int y, int radius)

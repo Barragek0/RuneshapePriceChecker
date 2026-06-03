@@ -88,7 +88,9 @@ Settings reload automatically every 5 seconds through `SettingsController`.
 
 If an item is not recognized or not available in the current pricing data, it doesn't show a value.
 
-OCR resolution profiles now include both static late-row offsets and adaptive row-shift detection parameters.
+OCR resolution profiles include static late-row offsets and adaptive row-shift detection.
+When more than 5 runes appear next to an item name, the game pushes item text to a second line;
+adaptive shifting detects this and realigns OCR rows accordingly.
 
 If your PoE2 resolution is unsupported, OCR and overlay pricing are disabled and an error popup lists supported resolutions.
 

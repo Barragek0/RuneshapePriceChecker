@@ -19,7 +19,7 @@ This guide explains how to add support for a new resolution.
 Example:
 
 ```csharp
-["2560x1440"] = new(2560, 1440, 255, 160, 285, 537, 23, 24, 8, 2, 2, 26, 35, 160, 20)
+["2560x1440"] = new(2560, 1440, 255, 160, 285, 537, 23, 24, 8, 2, 2, 26, 35, 20)
 ```
 
 4. Save and restart the app.
@@ -84,20 +84,24 @@ Example with `8, 2, 2`:
 
 ## 6) Tune Adaptive Push-Down (Only If Needed)
 
-Use this only when extra top rows appear and push everything down dynamically.
+When the runeshape page shows more than 5 runes on the left of the list for an item,
+the game pushes the item text down to a second line. Adaptive shifting detects
+this and bumps subsequent OCR rows down so they stay aligned with the text.
 
-- `AdaptiveShiftProbeWidthPx`: width of the left probe strip.
-- `AdaptiveShiftStepPx`: shift added per detected overflow event.
-- `AdaptiveShiftMaxPx`: max total adaptive shift.
-- `AdaptiveShiftProbeMinDarkPixels`: sensitivity threshold.
+- `AdaptiveShiftProbeWidthPx`: width of the left probe strip that checks for text.
+- `AdaptiveShiftStepPx`: pixels to shift rows down per detected overflow.
+- `AdaptiveShiftProbeMinDarkPixels`: minimum dark-text-pixels required to treat a
+  row as having content.
 
 How it works:
 
-1. OCR checks a small left strip for dark text-like pixels.
-2. If enough dark pixels are found, that row triggers a push-down event.
-3. Each event shifts that row and rows below by `AdaptiveShiftStepPx`.
-4. Total shift is capped by `AdaptiveShiftMaxPx`.
-5. Overlay and OCR use the same row positioning and backend code.
+1. A narrow probe strip at the left edge of each row is checked for dark text pixels.
+2. If enough text-colored pixels are found, a prefix OCR check runs to determine if
+   the text is a quantity prefix (like \"1x\") or a rune name.
+3. Rows with quantity prefixes are left in place (they're already at the correct
+   vertical position). Rows without prefixes get shifted down by
+   `AdaptiveShiftStepPx`, and the shift cascades to rows below.
+4. Overlay and OCR use the same row positioning based on the computed shifts.
 
 Current 1080p reference values:
 
