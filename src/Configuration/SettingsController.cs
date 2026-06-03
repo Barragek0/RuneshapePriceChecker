@@ -9,6 +9,7 @@ public sealed class SettingsController(
     ILogger<SettingsController> logger) : BackgroundService
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
+    private const string SettingsFileName = "appsettings.json";
     private DateTime _lastWriteUtc = DateTime.MinValue;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -32,7 +33,7 @@ public sealed class SettingsController(
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Failed to refresh settings from src/appsettings.json.");
+                logger.LogWarning(ex, "Failed to refresh settings from {SettingsFile}.", SettingsFileName);
             }
 
             await Task.Delay(PollInterval, stoppingToken).ConfigureAwait(false);
@@ -66,21 +67,39 @@ public sealed class SettingsController(
         }
 
         root.Reload();
-        logger.LogInformation("Settings reloaded from src/appsettings.json ({Reason}).", reason);
+        logger.LogInformation("Settings reloaded from {SettingsFile} ({Reason}).", SettingsFileName, reason);
     }
 
     private static string? ResolveSettingsPath()
     {
-        var appBasePath = Path.Combine(AppContext.BaseDirectory, "src", "appsettings.json");
+        var configPath = Path.Combine(AppContext.BaseDirectory, "config", SettingsFileName);
+        if (File.Exists(configPath))
+        {
+            return configPath;
+        }
+
+        var appBasePath = Path.Combine(AppContext.BaseDirectory, SettingsFileName);
         if (File.Exists(appBasePath))
         {
             return appBasePath;
         }
 
-        var cwdPath = Path.Combine(Environment.CurrentDirectory, "src", "appsettings.json");
+        var cwdPath = Path.Combine(Environment.CurrentDirectory, SettingsFileName);
         if (File.Exists(cwdPath))
         {
             return cwdPath;
+        }
+
+        var legacyAppBasePath = Path.Combine(AppContext.BaseDirectory, "src", SettingsFileName);
+        if (File.Exists(legacyAppBasePath))
+        {
+            return legacyAppBasePath;
+        }
+
+        var legacyCwdPath = Path.Combine(Environment.CurrentDirectory, "src", SettingsFileName);
+        if (File.Exists(legacyCwdPath))
+        {
+            return legacyCwdPath;
         }
 
         return null;

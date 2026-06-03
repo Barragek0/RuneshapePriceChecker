@@ -14,15 +14,20 @@ using Microsoft.Extensions.Logging.Console;
 DebugConsoleWindow.TryOpen();
 
 var resolvedTesseractPath = TesseractBootstrapper.EnsureInstalled("tesseract");
+AppSettingsBootstrapper.EnsureExists();
 
 var host = Host.CreateDefaultBuilder(args)
     .ConfigureAppConfiguration(config =>
     {
-        config.AddJsonFile("src/appsettings.json", optional: false, reloadOnChange: false);
+        config.SetBasePath(AppContext.BaseDirectory);
+        config.AddJsonFile("config/appsettings.json", optional: false, reloadOnChange: false);
     })
     .ConfigureServices((context, services) =>
     {
         services.Configure<AppOptions>(context.Configuration.GetSection("App"));
+        services.Configure<UpdateOptions>(context.Configuration.GetSection("Update"));
+
+        services.AddHostedService<UpdateChecker>();
 
         services.AddOptions<PricingCacheOptions>()
             .Bind(context.Configuration.GetSection("Pricing"))
@@ -38,7 +43,7 @@ var host = Host.CreateDefaultBuilder(args)
                 options.GreenThreshold > options.OrangeThreshold &&
                 (string.Equals(options.DisplayCurrency, "chaos", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(options.DisplayCurrency, "exalt", StringComparison.OrdinalIgnoreCase)),
-                "Pricing configuration is invalid. Check src/appsettings.json:Pricing values.")
+                "Pricing configuration is invalid. Check appsettings.json:Pricing values.")
             .ValidateOnStart();
         services.AddOptions<OcrOptions>()
             .Bind(context.Configuration.GetSection("OCR"));

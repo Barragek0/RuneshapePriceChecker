@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
@@ -6,6 +6,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>RuneshapePriceChecker</AssemblyName>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>false</SelfContained>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <PublishDir>$(MSBuildProjectDirectory)\obj\Release\publish\</PublishDir>
   </PropertyGroup>
 
   <ItemGroup>
@@ -16,41 +20,49 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="src\appsettings.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <Watch Include="src\appsettings.json" />
-  </ItemGroup>
-
-  <ItemGroup>
     <Compile Remove="scripts\**\*.cs" />
+    <Compile Remove="src\Updater\**\*.cs" />
   </ItemGroup>
 
-  <Target Name="PackageReleaseZip" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' and '$(DesignTimeBuild)' != 'true'">
+  <Target Name="RemoveLegacyAppSettingsFromOutput" AfterTargets="Build;Publish">
+    <Delete Files="$(TargetDir)appsettings.json;$(TargetDir)src\appsettings.json" ContinueOnError="true" />
+  </Target>
+
+  <Target Name="CopyUpdaterToOutput" AfterTargets="Build" Condition="'$(DesignTimeBuild)' != 'true'">
+    <Exec Command="dotnet build &quot;$(MSBuildProjectDirectory)\src\Updater\Updater.csproj&quot; -c $(Configuration) --nologo" />
+    <ItemGroup>
+      <_UpdaterOutputFiles Include="$(MSBuildProjectDirectory)\src\Updater\bin\$(Configuration)\net8.0\*" Exclude="$(MSBuildProjectDirectory)\src\Updater\bin\$(Configuration)\net8.0\*.pdb" />
+    </ItemGroup>
+    <Copy
+      SourceFiles="@(_UpdaterOutputFiles)"
+      DestinationFolder="$(TargetDir)"
+      SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="PackageReleaseZip" AfterTargets="Publish" Condition="'$(Configuration)' == 'Release' and '$(DesignTimeBuild)' != 'true'">
     <PropertyGroup>
-      <ReleaseZipPath>$(BaseOutputPath)$(Configuration)\RuneshapePriceChecker.zip</ReleaseZipPath>
+      <ReleaseZipPath>$(TargetDir)RuneshapePriceChecker.zip</ReleaseZipPath>
       <ReleaseZipStageDir>$(BaseIntermediateOutputPath)$(Configuration)\zip-stage\</ReleaseZipStageDir>
-      <ReleaseZipStageContentsPattern>$([System.String]::Concat('$(ReleaseZipStageDir)', '*'))</ReleaseZipStageContentsPattern>
-      <ReleaseZipStageAppSettingsPath>$(ReleaseZipStageDir)src\appsettings.json</ReleaseZipStageAppSettingsPath>
-      <ReleaseDefaultAppSettingsPath>$(MSBuildProjectDirectory)\src\appsettings.release.json</ReleaseDefaultAppSettingsPath>
     </PropertyGroup>
 
     <ItemGroup>
-      <_ReleaseZipStageSourceFiles Include="$(TargetDir)**\*" />
+      <_PublishFiles Include="$(PublishDir)*" Exclude="$(PublishDir)*.pdb" />
     </ItemGroup>
 
     <MakeDir Directories="$(BaseOutputPath)$(Configuration)" />
     <RemoveDir Directories="$(ReleaseZipStageDir)" ContinueOnError="true" />
     <MakeDir Directories="$(ReleaseZipStageDir)" />
-    <Copy SourceFiles="@(_ReleaseZipStageSourceFiles)" DestinationFiles="@(_ReleaseZipStageSourceFiles->'$(ReleaseZipStageDir)%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="false" />
-    <MakeDir Directories="$([System.IO.Path]::GetDirectoryName('$(ReleaseZipStageAppSettingsPath)'))" />
-    <Copy SourceFiles="$(ReleaseDefaultAppSettingsPath)" DestinationFiles="$(ReleaseZipStageAppSettingsPath)" OverwriteReadOnlyFiles="true" />
+
+    <Copy SourceFiles="@(_PublishFiles)" DestinationFolder="$(ReleaseZipStageDir)" />
+
+    <Exec Command="dotnet publish src\Updater\Updater.csproj -c Release --nologo" WorkingDirectory="$(MSBuildProjectDirectory)" />
+    <ItemGroup>
+      <_UpdaterZipFiles Include="$(MSBuildProjectDirectory)\src\Updater\bin\Release\net8.0\publish\Update.exe" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_UpdaterZipFiles)" DestinationFolder="$(ReleaseZipStageDir)" />
+
     <Delete Files="$(ReleaseZipPath)" ContinueOnError="true" />
-    <ZipDirectory
-      SourceDirectory="$(ReleaseZipStageDir)"
-      DestinationFile="$(ReleaseZipPath)"
-      Overwrite="true"
-      ContinueOnError="WarnAndContinue" />
+    <ZipDirectory SourceDirectory="$(ReleaseZipStageDir)" DestinationFile="$(ReleaseZipPath)" Overwrite="true" ContinueOnError="WarnAndContinue" />
     <RemoveDir Directories="$(ReleaseZipStageDir)" ContinueOnError="true" />
   </Target>
 </Project>
