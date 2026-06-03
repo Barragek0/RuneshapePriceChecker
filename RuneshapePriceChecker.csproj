@@ -29,13 +29,28 @@
   <Target Name="PackageReleaseZip" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' and '$(DesignTimeBuild)' != 'true'">
     <PropertyGroup>
       <ReleaseZipPath>$(BaseOutputPath)$(Configuration)\RuneshapePriceChecker.zip</ReleaseZipPath>
-      <TargetDirTrimmed>$([System.String]::Copy('$(TargetDir)').TrimEnd('\\'))</TargetDirTrimmed>
-      <TargetDirContentsPattern>$([System.String]::Concat('$(TargetDirTrimmed)', '\\*'))</TargetDirContentsPattern>
+      <ReleaseZipStageDir>$(BaseIntermediateOutputPath)$(Configuration)\zip-stage\</ReleaseZipStageDir>
+      <ReleaseZipStageContentsPattern>$([System.String]::Concat('$(ReleaseZipStageDir)', '*'))</ReleaseZipStageContentsPattern>
+      <ReleaseZipStageAppSettingsPath>$(ReleaseZipStageDir)src\appsettings.json</ReleaseZipStageAppSettingsPath>
+      <ReleaseDefaultAppSettingsPath>$(MSBuildProjectDirectory)\src\appsettings.release.json</ReleaseDefaultAppSettingsPath>
     </PropertyGroup>
 
+    <ItemGroup>
+      <_ReleaseZipStageSourceFiles Include="$(TargetDir)**\*" />
+    </ItemGroup>
+
     <MakeDir Directories="$(BaseOutputPath)$(Configuration)" />
+    <RemoveDir Directories="$(ReleaseZipStageDir)" ContinueOnError="true" />
+    <MakeDir Directories="$(ReleaseZipStageDir)" />
+    <Copy SourceFiles="@(_ReleaseZipStageSourceFiles)" DestinationFiles="@(_ReleaseZipStageSourceFiles->'$(ReleaseZipStageDir)%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="false" />
+    <MakeDir Directories="$([System.IO.Path]::GetDirectoryName('$(ReleaseZipStageAppSettingsPath)'))" />
+    <Copy SourceFiles="$(ReleaseDefaultAppSettingsPath)" DestinationFiles="$(ReleaseZipStageAppSettingsPath)" OverwriteReadOnlyFiles="true" />
     <Delete Files="$(ReleaseZipPath)" ContinueOnError="true" />
-    <Exec
-      Command="powershell -NoProfile -ExecutionPolicy Bypass -Command &quot;Compress-Archive -Path '$(TargetDirContentsPattern)' -DestinationPath '$(ReleaseZipPath)' -CompressionLevel Optimal&quot;" />
+    <ZipDirectory
+      SourceDirectory="$(ReleaseZipStageDir)"
+      DestinationFile="$(ReleaseZipPath)"
+      Overwrite="true"
+      ContinueOnError="WarnAndContinue" />
+    <RemoveDir Directories="$(ReleaseZipStageDir)" ContinueOnError="true" />
   </Target>
 </Project>
