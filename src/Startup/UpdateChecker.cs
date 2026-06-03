@@ -32,6 +32,10 @@ internal sealed class UpdateChecker(
             logger.LogInformation("No embedded version found. Skipping update check.");
             return;
         }
+
+        var plusIndex = currentVersionText.IndexOf('+');
+        if (plusIndex >= 0) currentVersionText = currentVersionText[..plusIndex];
+
         if (!TryParseVersion(currentVersionText, out var currentVersion))
         {
             logger.LogInformation("Cannot parse current version '{Version}'. Skipping update check.", currentVersionText);
@@ -92,13 +96,35 @@ internal sealed class UpdateChecker(
         logger.LogInformation("Launching updater for version {Version}...", latestVersion);
         try
         {
-            Process.Start(new ProcessStartInfo
+            using var process = new Process
             {
-                FileName = updaterPath,
-                Arguments = $"--url \"{zipAsset.BrowserDownloadUrl}\" --version \"{latestVersionText}\"",
-                UseShellExecute = true,
-                WorkingDirectory = installDir
-            });
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = updaterPath,
+                    Arguments = $"--url \"{zipAsset.BrowserDownloadUrl}\" --version \"{latestVersionText}\"",
+                    WorkingDirectory = installDir,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                }
+            };
+
+            process.OutputDataReceived += (_, e) =>
+            {
+                if (!string.IsNullOrWhiteSpace(e.Data))
+                    logger.LogInformation("[Updater] {Output}", e.Data);
+            };
+            process.ErrorDataReceived += (_, e) =>
+            {
+                if (!string.IsNullOrWhiteSpace(e.Data))
+                    logger.LogWarning("[Updater] {Output}", e.Data);
+            };
+
+            process.Start();
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+            await process.WaitForExitAsync(cancellationToken);
         }
         catch (Exception ex)
         {

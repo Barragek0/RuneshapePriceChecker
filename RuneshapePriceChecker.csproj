@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>RuneshapePriceChecker</AssemblyName>
+    <ApplicationIcon>img\rune.ico</ApplicationIcon>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>false</SelfContained>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
@@ -42,7 +43,7 @@
   <Target Name="PackageReleaseZip" AfterTargets="Publish" Condition="'$(Configuration)' == 'Release' and '$(DesignTimeBuild)' != 'true'">
     <PropertyGroup>
       <_UpdaterPublishDir>$(MSBuildProjectDirectory)\obj\Release\updater-publish\</_UpdaterPublishDir>
-      <ReleaseZipPath>$(TargetDir)RuneshapePriceChecker.zip</ReleaseZipPath>
+      <ReleaseZipPath>$(BaseOutputPath)$(Configuration)\RuneshapePriceChecker.zip</ReleaseZipPath>
       <ReleaseZipStageDir>$(BaseIntermediateOutputPath)$(Configuration)\zip-stage\</ReleaseZipStageDir>
     </PropertyGroup>
 
