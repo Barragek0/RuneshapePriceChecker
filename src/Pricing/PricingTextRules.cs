@@ -7,6 +7,7 @@ public static class PricingTextRules
 {
     private static readonly Regex QuantityPrefixWithX = new("^(?<quantity>\\d+|[AaIiLlTt|Oo0])\\s*[xX]\\s+(?<name>.+)$", RegexOptions.Compiled);
     private static readonly Regex QuantityPrefixWithoutX = new("^(?<quantity>\\d+|[IiLl|Oo0])\\s+(?<name>.+)$", RegexOptions.Compiled);
+    private static readonly Regex LeadingQuantityEchoToken = new("^(?:[xX]\\s+)+(?<name>.+)$", RegexOptions.Compiled);
     private static readonly Regex IsolatedImToken = new("(?<=\\s)im(?=\\s)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex MultiWhitespace = new("\\s+", RegexOptions.Compiled);
     private static readonly Regex TieredOrb = new("^(?:GREATER|PERFECT)\\s+(ORB OF .+)$", RegexOptions.Compiled);
@@ -86,7 +87,7 @@ public static class PricingTextRules
         var rawQuantity = match.Groups["quantity"].Value;
         var quantity = NormalizeQuantityToken(rawQuantity);
 
-        var name = match.Groups["name"].Value.Trim();
+        var name = TrimLeadingQuantityEchoToken(match.Groups["name"].Value.Trim());
         if (string.IsNullOrWhiteSpace(name))
         {
             return new ParsedDetectedItem(cleanedRaw, 1);
@@ -264,6 +265,17 @@ public static class PricingTextRules
     private static decimal TruncateToSingleDecimal(decimal value)
     {
         return Math.Truncate(value * 10m) / 10m;
+    }
+
+    private static string TrimLeadingQuantityEchoToken(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return string.Empty;
+        }
+
+        var match = LeadingQuantityEchoToken.Match(name);
+        return match.Success ? match.Groups["name"].Value.Trim() : name;
     }
 
     private static void AddAccessoryFamilyVariants(HashSet<string> candidateSet, string value)
