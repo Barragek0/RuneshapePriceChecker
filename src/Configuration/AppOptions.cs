@@ -2,5 +2,5 @@ namespace RuneshapePriceChecker.Configuration;
 
 public sealed class AppOptions
 {
-    public bool EnableDebugLogging { get; set; } = false;
+    public bool DebugLogging { get; set; } = false;
 }

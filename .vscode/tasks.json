@@ -26,7 +26,11 @@
                 "watch",
                 "--project",
                 "RuneshapePriceChecker.csproj",
-                "run"
+                "run",
+                "--OCR:SaveDebugImages=true",
+                "--OCR:DebugOverlay=false",
+                "--OCR:HideDebugOverlayWhenInterfaceNotDetected=true",
+                "--App:DebugLogging=true",
             ],
             "isBackground": true,
             "problemMatcher": "$msCompile",

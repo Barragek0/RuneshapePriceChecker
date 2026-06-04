@@ -17,7 +17,7 @@ internal sealed class UpdateChecker(
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         var opts = updateOptions.Value;
-        if (!opts.AutoUpdateEnabled)
+        if (!opts.AutoUpdate)
         {
             return;
         }
@@ -201,7 +201,7 @@ internal sealed class UpdateChecker(
 
 internal sealed class UpdateOptions
 {
-    public bool AutoUpdateEnabled { get; set; } = true;
+    public bool AutoUpdate { get; set; } = true;
     public bool IgnorePrereleases { get; set; } = false;
     public string GitHubRepoOwner { get; set; } = "Barragek0";
     public string GitHubRepoName { get; set; } = "RuneshapePriceChecker";

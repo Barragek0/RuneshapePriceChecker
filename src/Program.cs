@@ -21,6 +21,7 @@ var host = Host.CreateDefaultBuilder(args)
     {
         config.SetBasePath(AppContext.BaseDirectory);
         config.AddJsonFile("config/appsettings.json", optional: false, reloadOnChange: false);
+        config.AddCommandLine(args);
     })
     .ConfigureServices((context, services) =>
     {
@@ -59,7 +60,6 @@ var host = Host.CreateDefaultBuilder(args)
 
         services.AddSingleton<Poe2WindowResolutionService>();
         services.AddSingleton<IPoe2WindowResolutionProvider>(sp => sp.GetRequiredService<Poe2WindowResolutionService>());
-        services.AddSingleton<IAdaptiveRowShiftState, AdaptiveRowShiftState>();
 
         services.AddSingleton<ILeagueWindowReader, OcrLeagueWindowReader>();
         services.AddSingleton<IOverlayRenderer, ConsoleOverlayRenderer>();
@@ -67,13 +67,15 @@ var host = Host.CreateDefaultBuilder(args)
 
         services.AddHostedService(sp => sp.GetRequiredService<Poe2WindowResolutionService>());
         services.AddHostedService<SettingsController>();
-        services.AddHostedService<OcrCaptureBoundsOverlayService>();
+        services.AddSingleton<OcrCaptureBoundsOverlayService>();
+        services.AddHostedService(sp => sp.GetRequiredService<OcrCaptureBoundsOverlayService>());
         services.AddHostedService<PricingCacheRefreshWorker>();
         services.AddHostedService<LeaguePricingWorker>();
     })
     .ConfigureLogging(logging =>
     {
         logging.ClearProviders();
+        logging.SetMinimumLevel(LogLevel.Debug);
         logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
         logging.AddConsole(options =>
         {

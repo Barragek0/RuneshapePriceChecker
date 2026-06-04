@@ -24,7 +24,7 @@ public sealed class PricingCacheRefreshWorker(
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Pricing cache refresh failed.");
+                logger.LogError(ex, "Pricing cache refresh failed.");
             }
 
             var delay = _options.CurrentValue.RefreshInterval;

@@ -323,6 +323,12 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient, IOption
                 continue;
             }
 
+            var suffix = normalizedItemName[family.Length..].Trim();
+            if (suffix.Length > 0)
+            {
+                return false;
+            }
+
             if (_uncutGemRanges.TryGetValue(family, out range))
             {
                 return true;

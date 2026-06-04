@@ -42,6 +42,7 @@ public sealed class Poe2WindowResolutionService(
     private volatile bool _isPoe2WindowForeground;
     private bool? _lastForegroundState;
     private string? _unsupportedResolutionPopupShownForKey;
+    private string? _untestedResolutionKeyShown;
 
     public OcrCaptureRegion? CurrentCaptureRegion => _currentCaptureRegion;
 
@@ -148,6 +149,7 @@ public sealed class Poe2WindowResolutionService(
         }
 
         _unsupportedResolutionPopupShownForKey = null;
+        _untestedResolutionKeyShown = null;
 
         if (!TryCreateWindowRelativeRegion(topLeft, width, height, profile, out var region, out var validationError))
         {
@@ -170,6 +172,8 @@ public sealed class Poe2WindowResolutionService(
         {
             return;
         }
+
+        ShowUntestedResolutionPopupIfNeeded(resolutionKey, profile);
 
         _currentResolutionKey = resolutionKey;
         _currentCaptureRegion = region;
@@ -299,6 +303,39 @@ public sealed class Poe2WindowResolutionService(
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Failed to display unsupported resolution popup.");
+        }
+    }
+
+    private void ShowUntestedResolutionPopupIfNeeded(string resolutionKey, OcrResolutionProfile profile)
+    {
+        if (profile.Confirmed)
+            return;
+
+        if (string.Equals(_untestedResolutionKeyShown, resolutionKey, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        _untestedResolutionKeyShown = resolutionKey;
+
+        var message =
+            $"This resolution ({resolutionKey}) hasn't been tested with RuneshapePriceChecker yet.{Environment.NewLine}{Environment.NewLine}" +
+            "OCR capture may not work correctly and the capture region might need a small manual tweak." +
+            $"{Environment.NewLine}{Environment.NewLine}" +
+            "If the tool isn't picking up text properly on your setup, there's a step-by-step guide you can follow to tune it:" +
+            $"{Environment.NewLine}See ADDING_A_RESOLUTION.md in the tool folder.";
+
+        try
+        {
+            MessageBox.Show(
+                message,
+                "RuneshapePriceChecker - Untested Resolution",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning,
+                MessageBoxDefaultButton.Button1,
+                MessageBoxOptions.DefaultDesktopOnly);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to display untested resolution popup.");
         }
     }
 

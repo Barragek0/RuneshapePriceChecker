@@ -16,28 +16,21 @@ public sealed class OcrLeagueWindowReader(
     IOptionsMonitor<OcrOptions> options,
     IOptionsMonitor<AppOptions> appOptions,
     IPoe2WindowResolutionProvider windowResolutionProvider,
-    IAdaptiveRowShiftState adaptiveRowShiftState,
     ILogger<OcrLeagueWindowReader> logger) : ILeagueWindowReader
 {
     private sealed record DebugCaptureContext(string DirectoryPath);
 
     private readonly IOptionsMonitor<OcrOptions> _options = options;
     private readonly IOptionsMonitor<AppOptions> _appOptions = appOptions;
-    private readonly IAdaptiveRowShiftState _adaptiveRowShiftState = adaptiveRowShiftState;
     private static readonly Regex MultiWhitespace = new("\\s+", RegexOptions.Compiled);
-    private static readonly Regex NonNameChars = new("[^-A-Za-z0-9'’ ]+", RegexOptions.Compiled);
-    private static readonly Regex QuantityPrefixToken = new("^(?<quantity>[A-Za-z0-9|]{1,2})\\s*[xX]\\b", RegexOptions.Compiled);
-    private static readonly Regex LeadingQuantityDigits = new("(?<quantity>\\d{1,2})\\s*[xX]?", RegexOptions.Compiled);
-    private static readonly Regex LeadingGuardNumberToken = new("^\\s*(?<num>\\d{1,2})(?:\\D.*)?$", RegexOptions.Compiled);
-    private const int DefaultAdaptiveShiftProbeWidthPx = 26;
-    private const int DefaultAdaptiveShiftStepPx = 35;
-    private const int DefaultAdaptiveShiftProbeMinDarkPixels = 20;
-    private const int MaxParallelRowOcr = 4;
+    private static readonly Regex NonNameChars = new("[^-A-Za-z0-9'� ]+", RegexOptions.Compiled);
     private bool _tesseractUnavailable;
     private bool _windowCaptureUnavailableLogged;
     private bool _waitingForWindowContextLogged;
     private bool _waitingForForegroundWindowLogged;
     private bool _waitingForLeagueListingPanelLogged;
+    private int[] _lastRowYPositions = [];
+    private bool _lastInterfaceDetected = true;
     private bool _debugImageDirectoryLogged;
     private bool _tesseractExecutionConfirmedLogged;
     private string _lastCaptureMethod = string.Empty;
@@ -46,12 +39,10 @@ public sealed class OcrLeagueWindowReader(
     public LeagueWindowSnapshot ReadSnapshot()
     {
         var capturedAt = DateTimeOffset.UtcNow;
-        var adaptiveParams = GetAdaptiveParams(windowResolutionProvider.CurrentResolutionProfile);
 
         if (_tesseractUnavailable)
         {
-            _adaptiveRowShiftState.Update([], adaptiveParams.StepPx, false);
-            return new LeagueWindowSnapshot(Array.Empty<string>(), capturedAt);
+            return new LeagueWindowSnapshot(Array.Empty<string>(), capturedAt, InterfaceDetected: _lastInterfaceDetected);
         }
 
         try
@@ -59,24 +50,29 @@ public sealed class OcrLeagueWindowReader(
             var rawText = CaptureAndRecognize(out var attemptedRecognition);
             if (!attemptedRecognition)
             {
-                _adaptiveRowShiftState.Update([], adaptiveParams.StepPx, false);
-                return new LeagueWindowSnapshot(Array.Empty<string>(), capturedAt);
+                return new LeagueWindowSnapshot(Array.Empty<string>(), capturedAt, InterfaceDetected: _lastInterfaceDetected);
             }
 
-            if (_appOptions.CurrentValue.EnableDebugLogging && !_tesseractExecutionConfirmedLogged)
+            if (_appOptions.CurrentValue.DebugLogging && !_tesseractExecutionConfirmedLogged)
             {
                 _tesseractExecutionConfirmedLogged = true;
-                logger.LogInformation("OCR engine confirmed: tesseract executed successfully.");
+                logger.LogDebug("OCR engine confirmed: tesseract executed successfully.");
             }
 
             var lines = ExtractLikelyItemNames(rawText);
-            if (_appOptions.CurrentValue.EnableDebugLogging)
+            if (_appOptions.CurrentValue.DebugLogging)
             {
-                var items = lines.Count == 0 ? "<none>" : string.Join(" | ", lines);
-                logger.LogInformation("OCR detected {Count} items: {Items}", lines.Count, items);
+                var yPositions = _lastRowYPositions;
+                var items = lines.Count == 0
+                    ? "<none>"
+                    : string.Join(" | ", lines.Select((line, i) =>
+                        i < yPositions.Length
+                            ? $"{line} @Y={yPositions[i]}"
+                            : line));
+                logger.LogDebug("OCR detected {Count} items: {Items}", lines.Count, items);
             }
 
-            return new LeagueWindowSnapshot(lines, capturedAt);
+            return new LeagueWindowSnapshot(lines, capturedAt, _lastRowYPositions, InterfaceDetected: true);
         }
         catch (FileNotFoundException ex)
         {
@@ -84,14 +80,12 @@ public sealed class OcrLeagueWindowReader(
             logger.LogWarning(
                 "OCR disabled: {Reason} If startup auto-install did not complete, install Tesseract and restart RuneshapePriceChecker.",
                 ex.Message);
-            _adaptiveRowShiftState.Update([], adaptiveParams.StepPx, false);
-            return new LeagueWindowSnapshot(Array.Empty<string>(), capturedAt);
+            return new LeagueWindowSnapshot(Array.Empty<string>(), capturedAt, InterfaceDetected: _lastInterfaceDetected);
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "OCR capture/recognition failed.");
-            _adaptiveRowShiftState.Update([], adaptiveParams.StepPx, false);
-            return new LeagueWindowSnapshot(Array.Empty<string>(), capturedAt);
+            logger.LogError(ex, "OCR capture/recognition failed.");
+            return new LeagueWindowSnapshot(Array.Empty<string>(), capturedAt, InterfaceDetected: _lastInterfaceDetected);
         }
     }
 
@@ -99,7 +93,6 @@ public sealed class OcrLeagueWindowReader(
     {
         attemptedRecognition = false;
         var options = _options.CurrentValue;
-        var adaptiveParams = GetAdaptiveParams(windowResolutionProvider.CurrentResolutionProfile);
         if (options.SaveDebugImages)
         {
             EnsureDebugImageDirectoryExists(options);
@@ -107,11 +100,11 @@ public sealed class OcrLeagueWindowReader(
 
         if (!windowResolutionProvider.IsPoe2WindowForeground || !IsPoe2ForegroundNow())
         {
-            _adaptiveRowShiftState.Update([], adaptiveParams.StepPx, false);
-            if (_appOptions.CurrentValue.EnableDebugLogging && !_waitingForForegroundWindowLogged)
+            _lastInterfaceDetected = false;
+            if (_appOptions.CurrentValue.DebugLogging && !_waitingForForegroundWindowLogged)
             {
                 _waitingForForegroundWindowLogged = true;
-                logger.LogInformation("OCR paused: waiting for Path of Exile 2 to be the active foreground window.");
+                logger.LogDebug("OCR paused: waiting for Path of Exile 2 to be the active foreground window.");
             }
 
             return string.Empty;
@@ -121,11 +114,10 @@ public sealed class OcrLeagueWindowReader(
 
         if (options.UseWindowClientCapture && windowResolutionProvider.CurrentWindowCaptureContext is null)
         {
-            _adaptiveRowShiftState.Update([], adaptiveParams.StepPx, false);
-            if (_appOptions.CurrentValue.EnableDebugLogging && !_waitingForWindowContextLogged)
+            if (_appOptions.CurrentValue.DebugLogging && !_waitingForWindowContextLogged)
             {
                 _waitingForWindowContextLogged = true;
-                logger.LogInformation("OCR warm-up: waiting for PoE2 window capture context before first scan.");
+                logger.LogDebug("OCR warm-up: waiting for PoE2 window capture context before first scan.");
             }
 
             return string.Empty;
@@ -137,20 +129,20 @@ public sealed class OcrLeagueWindowReader(
         ValidateRegion(region);
 
         using var capturedBitmap = CaptureBitmap(region, out var captureMethod, options);
-        if (_appOptions.CurrentValue.EnableDebugLogging &&
+        if (_appOptions.CurrentValue.DebugLogging &&
             !string.Equals(_lastCaptureMethod, captureMethod, StringComparison.OrdinalIgnoreCase))
         {
-            _lastCaptureMethod = captureMethod;
-            logger.LogInformation("OCR capture source active: {CaptureMethod}.", captureMethod);
+            logger.LogDebug("OCR capture source active: {CaptureMethod}.", captureMethod);
         }
+
+        _lastCaptureMethod = captureMethod;
 
         if (!IsLeaguePanelAnchorColorMatch(capturedBitmap, options, out var anchorSignal))
         {
-            _adaptiveRowShiftState.Update([], adaptiveParams.StepPx, false);
-            if (_appOptions.CurrentValue.EnableDebugLogging && !_waitingForLeagueListingPanelLogged)
+            if (_appOptions.CurrentValue.DebugLogging && !_waitingForLeagueListingPanelLogged)
             {
                 _waitingForLeagueListingPanelLogged = true;
-                logger.LogInformation(
+                logger.LogDebug(
                     "OCR paused: waiting for league listing panel anchor color. Signal X={X} Y={Y} RGB=({R},{G},{B}) L={Luminance} Spread={Spread} Distance={Distance:F1}.",
                     anchorSignal.X,
                     anchorSignal.Y,
@@ -162,21 +154,19 @@ public sealed class OcrLeagueWindowReader(
                     anchorSignal.DistanceToTarget);
             }
 
+            _lastInterfaceDetected = false;
             return string.Empty;
         }
 
         _waitingForLeagueListingPanelLogged = false;
-
-        using var ocrBitmap = options.EnableImagePreprocessing
-            ? PreprocessForOcr(capturedBitmap, options)
-            : (Bitmap)capturedBitmap.Clone();
+        _lastInterfaceDetected = true;
 
         var debugContext = options.SaveDebugImages
-            ? TryStartDebugCapture(capturedBitmap, ocrBitmap, region, captureMethod)
+            ? TryStartDebugCapture(capturedBitmap, region, captureMethod)
             : null;
 
         attemptedRecognition = true;
-        return ExecuteTesseractByRows(ocrBitmap, debugContext, options);
+        return ExecuteTesseractAutoLayout(capturedBitmap, debugContext, options);
     }
 
     private bool IsPoe2ForegroundNow()
@@ -197,134 +187,6 @@ public sealed class OcrLeagueWindowReader(
                NativeMethods.AreWindowFamilyRelated(context.WindowHandle, foregroundHandle);
     }
 
-    private string ExecuteTesseractByRows(Bitmap bitmap, DebugCaptureContext? debugContext, OcrOptions options)
-    {
-        var profile = windowResolutionProvider.CurrentResolutionProfile;
-        var adaptiveParams = GetAdaptiveParams(profile);
-        var rowTextHeight = profile?.RowTextHeight ?? options.RowTextHeight;
-        var rowGapHeight = profile?.RowGapHeight ?? options.RowGapHeight;
-        var rowLateOffsetStartRow = profile?.RowLateOffsetStartRow ?? int.MaxValue;
-        var rowLateOffsetStepRows = profile?.RowLateOffsetStepRows ?? 1;
-        var rowLateOffsetStepPx = profile?.RowLateOffsetStepPx ?? 0;
-        var adaptiveDecision = ComputeAdaptiveShiftStartRows(
-            bitmap,
-            debugContext,
-            options,
-            rowTextHeight,
-            rowGapHeight,
-            rowLateOffsetStartRow,
-            rowLateOffsetStepRows,
-            rowLateOffsetStepPx,
-            adaptiveParams.ProbeWidthPx,
-            adaptiveParams.StepPx,
-            adaptiveParams.ProbeMinDarkPixels);
-        _adaptiveRowShiftState.Update(
-            adaptiveDecision.ShiftStartRows,
-            adaptiveParams.StepPx,
-            adaptiveDecision.ShiftStartRows.Count > 0);
-        LogAdaptiveShiftDecision(adaptiveDecision, adaptiveParams);
-
-        var rowRects = OcrRowLayout.BuildRowRectangles(
-            bitmap.Width,
-            bitmap.Height,
-            options.OcrRowCount,
-            options.UseFixedRowGeometry,
-            options.RowStartOffsetY,
-            rowTextHeight,
-            rowGapHeight,
-            rowLateOffsetStartRow,
-            rowLateOffsetStepRows,
-            rowLateOffsetStepPx,
-            adaptiveDecision.ShiftStartRows,
-            adaptiveParams.StepPx);
-        if (rowRects.Count == 1)
-        {
-            using var cleaned = PrepareRowBitmapForOcr(bitmap, options);
-            using var upscaled = UpscaleForOcr(cleaned, options.RowUpscaleFactor);
-            using var bordered = AddWhiteBorder(upscaled, 2);
-            if (debugContext is not null)
-            {
-                TrySaveRowDebugImage(debugContext, upscaled, 0);
-            }
-
-            var rowText = ExecuteTesseractForBitmap(bordered, options.PageSegmentationMode, options).Trim();
-            rowText = TryRefineAmbiguousQuantityPrefix(rowText, upscaled, options);
-            return rowText;
-        }
-
-        var rowBitmaps = new Bitmap[rowRects.Count];
-        try
-        {
-            for (var rowIndex = 0; rowIndex < rowRects.Count; rowIndex++)
-            {
-                rowBitmaps[rowIndex] = bitmap.Clone(rowRects[rowIndex], PixelFormat.Format24bppRgb);
-            }
-
-            var rowTexts = new string[rowRects.Count];
-            var parallelism = Math.Clamp(Math.Min(Environment.ProcessorCount, MaxParallelRowOcr), 1, MaxParallelRowOcr);
-            Parallel.For(
-                0,
-                rowRects.Count,
-                new ParallelOptions { MaxDegreeOfParallelism = parallelism },
-                rowIndex =>
-                {
-                    using var rowBitmap = rowBitmaps[rowIndex];
-                    using var cleanedRow = PrepareRowBitmapForOcr(rowBitmap, options);
-                    using var upscaledRow = UpscaleForOcr(cleanedRow, options.RowUpscaleFactor);
-                    using var borderedRow = AddWhiteBorder(upscaledRow, 2);
-                    if (debugContext is not null)
-                    {
-                        TrySaveRowDebugImage(debugContext, upscaledRow, rowIndex);
-                    }
-
-                    var rowText = ExecuteTesseractForBitmap(borderedRow, options.RowPageSegmentationMode, options).Trim();
-                    rowText = TryRefineAmbiguousQuantityPrefix(rowText, upscaledRow, options);
-                    rowTexts[rowIndex] = rowText;
-                });
-
-            return string.Join(
-                Environment.NewLine,
-                rowTexts.Where(static text => !string.IsNullOrWhiteSpace(text)));
-        }
-        finally
-        {
-            for (var i = 0; i < rowBitmaps.Length; i++)
-            {
-                rowBitmaps[i]?.Dispose();
-            }
-        }
-    }
-
-    private void TrySaveRowDebugImage(DebugCaptureContext context, Bitmap rowBitmap, int rowIndex)
-    {
-        try
-        {
-            var rowPath = Path.Combine(
-                context.DirectoryPath,
-                $"{rowIndex + 1}.png");
-            SaveBitmapWithOverwrite(rowBitmap, rowPath);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to save OCR row debug image {RowIndex}.", rowIndex + 1);
-        }
-    }
-
-    private void TrySaveBackupGuardDebugImage(DebugCaptureContext context, Bitmap guardBitmap, int rowNumber)
-    {
-        try
-        {
-            var rowPath = Path.Combine(
-                context.DirectoryPath,
-                $"{rowNumber}bg.png");
-            SaveBitmapWithOverwrite(guardBitmap, rowPath);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to save OCR backup guard debug image for row {RowNumber}.", rowNumber);
-        }
-    }
-
     private static void SaveBitmapWithOverwrite(Bitmap bitmap, string path)
     {
         if (File.Exists(path))
@@ -333,6 +195,215 @@ public sealed class OcrLeagueWindowReader(
         }
 
         bitmap.Save(path, ImageFormat.Png);
+    }
+
+    private string ExecuteTesseractAutoLayout(Bitmap bitmap, DebugCaptureContext? debugContext, OcrOptions options)
+    {
+        using var masked = KeepBlackAndNeighbors(bitmap);
+        using var preprocessed = PreprocessForOcr(masked, options);
+        using var upscaled = UpscaleForOcr(preprocessed, options.RowUpscaleFactor);
+        using var bordered = AddWhiteBorder(upscaled, 2);
+
+        if (debugContext is not null)
+        {
+            SaveBitmapWithOverwrite(masked, Path.Combine(debugContext.DirectoryPath, "text-extract.png"));
+            SaveBitmapWithOverwrite(preprocessed, Path.Combine(debugContext.DirectoryPath, "preprocessed.png"));
+        }
+
+        var (text, lineYs) = ExecuteTesseractWithTsv(bordered, 3, options, options.RowUpscaleFactor);
+
+        var lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(static line => line.Trim())
+            .Where(static line => line.Length > 0)
+            .ToArray();
+
+        _lastRowYPositions = lineYs.Length > 0
+            ? lineYs
+            : ComputeRowPositions(preprocessed, lines.Length);
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private (string Text, int[] LineYPositions) ExecuteTesseractWithTsv(
+        Bitmap bitmap, int psm, OcrOptions options, int upscaleFactor)
+    {
+        var baseName = Path.Combine(Path.GetTempPath(), $"rpc-tsv-{Guid.NewGuid():N}");
+        var imagePath = baseName + ".png";
+        var tsvPath = baseName + ".tsv";
+        var txtPath = baseName + ".txt";
+        try
+        {
+            bitmap.Save(imagePath, ImageFormat.Png);
+
+            var args = $"\"{imagePath}\" \"{baseName}\" -l {options.Language} --oem 1 --psm {psm} -c preserve_interword_spaces=1 -c tessedit_create_tsv=1";
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = options.TesseractExePath,
+                Arguments = args,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = Process.Start(startInfo)
+                ?? throw new InvalidOperationException("Failed to start tesseract process.");
+
+            if (!process.WaitForExit(TimeSpan.FromSeconds(Math.Max(1, options.CommandTimeoutSeconds))))
+            {
+                try { process.Kill(entireProcessTree: true); } catch { }
+                throw new TimeoutException("OCR command timed out.");
+            }
+
+            var stderr = process.StandardError.ReadToEnd();
+            process.StandardOutput.ReadToEnd();
+
+            if (process.ExitCode != 0)
+                throw new InvalidOperationException($"Tesseract failed (exit code {process.ExitCode}): {stderr}");
+
+            var text = File.Exists(txtPath)
+                ? File.ReadAllText(txtPath)
+                : ExecuteTesseractForBitmap(bitmap, psm, options);
+
+            var lineYs = new List<int>();
+            if (File.Exists(tsvPath))
+            {
+                foreach (var tsvLine in File.ReadLines(tsvPath).Skip(1))
+                {
+                    var cols = tsvLine.Split('\t');
+                    if (cols.Length < 12 || cols[0] != "4") continue;
+                    if (int.TryParse(cols[7], out var top) && int.TryParse(cols[9], out var h))
+                        lineYs.Add((top - 12) / upscaleFactor);
+                }
+            }
+
+            return (text, lineYs.ToArray());
+        }
+        finally
+        {
+            TryDelete(imagePath);
+            TryDelete(txtPath);
+            TryDelete(tsvPath);
+        }
+    }
+
+    private static readonly int[] _emptyRowPositions = [];
+
+    private static int[] ComputeRowPositions(Bitmap binarized, int itemCount)
+    {
+        var width = binarized.Width;
+        var height = binarized.Height;
+        var rect = new Rectangle(0, 0, width, height);
+        var data = binarized.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+        try
+        {
+            var stride = data.Stride;
+            var length = Math.Abs(stride) * height;
+            var bytes = new byte[length];
+            Marshal.Copy(data.Scan0, bytes, 0, length);
+
+            var blackCounts = new int[height];
+            for (var y = 0; y < height; y++)
+            {
+                var rowOffset = y * stride;
+                for (var x = 0; x < width; x++)
+                {
+                    if (bytes[rowOffset + (x * 3)] == 0)
+                        blackCounts[y]++;
+                }
+            }
+
+            var threshold = Math.Max(1, width / 30);
+            var textTop = -1;
+            var textBottom = -1;
+            for (var y = 0; y < height; y++)
+            {
+                if (blackCounts[y] >= threshold) { if (textTop < 0) textTop = y; textBottom = y; }
+            }
+
+            if (textTop < 0) return _emptyRowPositions;
+
+            var rowH = (float)(textBottom - textTop + 1) / itemCount;
+            var positions = new int[itemCount];
+            for (var i = 0; i < itemCount; i++)
+                positions[i] = textTop + (int)((i + 0.5f) * rowH);
+            return positions;
+        }
+        finally
+        {
+            binarized.UnlockBits(data);
+        }
+    }
+
+    private static Bitmap KeepBlackAndNeighbors(Bitmap source)
+    {
+        var width = source.Width;
+        var height = source.Height;
+        var rect = new Rectangle(0, 0, width, height);
+        var srcData = source.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+        var stride = srcData.Stride;
+        var length = Math.Abs(stride) * height;
+        var srcBytes = new byte[length];
+        Marshal.Copy(srcData.Scan0, srcBytes, 0, length);
+        source.UnlockBits(srcData);
+
+        var keep = new bool[height, width];
+
+        for (var y = 0; y < height; y++)
+        {
+            var rowOffset = y * stride;
+            for (var x = 0; x < width; x++)
+            {
+                var index = rowOffset + (x * 3);
+                if (srcBytes[index] != 0 || srcBytes[index + 1] != 0 || srcBytes[index + 2] != 0)
+                    continue;
+
+                for (var dy = -5; dy <= 5; dy++)
+                {
+                    var ny = y + dy;
+                    if (ny < 0 || ny >= height) continue;
+                    for (var dx = -5; dx <= 5; dx++)
+                    {
+                        var nx = x + dx;
+                        if (nx < 0 || nx >= width) continue;
+                        keep[ny, nx] = true;
+                    }
+                }
+            }
+        }
+
+        var result = new Bitmap(width, height, PixelFormat.Format24bppRgb);
+        var dstData = result.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
+        var dstStride = dstData.Stride;
+        var dstLength = Math.Abs(dstStride) * height;
+        var dstBytes = new byte[dstLength];
+
+        for (var y = 0; y < height; y++)
+        {
+            var srcRow = y * stride;
+            var dstRow = y * dstStride;
+            for (var x = 0; x < width; x++)
+            {
+                var si = srcRow + (x * 3);
+                var di = dstRow + (x * 3);
+                if (keep[y, x])
+                {
+                    dstBytes[di] = srcBytes[si];
+                    dstBytes[di + 1] = srcBytes[si + 1];
+                    dstBytes[di + 2] = srcBytes[si + 2];
+                }
+                else
+                {
+                    dstBytes[di] = dstBytes[di + 1] = dstBytes[di + 2] = 255;
+                }
+            }
+        }
+
+        Marshal.Copy(dstBytes, 0, dstData.Scan0, dstLength);
+        result.UnlockBits(dstData);
+
+        return result;
     }
 
     private string ExecuteTesseractForBitmap(Bitmap bitmap, int psm, OcrOptions options)
@@ -764,7 +835,7 @@ public sealed class OcrLeagueWindowReader(
         }
     }
 
-    private DebugCaptureContext? TryStartDebugCapture(Bitmap rawImage, Bitmap processedImage, OcrCaptureRegion region, string captureMethod)
+    private DebugCaptureContext? TryStartDebugCapture(Bitmap rawImage, OcrCaptureRegion region, string captureMethod)
     {
         var options = _options.CurrentValue;
         var intervalSeconds = Math.Max(1, options.DebugImageIntervalSeconds);
@@ -788,26 +859,23 @@ public sealed class OcrLeagueWindowReader(
             }
 
             var rawPath = Path.Combine(directory, "raw.png");
-            var processedPath = Path.Combine(directory, "grayscale.png");
 
             SaveBitmapWithOverwrite(rawImage, rawPath);
-            SaveBitmapWithOverwrite(processedImage, processedPath);
 
             logger.LogInformation(
-                "Saved OCR debug images. Method={Method} Region=X={X} Y={Y} W={W} H={H} Raw={RawPath} Processed={ProcessedPath}. Row images overwrite as N.png and backup-guard probes overwrite as Nbg.png.",
+                "Saved OCR debug images. Method={Method} Region=X={X} Y={Y} W={W} H={H} Raw={RawPath}. Row images overwrite as N.png and backup-guard probes overwrite as Nbg.png.",
                 captureMethod,
                 region.X,
                 region.Y,
                 region.Width,
                 region.Height,
-                rawPath,
-                processedPath);
+                rawPath);
 
             return new DebugCaptureContext(directory);
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to save OCR debug image.");
+            logger.LogError(ex, "Failed to save OCR debug image.");
             return null;
         }
     }
@@ -838,7 +906,7 @@ public sealed class OcrLeagueWindowReader(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to create OCR debug image directory: {Path}", directory);
+            logger.LogError(ex, "Failed to create OCR debug image directory: {Path}", directory);
         }
     }
 
@@ -885,7 +953,8 @@ public sealed class OcrLeagueWindowReader(
             throw new InvalidOperationException($"Tesseract failed (exit code {process.ExitCode}): {stderr}");
         }
 
-        if (!string.IsNullOrWhiteSpace(stderr))
+        if (!string.IsNullOrWhiteSpace(stderr)
+            && _appOptions.CurrentValue.DebugLogging)
         {
             logger.LogDebug("Tesseract stderr: {stderr}", stderr.Trim());
         }
@@ -936,7 +1005,7 @@ public sealed class OcrLeagueWindowReader(
 
     private static string NormalizeOcrLine(string line)
     {
-        var normalized = line.Replace('’', '\'').Replace('`', '\'');
+        var normalized = line.Replace("�", "'").Replace('`', '\'');
         normalized = NonNameChars.Replace(normalized, " ");
         normalized = MultiWhitespace.Replace(normalized, " ").Trim();
 
@@ -975,141 +1044,6 @@ public sealed class OcrLeagueWindowReader(
         }
 
         return args.ToString();
-    }
-
-    private string TryRefineAmbiguousQuantityPrefix(string rowText, Bitmap upscaledRow, OcrOptions options)
-    {
-        if (string.IsNullOrWhiteSpace(rowText))
-        {
-            return string.Empty;
-        }
-
-        var prefixMatch = QuantityPrefixToken.Match(rowText.Trim());
-        if (!prefixMatch.Success)
-        {
-            return rowText;
-        }
-
-        var rawToken = prefixMatch.Groups["quantity"].Value;
-        if (int.TryParse(rawToken, out var parsedNumeric) && parsedNumeric > 0)
-        {
-            return rowText;
-        }
-
-        if (!IsAmbiguousQuantityToken(rawToken))
-        {
-            return rowText;
-        }
-
-        using var quantityProbe = BuildQuantityProbeBitmap(upscaledRow);
-        using var borderedProbe = AddWhiteBorder(quantityProbe, 2);
-        var quantityOcr = ExecuteTesseractForBitmap(
-            borderedProbe,
-            8,
-            options,
-            ["tessedit_char_whitelist=0123456789xX", "classify_bln_numeric_mode=1"]);
-        if (_appOptions.CurrentValue.EnableDebugLogging)
-        {
-            var normalizedProbeText = MultiWhitespace.Replace(quantityOcr, " ").Trim();
-            logger.LogInformation(
-                "OCR backup quantity refine check. PrefixToken='{PrefixToken}' RowText='{RowText}' ProbeText='{ProbeText}'.",
-                rawToken,
-                rowText.Trim(),
-                normalizedProbeText);
-        }
-
-        var quantityMatch = LeadingQuantityDigits.Match(quantityOcr.Trim());
-        if (quantityMatch.Success &&
-            int.TryParse(quantityMatch.Groups["quantity"].Value, out var quantity) &&
-            quantity > 0)
-        {
-            var suffix = rowText[prefixMatch.Length..].TrimStart();
-            if (_appOptions.CurrentValue.EnableDebugLogging)
-            {
-                logger.LogInformation(
-                    "OCR backup quantity refine applied. ParsedQuantity={Quantity} OriginalPrefix='{OriginalPrefix}'.",
-                    quantity,
-                    rawToken);
-            }
-
-            return string.IsNullOrWhiteSpace(suffix)
-                ? $"{quantity}x"
-                : $"{quantity}x {suffix}";
-        }
-
-        if (_appOptions.CurrentValue.EnableDebugLogging)
-        {
-            logger.LogInformation(
-                "OCR backup quantity refine skipped. Probe text did not parse into a leading number for prefix token '{PrefixToken}'.",
-                rawToken);
-        }
-
-        return rowText;
-    }
-
-    private static bool IsAmbiguousQuantityToken(string token)
-    {
-        if (string.IsNullOrWhiteSpace(token))
-        {
-            return false;
-        }
-
-        var normalized = token.Trim().ToUpperInvariant();
-        return normalized is "A" or "I" or "L" or "T" or "|" or "O" or "0" or "B" or "S";
-    }
-
-    private static Bitmap BuildQuantityProbeBitmap(Bitmap source)
-    {
-        var width = source.Width;
-        var height = source.Height;
-        var rect = new Rectangle(0, 0, width, height);
-        var data = source.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
-        try
-        {
-            var minX = width;
-            var minY = height;
-            var maxX = -1;
-            var maxY = -1;
-
-            var length = Math.Abs(data.Stride) * height;
-            var bytes = new byte[length];
-            Marshal.Copy(data.Scan0, bytes, 0, length);
-
-            for (var y = 0; y < height; y++)
-            {
-                var rowOffset = y * data.Stride;
-                for (var x = 0; x < width; x++)
-                {
-                    var luminance = bytes[rowOffset + (x * 3)];
-                    if (luminance > 128)
-                    {
-                        continue;
-                    }
-
-                    minX = Math.Min(minX, x);
-                    minY = Math.Min(minY, y);
-                    maxX = Math.Max(maxX, x);
-                    maxY = Math.Max(maxY, y);
-                }
-            }
-
-            if (maxX < minX || maxY < minY)
-            {
-                return (Bitmap)source.Clone();
-            }
-
-            var textWidth = maxX - minX + 1;
-            var probeWidth = Math.Clamp((textWidth / 3) + 8, 20, Math.Min(width - minX, 96));
-            var probeX = Math.Clamp(minX - 2, 0, Math.Max(0, width - probeWidth));
-            var probeY = Math.Clamp(minY - 2, 0, Math.Max(0, height - (maxY - minY + 5)));
-            var probeHeight = Math.Clamp((maxY - minY + 5), 10, height - probeY);
-            var probeRect = new Rectangle(probeX, probeY, probeWidth, probeHeight);
-            return source.Clone(probeRect, PixelFormat.Format24bppRgb);
-        }
-        finally
-        {
-            source.UnlockBits(data);
-        }
     }
 
     private static Bitmap AddWhiteBorder(Bitmap source, int borderPx)
@@ -1215,414 +1149,6 @@ public sealed class OcrLeagueWindowReader(
 
         return spread <= options.TextColorMaxChannelSpread;
     }
-
-    private sealed record AdaptiveShiftComputationResult(
-        HashSet<int> ShiftStartRows,
-        HashSet<int> SuppressedByQuantityPrefixRows,
-        bool DisabledByQuantityPrefixGuard,
-        IReadOnlyList<QuantityPrefixGuardRowObservation> GuardObservations);
-
-    private sealed record QuantityPrefixGuardRowObservation(
-        int RowNumber,
-        int RowY,
-        int ProbeWidthPx,
-        bool DarkSignal,
-        bool PrefixProbeRun,
-        bool StartsWithPrefix,
-        string ProbeText,
-        string Action,
-        bool RawRetryUsed,
-        string RawRetryPrimaryText,
-        string RawRetryText,
-        bool RawRetryStartsWithPrefix);
-
-    private sealed record QuantityPrefixProbeResult(
-        bool HasPrefix,
-        string ProbeText,
-        int ProbeWidthPx,
-        bool RawRetryUsed,
-        string RawRetryPrimaryText,
-        string RawRetryText,
-        bool RawRetryStartsWithPrefix);
-
-    private AdaptiveShiftComputationResult ComputeAdaptiveShiftStartRows(
-        Bitmap bitmap,
-        DebugCaptureContext? debugContext,
-        OcrOptions options,
-        int rowTextHeight,
-        int rowGapHeight,
-        int rowLateOffsetStartRow,
-        int rowLateOffsetStepRows,
-        int rowLateOffsetStepPx,
-        int probeWidthPx,
-        int stepPx,
-        int probeMinDarkPixels)
-    {
-        if (!options.UseFixedRowGeometry || bitmap.Width <= 0 || bitmap.Height <= 0)
-        {
-            return new AdaptiveShiftComputationResult([], [], false, []);
-        }
-
-        var shifts = new HashSet<int>();
-        var suppressedByQuantityPrefix = new HashSet<int>();
-        var guardObservations = new List<QuantityPrefixGuardRowObservation>(capacity: Math.Max(4, options.OcrRowCount));
-        var rgb = ReadRgbPixels(bitmap);
-        var cumulativeShift = 0;
-        var rowCount = Math.Max(1, options.OcrRowCount);
-        var probeWidth = Math.Min(Math.Max(1, probeWidthPx), bitmap.Width);
-
-        for (var rowIndex = 0; rowIndex < rowCount; rowIndex++)
-        {
-            var rowNumber = rowIndex + 1;
-            var y = options.RowStartOffsetY + (rowIndex * (rowTextHeight + rowGapHeight));
-
-            if (rowLateOffsetStepPx > 0 && rowNumber >= rowLateOffsetStartRow)
-            {
-                var stepIndex = ((rowNumber - rowLateOffsetStartRow) / Math.Max(1, rowLateOffsetStepRows)) + 1;
-                y += stepIndex * rowLateOffsetStepPx;
-            }
-
-            y += cumulativeShift;
-            if (y >= bitmap.Height)
-            {
-                guardObservations.Add(new QuantityPrefixGuardRowObservation(
-                    rowNumber,
-                    y,
-                    0,
-                    false,
-                    false,
-                    false,
-                    string.Empty,
-                    "row-out-of-bounds-stop",
-                    false,
-                    string.Empty,
-                    string.Empty,
-                    false));
-                break;
-            }
-
-            var probeHeight = Math.Min(Math.Max(1, rowTextHeight), bitmap.Height - y);
-            if (probeHeight <= 0)
-            {
-                guardObservations.Add(new QuantityPrefixGuardRowObservation(
-                    rowNumber,
-                    y,
-                    0,
-                    false,
-                    false,
-                    false,
-                    string.Empty,
-                    "invalid-probe-height-stop",
-                    false,
-                    string.Empty,
-                    string.Empty,
-                    false));
-                break;
-            }
-
-            var hasDarkSignal = HasDarkTextSignal(rgb, bitmap.Width, y, probeWidth, probeHeight, options, probeMinDarkPixels);
-
-            if (!hasDarkSignal)
-            {
-                guardObservations.Add(new QuantityPrefixGuardRowObservation(
-                    rowNumber,
-                    y,
-                    0,
-                    false,
-                    false,
-                    false,
-                    string.Empty,
-                    "no-dark-signal",
-                    false,
-                    string.Empty,
-                    string.Empty,
-                    false));
-                continue;
-            }
-
-            var prefixProbe = ProbeQuantityPrefix(bitmap, debugContext, rowNumber, y, probeWidth, probeHeight, options);
-            var normalizedProbeText = MultiWhitespace.Replace(prefixProbe.ProbeText ?? string.Empty, " ").Trim();
-            var compactProbeText = normalizedProbeText.Length > 32
-                ? normalizedProbeText[..32]
-                : normalizedProbeText;
-
-            if (prefixProbe.HasPrefix)
-            {
-                suppressedByQuantityPrefix.Add(rowNumber);
-                guardObservations.Add(new QuantityPrefixGuardRowObservation(
-                    rowNumber,
-                    y,
-                    prefixProbe.ProbeWidthPx,
-                    true,
-                    true,
-                    true,
-                    compactProbeText,
-                    "suppressed-by-prefix",
-                    prefixProbe.RawRetryUsed,
-                    prefixProbe.RawRetryPrimaryText,
-                    prefixProbe.RawRetryText,
-                    prefixProbe.RawRetryStartsWithPrefix));
-                continue;
-            }
-
-            shifts.Add(rowNumber);
-            cumulativeShift += stepPx;
-            guardObservations.Add(new QuantityPrefixGuardRowObservation(
-                rowNumber,
-                y,
-                prefixProbe.ProbeWidthPx,
-                true,
-                true,
-                false,
-                compactProbeText,
-                "shift-applied",
-                prefixProbe.RawRetryUsed,
-                prefixProbe.RawRetryPrimaryText,
-                prefixProbe.RawRetryText,
-                prefixProbe.RawRetryStartsWithPrefix));
-        }
-
-        var disabledByQuantityPrefixGuard = suppressedByQuantityPrefix.Count > 0 && shifts.Count == 0;
-
-        return new AdaptiveShiftComputationResult(
-            shifts,
-            suppressedByQuantityPrefix,
-            disabledByQuantityPrefixGuard,
-            guardObservations);
-    }
-
-    private QuantityPrefixProbeResult ProbeQuantityPrefix(
-        Bitmap bitmap,
-        DebugCaptureContext? debugContext,
-        int rowNumber,
-        int y,
-        int probeWidth,
-        int probeHeight,
-        OcrOptions options)
-    {
-        try
-        {
-            var x = 0;
-            var width = Math.Clamp(probeWidth, 1, bitmap.Width - x);
-            var height = Math.Clamp(probeHeight, 1, bitmap.Height - y);
-            var probeRect = new Rectangle(x, y, width, height);
-
-            using var rowProbe = bitmap.Clone(probeRect, PixelFormat.Format24bppRgb);
-            if (debugContext is not null)
-            {
-                TrySaveBackupGuardDebugImage(debugContext, rowProbe, rowNumber);
-            }
-
-            if (!PrefixProbeHasTextColorPixels(rowProbe, options))
-            {
-                return new QuantityPrefixProbeResult(false, string.Empty, width, false, string.Empty, string.Empty, false);
-            }
-
-            using var cleanedProbe = PrepareRowBitmapForOcr(rowProbe, options);
-            using var upscaledProbe = UpscaleForOcr(cleanedProbe, options.RowUpscaleFactor);
-            using var borderedProbe = AddWhiteBorder(upscaledProbe, 2);
-            var probeText = ExecuteTesseractForBitmap(
-                borderedProbe,
-                8,
-                options,
-                ["tessedit_char_whitelist=0123456789xX", "classify_bln_numeric_mode=1"]);
-
-            var hasPrefix = MatchesQuantityPrefixGuard(probeText);
-            var rawRetryUsed = false;
-            var rawRetryPrimaryText = string.Empty;
-            var rawRetryText = string.Empty;
-            var rawRetryStartsWithPrefix = false;
-            if (!hasPrefix)
-            {
-                var compactPrimary = MultiWhitespace.Replace(probeText, " ").Trim();
-                if (compactPrimary.Length <= 2)
-                {
-                    using var upscaledRawProbe = UpscaleForOcr(rowProbe, options.RowUpscaleFactor);
-                    using var borderedRawProbe = AddWhiteBorder(upscaledRawProbe, 2);
-                    var rawProbeText = ExecuteTesseractForBitmap(
-                        borderedRawProbe,
-                        7,
-                        options,
-                        ["tessedit_char_whitelist=0123456789xX", "classify_bln_numeric_mode=1"]);
-
-                    var rawHasPrefix = MatchesQuantityPrefixGuard(rawProbeText);
-                    rawRetryUsed = true;
-                    rawRetryPrimaryText = compactPrimary;
-                    rawRetryText = MultiWhitespace.Replace(rawProbeText, " ").Trim();
-                    rawRetryStartsWithPrefix = rawHasPrefix;
-                    if (rawHasPrefix || string.IsNullOrWhiteSpace(compactPrimary))
-                    {
-                        probeText = rawProbeText;
-                        hasPrefix = rawHasPrefix;
-                    }
-                }
-            }
-
-            return new QuantityPrefixProbeResult(
-                hasPrefix,
-                probeText,
-                width,
-                rawRetryUsed,
-                rawRetryPrimaryText,
-                rawRetryText,
-                rawRetryStartsWithPrefix);
-        }
-        catch (Exception ex)
-        {
-            if (_appOptions.CurrentValue.EnableDebugLogging)
-            {
-                logger.LogDebug(ex, "Quantity-prefix guard probe OCR failed; adaptive fallback will use dark-signal heuristic.");
-            }
-
-            return new QuantityPrefixProbeResult(false, string.Empty, Math.Clamp(probeWidth, 1, bitmap.Width), false, string.Empty, string.Empty, false);
-        }
-    }
-
-    private static bool HasDarkTextSignal(
-        byte[] rgbPixels,
-        int bitmapWidth,
-        int y,
-        int probeWidth,
-        int probeHeight,
-        OcrOptions options,
-        int probeMinDarkPixels)
-    {
-        var darkPixels = 0;
-
-        for (var py = 0; py < probeHeight; py++)
-        {
-            var rowOffset = (y + py) * bitmapWidth;
-            for (var px = 0; px < probeWidth; px++)
-            {
-                var pixelIndex = rowOffset + px;
-                if (IsLikelyTextColor(rgbPixels, pixelIndex, options))
-                {
-                    darkPixels++;
-                    if (darkPixels >= Math.Max(1, probeMinDarkPixels))
-                    {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        return false;
-    }
-
-    private static bool PrefixProbeHasTextColorPixels(Bitmap probeBitmap, OcrOptions options)
-    {
-        var rgb = ReadRgbPixels(probeBitmap);
-        var textColorPixels = 0;
-        var totalPixels = probeBitmap.Width * probeBitmap.Height;
-        var required = Math.Max(30, totalPixels / 4);
-
-        for (var i = 0; i < totalPixels; i++)
-        {
-            if (IsLikelyTextColor(rgb, i, options))
-            {
-                textColorPixels++;
-                if (textColorPixels >= required)
-                {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    private static bool MatchesQuantityPrefixGuard(string probeText)
-    {
-        var trimmed = probeText?.Trim() ?? string.Empty;
-        if (trimmed.Length == 0)
-        {
-            return false;
-        }
-
-        if (trimmed[0] is 'x' or 'X')
-        {
-            return true;
-        }
-
-        // OCR sometimes drops the trailing x in narrow guard probes; accept only clean leading 1..10.
-        var numberMatch = LeadingGuardNumberToken.Match(trimmed);
-        if (!numberMatch.Success)
-        {
-            return false;
-        }
-
-        if (!int.TryParse(numberMatch.Groups["num"].Value, out var number))
-        {
-            return false;
-        }
-
-        return number is >= 1 and <= 10;
-    }
-
-    private void LogAdaptiveShiftDecision(
-        AdaptiveShiftComputationResult decision,
-        (int ProbeWidthPx, int StepPx, int ProbeMinDarkPixels) adaptiveParams)
-    {
-        if (!_appOptions.CurrentValue.EnableDebugLogging)
-        {
-            return;
-        }
-
-        var activeRows = decision.ShiftStartRows.Count == 0
-            ? "<none>"
-            : string.Join(",", decision.ShiftStartRows.OrderBy(static row => row));
-        var suppressedRows = decision.SuppressedByQuantityPrefixRows.Count == 0
-            ? "<none>"
-            : string.Join(",", decision.SuppressedByQuantityPrefixRows.OrderBy(static row => row));
-        var guardSummary = decision.GuardObservations.Count == 0
-            ? "<none>"
-            : string.Join(
-                Environment.NewLine + "  - ",
-                decision.GuardObservations.Select(
-                    static observation =>
-                        $"r{observation.RowNumber}: y={observation.RowY}, dark={observation.DarkSignal}, probeRun={observation.PrefixProbeRun}, prefix={observation.StartsWithPrefix}, w={observation.ProbeWidthPx}, text='{observation.ProbeText}', action={observation.Action}, rawRetryUsed={observation.RawRetryUsed}, rawPrimary='{observation.RawRetryPrimaryText}', rawText='{observation.RawRetryText}', rawPrefix={observation.RawRetryStartsWithPrefix}"));
-
-        if (decision.GuardObservations.Count > 0)
-        {
-            guardSummary = "  - " + guardSummary;
-        }
-
-        if (decision.ShiftStartRows.Count > 0)
-        {
-            logger.LogInformation(
-                "Adaptive row-bump fallback ENABLED. Shift rows={ActiveRows}; " + Environment.NewLine +
-                "step={StepPx}px; probeWidth={ProbeWidth}px; darkPixelThreshold={MinDark}. " + Environment.NewLine +
-                "Quantity-prefix guard suppressed rows={SuppressedRows}. " + Environment.NewLine +
-                "Quantity-prefix guard summary=" + Environment.NewLine +
-                "{GuardSummary}.",
-                activeRows,
-                adaptiveParams.StepPx,
-                adaptiveParams.ProbeWidthPx,
-                adaptiveParams.ProbeMinDarkPixels,
-                suppressedRows,
-                guardSummary);
-            return;
-        }
-
-        logger.LogInformation(
-            "Adaptive row-bump fallback DISABLED. No shift rows active. " + Environment.NewLine +
-            "Quantity-prefix guard suppressed rows={SuppressedRows}; guardDisabledFallback={GuardDisabled}. " + Environment.NewLine +
-            "Quantity-prefix guard summary=" + Environment.NewLine +
-            "{GuardSummary}.",
-            suppressedRows,
-            decision.DisabledByQuantityPrefixGuard,
-            guardSummary);
-    }
-
-    private static (int ProbeWidthPx, int StepPx, int ProbeMinDarkPixels) GetAdaptiveParams(OcrResolutionProfile? profile)
-    {
-        var probeWidthPx = profile?.AdaptiveShiftProbeWidthPx ?? DefaultAdaptiveShiftProbeWidthPx;
-        var stepPx = profile?.AdaptiveShiftStepPx ?? DefaultAdaptiveShiftStepPx;
-        var probeMinDarkPixels = profile?.AdaptiveShiftProbeMinDarkPixels ?? DefaultAdaptiveShiftProbeMinDarkPixels;
-
-        return (Math.Max(1, probeWidthPx), Math.Max(1, stepPx), Math.Max(1, probeMinDarkPixels));
-    }
-
     private static int GetLocalMean(int[] integral, int width, int height, int x, int y, int radius)
     {
         var integralWidth = width + 1;
@@ -1707,196 +1233,6 @@ public sealed class OcrLeagueWindowReader(
         return upscaled;
     }
 
-    private static Bitmap PrepareRowBitmapForOcr(Bitmap source, OcrOptions options)
-    {
-        var cleaned = (Bitmap)source.Clone();
-
-        var rect = new Rectangle(0, 0, cleaned.Width, cleaned.Height);
-        var data = cleaned.LockBits(rect, ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
-        try
-        {
-            var width = data.Width;
-            var height = data.Height;
-            var stride = data.Stride;
-
-            var length = Math.Abs(stride) * height;
-            var bytes = new byte[length];
-            Marshal.Copy(data.Scan0, bytes, 0, length);
-
-            var binary = new byte[width * height];
-            for (var y = 0; y < height; y++)
-            {
-                var rowOffset = y * stride;
-                var binaryOffset = y * width;
-                for (var x = 0; x < width; x++)
-                {
-                    binary[binaryOffset + x] = bytes[rowOffset + (x * 3)] < 128 ? (byte)0 : (byte)255;
-                }
-            }
-
-            ApplyRowNoiseMask(binary, width, height, options);
-            RemoveSmallBlackComponents(binary, width, height, Math.Max(0, options.RowSpeckleMaxArea));
-
-            for (var y = 0; y < height; y++)
-            {
-                var rowOffset = y * stride;
-                var binaryOffset = y * width;
-                for (var x = 0; x < width; x++)
-                {
-                    var index = rowOffset + (x * 3);
-                    var value = binary[binaryOffset + x];
-                    bytes[index] = value;
-                    bytes[index + 1] = value;
-                    bytes[index + 2] = value;
-                }
-            }
-
-            Marshal.Copy(bytes, 0, data.Scan0, length);
-            return cleaned;
-        }
-        finally
-        {
-            cleaned.UnlockBits(data);
-        }
-    }
-
-    private static void ApplyRowNoiseMask(byte[] binary, int width, int height, OcrOptions options)
-    {
-        var top = Math.Clamp(options.RowNoiseMaskTopPx, 0, height);
-        var bottom = Math.Clamp(options.RowNoiseMaskBottomPx, 0, height);
-
-        for (var y = 0; y < top; y++)
-        {
-            var row = y * width;
-            for (var x = 0; x < width; x++)
-            {
-                binary[row + x] = 255;
-            }
-        }
-
-        for (var y = Math.Max(0, height - bottom); y < height; y++)
-        {
-            var row = y * width;
-            for (var x = 0; x < width; x++)
-            {
-                binary[row + x] = 255;
-            }
-        }
-    }
-
-    private static void RemoveSmallBlackComponents(byte[] binary, int width, int height, int maxArea)
-    {
-        if (maxArea <= 0 || width <= 2 || height <= 2)
-        {
-            return;
-        }
-
-        var visited = new bool[width * height];
-        var queue = new int[width * height];
-        var component = new int[width * height];
-
-        for (var y = 1; y < height - 1; y++)
-        {
-            for (var x = 1; x < width - 1; x++)
-            {
-                var start = (y * width) + x;
-                if (visited[start] || binary[start] != 0)
-                {
-                    continue;
-                }
-
-                var head = 0;
-                var tail = 0;
-                var count = 0;
-                var minX = x;
-                var maxX = x;
-                var maxY = y;
-                queue[tail++] = start;
-                visited[start] = true;
-
-                while (head < tail)
-                {
-                    var current = queue[head++];
-                    component[count++] = current;
-
-                    var cy = current / width;
-                    var cx = current - (cy * width);
-                    minX = Math.Min(minX, cx);
-                    maxX = Math.Max(maxX, cx);
-                    maxY = Math.Max(maxY, cy);
-
-                    var minNeighborY = Math.Max(0, cy - 1);
-                    var maxNeighborY = Math.Min(height - 1, cy + 1);
-                    var minNeighborX = Math.Max(0, cx - 1);
-                    var maxNeighborX = Math.Min(width - 1, cx + 1);
-
-                    for (var ny = minNeighborY; ny <= maxNeighborY; ny++)
-                    {
-                        var row = ny * width;
-                        for (var nx = minNeighborX; nx <= maxNeighborX; nx++)
-                        {
-                            if (nx == cx && ny == cy)
-                            {
-                                continue;
-                            }
-
-                            var neighbor = row + nx;
-                            if (visited[neighbor] || binary[neighbor] != 0)
-                            {
-                                continue;
-                            }
-
-                            visited[neighbor] = true;
-                            queue[tail++] = neighbor;
-                        }
-                    }
-                }
-
-                if (count > maxArea)
-                {
-                    continue;
-                }
-
-                if (HasBlackSupportBelow(binary, width, height, minX, maxX, maxY))
-                {
-                    continue;
-                }
-
-                for (var i = 0; i < count; i++)
-                {
-                    binary[component[i]] = 255;
-                }
-            }
-        }
-    }
-
-    private static bool HasBlackSupportBelow(byte[] binary, int width, int height, int minX, int maxX, int maxY)
-    {
-        const int supportDepth = 8;
-        var scanStartY = maxY + 1;
-        if (scanStartY >= height)
-        {
-            return false;
-        }
-
-        var scanEndY = Math.Min(height - 1, maxY + supportDepth);
-        var scanMinX = Math.Max(0, minX - 1);
-        var scanMaxX = Math.Min(width - 1, maxX + 1);
-
-        for (var y = scanStartY; y <= scanEndY; y++)
-        {
-            var row = y * width;
-            for (var x = scanMinX; x <= scanMaxX; x++)
-            {
-                if (binary[row + x] == 0)
-                {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
 
     private OcrCaptureRegion ResolveCaptureRegion()
     {

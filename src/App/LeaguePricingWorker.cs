@@ -1,5 +1,6 @@
 using RuneshapePriceChecker.Configuration;
 using RuneshapePriceChecker.Contracts;
+using RuneshapePriceChecker.OCR;
 using RuneshapePriceChecker.Pricing;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -12,8 +13,10 @@ public sealed class LeaguePricingWorker(
     ILeagueWindowReader reader,
     IPricingCache pricingCache,
     IOverlayRenderer overlayRenderer,
+    OcrCaptureBoundsOverlayService debugOverlay,
     IOptionsMonitor<PricingCacheOptions> pricingOptions,
     IOptionsMonitor<AppOptions> appOptions,
+    IOptionsMonitor<OcrOptions> ocrOptions,
     ILogger<LeaguePricingWorker> logger) : BackgroundService
 {
     private static readonly TimeSpan TargetLoopInterval = TimeSpan.FromMilliseconds(500);
@@ -41,7 +44,7 @@ public sealed class LeaguePricingWorker(
                     }
                     catch (Exception ex)
                     {
-                        logger.LogWarning(ex, "OCR snapshot read failed.");
+                        logger.LogError(ex, "OCR snapshot read failed.");
                     }
 
                     if (!stoppingToken.IsCancellationRequested)
@@ -54,6 +57,12 @@ public sealed class LeaguePricingWorker(
                     ? latestSnapshot
                     : new LeagueWindowSnapshot(Array.Empty<string>(), DateTimeOffset.UtcNow);
 
+                if (ocrOptions.CurrentValue.HideDebugOverlayWhenInterfaceNotDetected && !snapshot.InterfaceDetected)
+                {
+                    snapshot = new LeagueWindowSnapshot(Array.Empty<string>(), DateTimeOffset.UtcNow, InterfaceDetected: false);
+                    debugOverlay.ForceHide();
+                }
+
                 var prices = new Dictionary<string, PriceQuote?>(StringComparer.OrdinalIgnoreCase);
 
                 foreach (var itemName in snapshot.ItemNames)
@@ -61,26 +70,30 @@ public sealed class LeaguePricingWorker(
                     var (normalizedItemName, quantity) = ParseItemAndQuantity(itemName);
                     var quote = pricingCache.TryGetPriceQuote(normalizedItemName, quantity);
 
-                    // The game can show this generic label with unknown internals.
-                    // Render a visible orange unknown marker instead of hiding the row.
                     if (quote is null && IsRareUniqueItem(normalizedItemName))
                     {
                         quote = new PriceQuote("?", pricingOptions.CurrentValue.OrangeThreshold, false);
                     }
 
+                    quote ??= new PriceQuote("N/A", -1m, false);
+
                     prices[itemName] = quote;
                 }
 
-                if (appOptions.CurrentValue.EnableDebugLogging)
+                var unpricedBanner = BuildUnpriceableBanner(snapshot.ItemNames);
+
+                if (appOptions.CurrentValue.DebugLogging)
                 {
                     LogVerboseSnapshot(snapshot, prices, logger);
                 }
 
+                debugOverlay.SetBannerMessage(unpricedBanner);
+                debugOverlay.SetDebugText(snapshot.ItemNames, snapshot.RowYPositions, snapshot.InterfaceDetected);
                 overlayRenderer.Render(snapshot, prices);
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Failed to render overlay snapshot.");
+                logger.LogError(ex, "Failed to render overlay snapshot.");
             }
 
             var elapsed = Stopwatch.GetElapsedTime(loopStarted);
@@ -108,6 +121,64 @@ public sealed class LeaguePricingWorker(
         return itemName.Equals("Rare Unique Item", StringComparison.OrdinalIgnoreCase);
     }
 
+    private static readonly string[] UnpriceableExactNames =
+    [
+        "Verisium Pile"
+    ];
+
+    private static readonly string[] UnpriceablePrefixes =
+    [
+        "Skill ",
+        "Support "
+    ];
+
+    private static readonly string[] PricedUncutPrefixes =
+    [
+        "Uncut Skill Gem",
+        "Uncut Support Gem",
+        "Uncut Spirit Gem"
+    ];
+
+    private static string? BuildUnpriceableBanner(IReadOnlyList<string> itemNames)
+    {
+        var found = false;
+        foreach (var name in itemNames)
+        {
+            var parsed = PricingTextRules.ParseDetectedItem(name);
+            var normalized = parsed.Name.Trim();
+
+            if (string.IsNullOrWhiteSpace(normalized))
+            {
+                continue;
+            }
+
+            var isPricedUncut = PricedUncutPrefixes.Any(p =>
+                normalized.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+            if (isPricedUncut)
+            {
+                continue;
+            }
+
+            if (UnpriceableExactNames.Any(e =>
+                    normalized.Equals(e, StringComparison.OrdinalIgnoreCase)))
+            {
+                found = true;
+                break;
+            }
+
+            if (UnpriceablePrefixes.Any(p =>
+                    normalized.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
+            {
+                found = true;
+                break;
+            }
+        }
+
+        return found
+            ? "Some items can't be priced, new Skills\nand Supports aren't on poe.ninja"
+            : null;
+    }
+
     private static void LogVerboseSnapshot(
         LeagueWindowSnapshot snapshot,
         IReadOnlyDictionary<string, PriceQuote?> prices,
@@ -128,6 +199,6 @@ public sealed class LeaguePricingWorker(
             return $"{itemName}={display}{matchDetail}";
         });
 
-        logger.LogInformation("Detected {Count} items with prices: {Entries}", snapshot.ItemNames.Count, string.Join(" | ", entries));
+        logger.LogDebug("Detected {Count} items with prices: {Entries}", snapshot.ItemNames.Count, string.Join(" | ", entries));
     }
 }

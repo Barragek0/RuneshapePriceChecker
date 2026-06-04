@@ -33,7 +33,7 @@ public sealed class SettingsController(
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Failed to refresh settings from {SettingsFile}.", SettingsFileName);
+                logger.LogError(ex, "Failed to refresh settings from {SettingsFile}.", SettingsFileName);
             }
 
             await Task.Delay(PollInterval, stoppingToken).ConfigureAwait(false);
@@ -88,18 +88,6 @@ public sealed class SettingsController(
         if (File.Exists(cwdPath))
         {
             return cwdPath;
-        }
-
-        var legacyAppBasePath = Path.Combine(AppContext.BaseDirectory, "src", SettingsFileName);
-        if (File.Exists(legacyAppBasePath))
-        {
-            return legacyAppBasePath;
-        }
-
-        var legacyCwdPath = Path.Combine(Environment.CurrentDirectory, "src", SettingsFileName);
-        if (File.Exists(legacyCwdPath))
-        {
-            return legacyCwdPath;
         }
 
         return null;

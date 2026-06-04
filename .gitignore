@@ -2,6 +2,7 @@ bin/
 obj/
 scripts/
 tmp/
+perf-logs/
 .vs/
 *.user
 *.suo

@@ -13,8 +13,6 @@ namespace RuneshapePriceChecker.Overlay;
 
 public sealed class ConsoleOverlayRenderer(
     IPoe2WindowResolutionProvider windowResolutionProvider,
-    IAdaptiveRowShiftState adaptiveRowShiftState,
-    IOptionsMonitor<OcrOptions> options,
     IOptionsMonitor<PricingCacheOptions> pricingOptions,
     ILogger<ConsoleOverlayRenderer> logger) : IOverlayRenderer, IDisposable
 {
@@ -40,35 +38,35 @@ public sealed class ConsoleOverlayRenderer(
                 return;
             }
 
-            var profile = windowResolutionProvider.CurrentResolutionProfile;
-            var rowTextHeight = profile?.RowTextHeight ?? options.CurrentValue.RowTextHeight;
-            var rowGapHeight = profile?.RowGapHeight ?? options.CurrentValue.RowGapHeight;
-            var rowLateOffsetStartRow = profile?.RowLateOffsetStartRow ?? int.MaxValue;
-            var rowLateOffsetStepRows = profile?.RowLateOffsetStepRows ?? 1;
-            var rowLateOffsetStepPx = profile?.RowLateOffsetStepPx ?? 0;
-            var adaptiveSnapshot = adaptiveRowShiftState.GetSnapshot();
+            var itemCount = snapshot.ItemNames.Count;
+            if (itemCount == 0)
+            {
+                overlay.SafeHide();
+                return;
+            }
 
-            var rows = OcrRowLayout.BuildRowRectangles(
-                captureRegion.Width,
-                captureRegion.Height,
-                options.CurrentValue.OcrRowCount,
-                options.CurrentValue.UseFixedRowGeometry,
-                options.CurrentValue.RowStartOffsetY,
-                rowTextHeight,
-                rowGapHeight,
-                rowLateOffsetStartRow,
-                rowLateOffsetStepRows,
-                rowLateOffsetStepPx,
-                adaptiveSnapshot.ShiftStartRows,
-                adaptiveSnapshot.IsActive ? adaptiveSnapshot.ShiftPx : 0);
+            List<Rectangle> rows;
+            if (snapshot.RowYPositions is { Count: > 0 } positions && positions.Count == itemCount)
+            {
+                rows = new List<Rectangle>(itemCount);
+                const int rowH = 24;
+                for (var i = 0; i < itemCount; i++)
+                    rows.Add(new Rectangle(0, positions[i], captureRegion.Width, rowH));
+            }
+            else
+            {
+                var rowH = captureRegion.Height / itemCount;
+                rows = new List<Rectangle>(itemCount);
+                for (var i = 0; i < itemCount; i++)
+                    rows.Add(new Rectangle(0, i * rowH, captureRegion.Width, rowH));
+            }
 
             var entries = BuildEntries(snapshot, pricesByItemName, rows, pricingOptions.CurrentValue);
-
             overlay.SafeShow(captureRegion, entries);
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to render price overlay.");
+            logger.LogError(ex, "Failed to render price overlay.");
         }
     }
 
@@ -234,6 +232,11 @@ public sealed class ConsoleOverlayRenderer(
 
     private static Color GetPriceColor(decimal chaosValue, PricingCacheOptions pricing)
     {
+        if (chaosValue < 0m)
+        {
+            return Color.FromArgb(255, 140, 140, 140);
+        }
+
         var chaos = Math.Max(0m, chaosValue);
         var redThreshold = pricing.RedThreshold;
         var orangeThreshold = pricing.OrangeThreshold;

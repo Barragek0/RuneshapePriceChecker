@@ -38,29 +38,13 @@ public sealed class OcrOptions
 
     public string DebugImageDirectory { get; set; } = string.Empty;
 
-    public bool ShowCaptureBoundsOverlay { get; set; } = false;
+    public bool DebugOverlay { get; set; } = false;
+
+    public bool HideDebugOverlayWhenInterfaceNotDetected { get; set; } = false;
 
     public int CaptureBoundsOverlayIntervalMs { get; set; } = 250;
 
-    public int OcrRowCount { get; set; } = 12;
-
-    public int RowPageSegmentationMode { get; set; } = 7;
-
-    public bool UseFixedRowGeometry { get; set; } = true;
-
-    public int RowStartOffsetY { get; set; } = 0;
-
-    public int RowTextHeight { get; set; } = 23;
-
-    public int RowGapHeight { get; set; } = 24;
-
     public int RowUpscaleFactor { get; set; } = 2;
-
-    public int RowNoiseMaskTopPx { get; set; } = 1;
-
-    public int RowNoiseMaskBottomPx { get; set; } = 1;
-
-    public int RowSpeckleMaxArea { get; set; } = 20;
 
     public int LeaguePanelAnchorSampleX { get; set; } = 0;
 

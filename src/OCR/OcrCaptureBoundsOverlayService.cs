@@ -9,7 +9,6 @@ namespace RuneshapePriceChecker.OCR;
 
 public sealed class OcrCaptureBoundsOverlayService(
     IPoe2WindowResolutionProvider windowResolutionProvider,
-    IAdaptiveRowShiftState adaptiveRowShiftState,
     IOptionsMonitor<OcrOptions> options,
     ILogger<OcrCaptureBoundsOverlayService> logger) : BackgroundService
 {
@@ -17,7 +16,6 @@ public sealed class OcrCaptureBoundsOverlayService(
     private Thread? _overlayThread;
     private BoundsOverlayForm? _overlayForm;
     private readonly object _overlaySync = new();
-    private bool _rowFitWarningLogged;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -26,7 +24,8 @@ public sealed class OcrCaptureBoundsOverlayService(
             var options = _options.CurrentValue;
             try
             {
-                if (options.ShowCaptureBoundsOverlay)
+                var hasBanner = !string.IsNullOrWhiteSpace(_pendingBannerMessage);
+                if (options.DebugOverlay || hasBanner)
                 {
                     EnsureOverlayThreadStarted();
                     RefreshOverlayFrame(options);
@@ -38,7 +37,7 @@ public sealed class OcrCaptureBoundsOverlayService(
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Failed to refresh OCR bounds overlay.");
+                logger.LogError(ex, "Failed to refresh OCR bounds overlay.");
             }
 
             var intervalMs = Math.Max(100, options.CaptureBoundsOverlayIntervalMs);
@@ -56,7 +55,9 @@ public sealed class OcrCaptureBoundsOverlayService(
             return;
         }
 
-        if (!options.ShowCaptureBoundsOverlay)
+        var hasBanner = !string.IsNullOrWhiteSpace(_pendingBannerMessage);
+
+        if (!options.DebugOverlay && !hasBanner)
         {
             overlay.SafeHide();
             return;
@@ -75,58 +76,17 @@ public sealed class OcrCaptureBoundsOverlayService(
             return;
         }
 
+        if (_forceHidden)
+        {
+            overlay.SafeHide();
+            return;
+        }
+
         var frame = new Rectangle(region.X, region.Y, region.Width, region.Height);
-        var profile = windowResolutionProvider.CurrentResolutionProfile;
-        var rowTextHeight = profile?.RowTextHeight ?? options.RowTextHeight;
-        var rowGapHeight = profile?.RowGapHeight ?? options.RowGapHeight;
-        var rowLateOffsetStartRow = profile?.RowLateOffsetStartRow ?? int.MaxValue;
-        var rowLateOffsetStepRows = profile?.RowLateOffsetStepRows ?? 1;
-        var rowLateOffsetStepPx = profile?.RowLateOffsetStepPx ?? 0;
-        var adaptiveSnapshot = adaptiveRowShiftState.GetSnapshot();
-        var rowCount = Math.Max(1, options.OcrRowCount);
-        var rows = OcrRowLayout.BuildRowRectangles(
-            frame.Width,
-            frame.Height,
-            rowCount,
-            options.UseFixedRowGeometry,
-            options.RowStartOffsetY,
-            rowTextHeight,
-            rowGapHeight,
-            rowLateOffsetStartRow,
-            rowLateOffsetStepRows,
-            rowLateOffsetStepPx,
-            adaptiveSnapshot.ShiftStartRows,
-            adaptiveSnapshot.IsActive ? adaptiveSnapshot.ShiftPx : 0);
+        var bannerOffset = (windowResolutionProvider.CurrentResolutionProfile?.CaptureOffsetY ?? 150) / 2;
+        var panelWidth = (windowResolutionProvider.CurrentResolutionProfile?.CaptureOffsetX ?? 255) - 57;
 
-        if (rows.Count < rowCount)
-        {
-            if (!_rowFitWarningLogged)
-            {
-                _rowFitWarningLogged = true;
-                logger.LogWarning(
-                    "OCR row geometry only fits {VisibleRows}/{RequestedRows} rows in current capture height {Height}. Increase capture height or reduce row geometry.",
-                    rows.Count,
-                    rowCount,
-                    frame.Height);
-            }
-        }
-        else
-        {
-            _rowFitWarningLogged = false;
-        }
-
-        overlay.SafeShowFrame(
-            frame,
-            rowCount,
-            options.UseFixedRowGeometry,
-            options.RowStartOffsetY,
-            rowTextHeight,
-            rowGapHeight,
-            rowLateOffsetStartRow,
-            rowLateOffsetStepRows,
-            rowLateOffsetStepPx,
-            adaptiveSnapshot.ShiftStartRows,
-            adaptiveSnapshot.IsActive ? adaptiveSnapshot.ShiftPx : 0);
+        overlay.SafeShowFrame(frame, options.DebugOverlay, hasBanner ? bannerOffset : 0, panelWidth);
     }
 
     private void EnsureOverlayThreadStarted()
@@ -177,19 +137,69 @@ public sealed class OcrCaptureBoundsOverlayService(
         overlay?.SafeClose();
     }
 
+    private bool _wasHidden;
+    private bool _forceHidden;
+    private string? _pendingBannerMessage;
+
+    public void ForceHide()
+    {
+        _forceHidden = true;
+        GetOverlayForm()?.SafeHide();
+    }
+
+    public void SetBannerMessage(string? message)
+    {
+        _pendingBannerMessage = message;
+        var overlay = GetOverlayForm();
+        overlay?.SetBannerMessage(message);
+        RefreshOverlayFrame(_options.CurrentValue);
+    }
+
+    public void SetDebugText(IReadOnlyList<string> lines, IReadOnlyList<int>? rowYPositions = null, bool interfaceDetected = true)
+    {
+        var overlay = GetOverlayForm();
+        if (overlay is null) return;
+
+        if (_options.CurrentValue.HideDebugOverlayWhenInterfaceNotDetected)
+        {
+            if (!interfaceDetected)
+            {
+                if (!_wasHidden) { _wasHidden = true; logger.LogInformation("Debug overlay HIDDEN: interface not detected."); }
+                _forceHidden = true;
+                overlay.SafeHide();
+                return;
+            }
+
+            _forceHidden = false;
+            if (_wasHidden)
+            {
+                _wasHidden = false;
+                logger.LogInformation("Debug overlay SHOWN: interface detected.");
+                var region = windowResolutionProvider.CurrentCaptureRegion;
+                if (region is not null)
+                {
+                    var hasBanner = !string.IsNullOrWhiteSpace(_pendingBannerMessage);
+                    var bannerOffset = hasBanner ? (windowResolutionProvider.CurrentResolutionProfile?.CaptureOffsetY ?? 150) / 2 : 0;
+                    var panelWidth = (windowResolutionProvider.CurrentResolutionProfile?.CaptureOffsetX ?? 255) - 57;
+                    overlay.SafeShowFrame(new Rectangle(region.X, region.Y, region.Width, region.Height), _options.CurrentValue.DebugOverlay, bannerOffset, panelWidth);
+                }
+            }
+        }
+
+        overlay.SetDebugLines(lines.ToArray(), rowYPositions?.ToArray());
+    }
+
     private sealed class BoundsOverlayForm : Form
     {
+        private static readonly Color TransparencyChroma = Color.FromArgb(1, 2, 3);
+        private int _textPanelWidth = 198;
+        private const int BgPadding = 30;
         private Rectangle _frame;
-        private int _rowCount = 1;
-        private bool _useFixedRowGeometry;
-        private int _rowStartOffsetY;
-        private int _rowTextHeight = 1;
-        private int _rowGapHeight;
-        private int _rowLateOffsetStartRow = int.MaxValue;
-        private int _rowLateOffsetStepRows = 1;
-        private int _rowLateOffsetStepPx;
-        private int[] _adaptiveShiftRows = [];
-        private int _adaptiveShiftPx;
+        private string[] _debugLines = [];
+        private int[] _debugRowY = [];
+        private string? _bannerMessage;
+        private bool _showDebugOverlay;
+        private int _bannerOffsetPx;
 
         public BoundsOverlayForm()
         {
@@ -197,8 +207,8 @@ public sealed class OcrCaptureBoundsOverlayService(
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.Manual;
             TopMost = true;
-            BackColor = Color.Magenta;
-            TransparencyKey = Color.Magenta;
+            BackColor = TransparencyChroma;
+            TransparencyKey = TransparencyChroma;
             DoubleBuffered = true;
         }
 
@@ -209,10 +219,10 @@ public sealed class OcrCaptureBoundsOverlayService(
             get
             {
                 var cp = base.CreateParams;
-                cp.ExStyle |= 0x00000080; // WS_EX_TOOLWINDOW
-                cp.ExStyle |= 0x00080000; // WS_EX_LAYERED
-                cp.ExStyle |= 0x00000020; // WS_EX_TRANSPARENT
-                cp.ExStyle |= 0x08000000; // WS_EX_NOACTIVATE
+                cp.ExStyle |= 0x00000080;
+                cp.ExStyle |= 0x00080000;
+                cp.ExStyle |= 0x00000020;
+                cp.ExStyle |= 0x08000000;
                 return cp;
             }
         }
@@ -221,140 +231,158 @@ public sealed class OcrCaptureBoundsOverlayService(
         {
             base.OnPaint(e);
             if (Width <= 1 || Height <= 1)
-            {
                 return;
-            }
 
-            var rows = OcrRowLayout.BuildRowRectangles(
-                Width,
-                Height,
-                _rowCount,
-                _useFixedRowGeometry,
-                _rowStartOffsetY,
-                _rowTextHeight,
-                _rowGapHeight,
-                _rowLateOffsetStartRow,
-                _rowLateOffsetStepRows,
-                _rowLateOffsetStepPx,
-                _adaptiveShiftRows,
-                _adaptiveShiftPx);
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            e.Graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            e.Graphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+            e.Graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
 
-            var cursorY = 0;
-            foreach (var row in rows)
+            var boxX = _showDebugOverlay ? _textPanelWidth + BgPadding : 0;
+            var boxWidth = Width - boxX;
+            var bannerOffset = _bannerOffsetPx;
+
+            if (!string.IsNullOrWhiteSpace(_bannerMessage) && bannerOffset > 0)
             {
-                if (row.Y > cursorY)
+                const float bannerFontSizePx = 16f;
+                using var bannerFont = new Font("Segoe UI", bannerFontSizePx, FontStyle.Bold, GraphicsUnit.Pixel);
+                var bannerEmSize = e.Graphics.DpiY * bannerFont.SizeInPoints / 72f;
+                var bannerLines = _bannerMessage.Split('\n');
+                var lineHeight = bannerFont.GetHeight(e.Graphics);
+
+                using var bannerOutlinePen = new Pen(Color.FromArgb(255, 0, 0, 0), 2.2f)
                 {
-                    DrawMutedBand(e.Graphics, 0, cursorY, Width, row.Y - cursorY);
+                    LineJoin = System.Drawing.Drawing2D.LineJoin.Round,
+                    StartCap = System.Drawing.Drawing2D.LineCap.Round,
+                    EndCap = System.Drawing.Drawing2D.LineCap.Round
+                };
+                using var bannerFillBrush = new SolidBrush(Color.Red);
+
+                var totalTextHeight = bannerLines.Length * lineHeight;
+                var startY = (bannerOffset - totalTextHeight) / 2f;
+
+                for (var li = 0; li < bannerLines.Length; li++)
+                {
+                    var line = bannerLines[li];
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+
+                    var textSize = e.Graphics.MeasureString(line, bannerFont, PointF.Empty, StringFormat.GenericTypographic);
+                    var bannerX = boxX + Math.Max(0f, (boxWidth - textSize.Width) / 2f);
+                    var bannerY = startY + (li * lineHeight);
+
+                    using var bannerPath = new System.Drawing.Drawing2D.GraphicsPath();
+                    bannerPath.AddString(line, bannerFont.FontFamily, (int)bannerFont.Style, bannerEmSize,
+                        new PointF(bannerX, bannerY), StringFormat.GenericTypographic);
+                    e.Graphics.DrawPath(bannerOutlinePen, bannerPath);
+                    e.Graphics.FillPath(bannerFillBrush, bannerPath);
                 }
-
-                cursorY = Math.Max(cursorY, row.Bottom);
             }
 
-            if (cursorY < Height)
-            {
-                DrawMutedBand(e.Graphics, 0, cursorY, Width, Height - cursorY);
-            }
+            if (!_showDebugOverlay)
+                return;
+
+            var bgWidth = boxX;
+            using var bgBrush = new SolidBrush(Color.FromArgb(200, 0, 0, 0));
+            e.Graphics.FillRectangle(bgBrush, 0, bannerOffset, bgWidth, Height - bannerOffset);
 
             using var pen = new Pen(Color.Red, 3);
-            e.Graphics.DrawRectangle(pen, 1, 1, Width - 3, Height - 3);
+            e.Graphics.DrawRectangle(pen, boxX + 1, bannerOffset + 1, Width - boxX - 3, Height - bannerOffset - 3);
 
-            if (_rowCount <= 1)
-            {
+            var lines = _debugLines;
+            var rowY = _debugRowY;
+            if (lines.Length == 0)
                 return;
-            }
 
-            using var rowPen = new Pen(Color.Red, 1);
-            foreach (var row in rows)
+            const float defaultFontSizePx = 18f;
+            const float minFontSizePx = 10f;
+            const int maxTextWidthMargin = 8;
+            var maxTextWidth = _textPanelWidth - maxTextWidthMargin;
+
+            using var defaultFont = new Font("Segoe UI", defaultFontSizePx, FontStyle.Bold, GraphicsUnit.Pixel);
+            using var fillBrush = new SolidBrush(Color.Red);
+            using var outlinePen = new Pen(Color.FromArgb(255, 0, 0, 0), 2.2f)
             {
-                var top = Math.Clamp(row.Top, 1, Height - 2);
-                var bottom = Math.Clamp(row.Bottom, 1, Height - 2);
+                LineJoin = System.Drawing.Drawing2D.LineJoin.Round,
+                StartCap = System.Drawing.Drawing2D.LineCap.Round,
+                EndCap = System.Drawing.Drawing2D.LineCap.Round
+            };
+            var defaultLineHeight = (int)defaultFont.GetHeight(e.Graphics) + 2;
+            for (var i = 0; i < lines.Length; i++)
+            {
+                var y = (i < rowY.Length ? rowY[i] : 6 + (i * defaultLineHeight)) + bannerOffset;
+                y = Math.Clamp(y, bannerOffset, Height - defaultLineHeight);
 
-                if (top > 1 && top < Height - 1)
+                var defaultTextWidth = e.Graphics.MeasureString(lines[i], defaultFont, PointF.Empty, StringFormat.GenericTypographic).Width;
+                var scale = defaultTextWidth > maxTextWidth ? maxTextWidth / defaultTextWidth : 1f;
+                var effectiveFontSizePx = Math.Max(minFontSizePx, defaultFontSizePx * scale);
+
+                Font lineFont;
+                if (Math.Abs(effectiveFontSizePx - defaultFontSizePx) < 0.5f)
                 {
-                    e.Graphics.DrawLine(rowPen, 2, top, Width - 3, top);
+                    lineFont = defaultFont;
+                }
+                else
+                {
+                    lineFont = new Font("Segoe UI", effectiveFontSizePx, FontStyle.Bold, GraphicsUnit.Pixel);
                 }
 
-                if (bottom > 1 && bottom < Height - 1)
+                var lineFontSize = e.Graphics.DpiY * lineFont.SizeInPoints / 72f;
+                var textSize = e.Graphics.MeasureString(lines[i], lineFont, PointF.Empty, StringFormat.GenericTypographic);
+                var x = boxX - textSize.Width - 8;
+                var scaledLineHeight = lineFont.GetHeight(e.Graphics);
+                var yOffset = (defaultFont.GetHeight(e.Graphics) - scaledLineHeight) / 2f;
+                var adjustedY = y + yOffset;
+
+                using var path = new System.Drawing.Drawing2D.GraphicsPath();
+                path.AddString(lines[i], lineFont.FontFamily, (int)lineFont.Style, lineFontSize, new PointF(x, adjustedY), StringFormat.GenericTypographic);
+                e.Graphics.DrawPath(outlinePen, path);
+                e.Graphics.FillPath(fillBrush, path);
+
+                if (lineFont != defaultFont)
                 {
-                    e.Graphics.DrawLine(rowPen, 2, bottom, Width - 3, bottom);
+                    lineFont.Dispose();
                 }
             }
         }
 
-        public void SafeShowFrame(
-            Rectangle frame,
-            int rowCount,
-            bool useFixedRowGeometry,
-            int rowStartOffsetY,
-            int rowTextHeight,
-            int rowGapHeight,
-            int rowLateOffsetStartRow,
-            int rowLateOffsetStepRows,
-            int rowLateOffsetStepPx,
-            IReadOnlyCollection<int> adaptiveShiftRows,
-            int adaptiveShiftPx)
+        public void SetDebugLines(string[] lines, int[]? rowY = null)
         {
-            if (IsDisposed)
-            {
-                return;
-            }
+            _debugLines = lines;
+            _debugRowY = rowY ?? [];
+            if (!IsDisposed && Visible)
+                Invalidate();
+        }
+
+        public void SetBannerMessage(string? message)
+        {
+            _bannerMessage = message;
+            if (!IsDisposed && Visible)
+                Invalidate();
+        }
+
+        public void SafeShowFrame(Rectangle frame, bool showDebugOverlay, int bannerOffsetPx = 0, int textPanelWidth = 198)
+        {
+            if (IsDisposed) return;
 
             if (InvokeRequired)
             {
-                BeginInvoke(
-                    new Action<Rectangle, int, bool, int, int, int, int, int, int, IReadOnlyCollection<int>, int>(SafeShowFrame),
-                    frame,
-                    rowCount,
-                    useFixedRowGeometry,
-                    rowStartOffsetY,
-                    rowTextHeight,
-                    rowGapHeight,
-                    rowLateOffsetStartRow,
-                    rowLateOffsetStepRows,
-                    rowLateOffsetStepPx,
-                    adaptiveShiftRows,
-                    adaptiveShiftPx);
+                BeginInvoke(new Action<Rectangle, bool, int, int>(SafeShowFrame), frame, showDebugOverlay, bannerOffsetPx, textPanelWidth);
                 return;
             }
 
-            var clampedRowCount = Math.Max(1, rowCount);
-            var clampedRowTextHeight = Math.Max(1, rowTextHeight);
-            var clampedRowGap = Math.Max(0, rowGapHeight);
-            var clampedRowStart = Math.Max(0, rowStartOffsetY);
-            var clampedLateOffsetStartRow = Math.Max(1, rowLateOffsetStartRow);
-            var clampedLateOffsetStepRows = Math.Max(1, rowLateOffsetStepRows);
-            var clampedLateOffsetStepPx = Math.Max(0, rowLateOffsetStepPx);
-            var clampedAdaptiveShiftPx = Math.Max(0, adaptiveShiftPx);
-            var clampedAdaptiveShiftRows = adaptiveShiftRows?
-                .Where(row => row > 0)
-                .Distinct()
-                .OrderBy(row => row)
-                .ToArray() ?? [];
-
-            if (_frame != frame ||
-                _rowCount != clampedRowCount ||
-                _useFixedRowGeometry != useFixedRowGeometry ||
-                _rowStartOffsetY != clampedRowStart ||
-                _rowTextHeight != clampedRowTextHeight ||
-                _rowGapHeight != clampedRowGap ||
-                _rowLateOffsetStartRow != clampedLateOffsetStartRow ||
-                _rowLateOffsetStepRows != clampedLateOffsetStepRows ||
-                _rowLateOffsetStepPx != clampedLateOffsetStepPx ||
-                _adaptiveShiftPx != clampedAdaptiveShiftPx ||
-                !_adaptiveShiftRows.SequenceEqual(clampedAdaptiveShiftRows))
+            _showDebugOverlay = showDebugOverlay;
+            _bannerOffsetPx = bannerOffsetPx;
+            _textPanelWidth = textPanelWidth;
+            var totalLeft = showDebugOverlay ? _textPanelWidth + BgPadding : 0;
+            var fullFrame = new Rectangle(
+                frame.X - totalLeft,
+                frame.Y - bannerOffsetPx,
+                frame.Width + totalLeft,
+                frame.Height + bannerOffsetPx);
+            if (_frame != frame || Bounds != fullFrame)
             {
                 _frame = frame;
-                _rowCount = clampedRowCount;
-                _useFixedRowGeometry = useFixedRowGeometry;
-                _rowStartOffsetY = clampedRowStart;
-                _rowTextHeight = clampedRowTextHeight;
-                _rowGapHeight = clampedRowGap;
-                _rowLateOffsetStartRow = clampedLateOffsetStartRow;
-                _rowLateOffsetStepRows = clampedLateOffsetStepRows;
-                _rowLateOffsetStepPx = clampedLateOffsetStepPx;
-                _adaptiveShiftPx = clampedAdaptiveShiftPx;
-                _adaptiveShiftRows = clampedAdaptiveShiftRows;
-                Bounds = frame;
+                Bounds = fullFrame;
                 Invalidate();
             }
 
@@ -369,10 +397,7 @@ public sealed class OcrCaptureBoundsOverlayService(
 
         public void SafeHide()
         {
-            if (IsDisposed)
-            {
-                return;
-            }
+            if (IsDisposed) return;
 
             if (InvokeRequired)
             {
@@ -385,10 +410,7 @@ public sealed class OcrCaptureBoundsOverlayService(
 
         public void SafeClose()
         {
-            if (IsDisposed)
-            {
-                return;
-            }
+            if (IsDisposed) return;
 
             if (InvokeRequired)
             {
@@ -450,6 +472,8 @@ public sealed class OcrCaptureBoundsOverlayService(
             public const uint SWP_NOOWNERZORDER = 0x0200;
             public const uint SWP_NOSENDCHANGING = 0x0400;
 
+            private const uint WDA_EXCLUDEFROMCAPTURE = 0x00000011;
+
             [DllImport("user32.dll", SetLastError = true)]
             [return: MarshalAs(UnmanagedType.Bool)]
             public static extern bool SetWindowPos(
@@ -460,6 +484,25 @@ public sealed class OcrCaptureBoundsOverlayService(
                 int cx,
                 int cy,
                 uint uFlags);
+
+            [DllImport("user32.dll", SetLastError = true)]
+            [return: MarshalAs(UnmanagedType.Bool)]
+            private static extern bool SetWindowDisplayAffinity(IntPtr hWnd, uint dwAffinity);
+
+            public static void ExcludeFromCapture(IntPtr hWnd)
+            {
+                SetWindowDisplayAffinity(hWnd, WDA_EXCLUDEFROMCAPTURE);
+            }
+
+            [DllImport("user32.dll", SetLastError = true)]
+            private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+            private const int GWLP_HWNDPARENT = -8;
+
+            public static void SetOwner(IntPtr hWnd, IntPtr ownerHandle)
+            {
+                SetWindowLongPtr(hWnd, GWLP_HWNDPARENT, ownerHandle);
+            }
         }
     }
 }

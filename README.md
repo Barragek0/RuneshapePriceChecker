@@ -14,28 +14,31 @@ It reads visible rows on the runeshape page with OCR, looks up live prices from 
 ![example](https://i.vgy.me/1XkXx8.png)
 
 ## Limitations
-- poeninja doesn't currently have prices listed for the new Skills or Supports, so prices for these can't be shown.
-- Currently only supports 1080p, if you have a higher resolution monitor and a bit of spare time and basic coding knowledge please read `ADDING_A_RESOLUTION.md` for a step-by-step guide on how you can add another resolution.
+- 1080p is the only fully tested and confirmed resolution. 1440p, 3440×1440, and 4K profiles are included but untested — you'll see a warning popup. If one of these doesn't work on your setup, read `ADDING_A_RESOLUTION.md` for a step-by-step tuning guide.
+- The new Skills and Supports don't have price data on poe.ninja, so the tool can't display prices for them.
 
 ## Troubleshooting
 
 - No value on known items:
 	- Confirm the item exists in the selected league on poe.ninja.
-	- Enable debug logging in `src/appsettings.json` to inspect OCR output and normalized matches.
+	- Enable debug logging in `config/appsettings.json` to inspect OCR output and normalized matches.
+	- Check `ocr-debug/` for captured images when `SaveDebugImages` is enabled.
 	- If n/a appears in logging next to an item that is available on poe ninja with a price, or if the text isn't matching correctly, submit an issue.
 - No OCR output:
-	- Confirm Tesseract is installed and in `PATH`.
+	- Confirm Tesseract is installed and in `PATH`. The tool auto-installs it on first run if missing.
 	- Confirm you're in `borderless windowed` on a supported resolution.
-    - Confirm you're tabbed into the game, so the game is in the foreground.
+	- Confirm you're tabbed into the game, so the game is in the foreground.
+- No overlay visible:
+	- Enable `OCR:DebugOverlay` in `config/appsettings.json` to show the red capture bounds overlay.
+	- If the overlay appears but is misaligned, your resolution profile may need tuning (see `ADDING_A_RESOLUTION.md`).
 - My resolution isn't supported:
-	- I unfortunately only have 1080p monitors, so I couldn't add higher resolutions. If you have the time and basic coding knowledge, you can add a new profile by following a simple step-by-step guide in `ADDING_A_RESOLUTION.md`.
+	- If you have the time and basic coding knowledge, you can add a new profile by following the step-by-step guide in `ADDING_A_RESOLUTION.md`. Interpolated profiles for 1440p, 3440×1440, and 4K are included but untested.
 
 ## Quick Start
 
 ```powershell
 cd "C:/1.Path stuff/RuneshapePriceChecker"
-dotnet build RuneshapePriceChecker.csproj -c Release
-dotnet run --project RuneshapePriceChecker.csproj
+dotnet run --project RuneshapePriceChecker.csproj -c Release
 ```
 
 For development with hot reload:
@@ -44,55 +47,91 @@ For development with hot reload:
 dotnet watch --project RuneshapePriceChecker.csproj run
 ```
 
+To produce a single-file release build:
+
+```powershell
+dotnet publish RuneshapePriceChecker.csproj -c Release
+```
+
 ## Configuration
 
-Runtime settings live in `src/appsettings.json`.
+Runtime settings live in `config/appsettings.json`.
 
 ```json
 {
 	"App": {
-		"EnableDebugLogging": true
+		"DebugLogging": false
 	},
 	"Pricing": {
 		"League": "Runes of Aldur",
-		"RedThresholdChaos": 0.5,
-		"OrangeThresholdChaos": 1.0,
-		"GreenThresholdChaos": 5.0
+		"RedThreshold": 0.5,
+		"OrangeThreshold": 1.0,
+		"GreenThreshold": 5.0,
+		"DisplayCurrency": "exalt"
 	},
 	"OCR": {
 		"Language": "eng",
 		"SaveDebugImages": false,
-		"ShowCaptureBoundsOverlay": false
+		"DebugOverlay": false,
+		"HideDebugOverlayWhenInterfaceNotDetected": false
+	},
+	"Update": {
+		"AutoUpdate": true,
+		"IgnorePrereleases": false
 	}
 }
 ```
 
 Settings reload automatically every 5 seconds through `SettingsController`.
 
+| Pricing Key | Type | Default | Description |
+|---|---|---|---|
+| `League` | string | `"Runes of Aldur"` | Poe.ninja league name |
+| `RedThreshold` | decimal | `0.5` | Chaos/exalt value at or below which the label shows red |
+| `OrangeThreshold` | decimal | `1.0` | Chaos/exalt value at or below which the label shows orange (must be > RedThreshold) |
+| `GreenThreshold` | decimal | `5.0` | Chaos/exalt value at or above which the label shows green (must be > OrangeThreshold) |
+| `DisplayCurrency` | `"exalt"` or `"chaos"` | `"exalt"` | Currency used for rendered values |
+
+| OCR Key | Type | Default | Description |
+|---|---|---|---|
+| `Language` | string | `"eng"` | Tesseract language data |
+| `SaveDebugImages` | bool | `false` | Save captured/processed OCR images to `ocr-debug/` |
+| `DebugOverlay` | bool | `false` | Show a red capture-bounds overlay on screen |
+| `HideDebugOverlayWhenInterfaceNotDetected` | bool | `false` | Hide the overlay when the league panel isn't detected |
+
+| Update Key | Type | Default | Description |
+|---|---|---|---|
+| `AutoUpdate` | bool | `true` | Check for and apply updates on startup |
+| `IgnorePrereleases` | bool | `false` | Skip prerelease versions when checking for updates |
+
 ## What It Does
 
 - Detects the PoE2 window and captures a profile-based OCR region.
-- Reads item names from the list with Tesseract OCR.
-- Parses quantity prefixes like `1x`, `3x`.
+- Reads item names from the list with Tesseract OCR using native auto-layout.
+- Parses quantity prefixes like `1x`, `3x`, and OCR-misread quantities like `Lx` or `ix`.
 - Fetches market prices from poe.ninja and caches them.
 - Multiplies price by detected quantity before rendering.
 - Displays a side overlay with value labels and threshold-based colors.
+- Resolves range prices for unique item categories and uncut gems when exact prices aren't available.
+- Applies tier fallbacks: GREATER/PERFECT orbs and runes fall back to their base item price.
+- Matches OCR-smeared text with single-letter-off fuzzy correction against known pricing keys.
 
 ## How Pricing Works
 
-1. A background worker captures OCR text from each row.
-2. OCR text is normalized and mapped to pricing keys.
-3. A pricing cache refreshes from poe.ninja on a fixed interval.
-4. Each OCR row is matched to a quote, then adjusted by quantity.
-5. Overlay output is rendered next to the captured exchange rows.
+1. The tool captures the OCR region and extracts text with Tesseract's auto-layout mode.
+2. OCR text is normalized, cleaned of quantity prefixes and OCR artifacts, then mapped to pricing keys.
+3. A pricing cache refreshes from poe.ninja on a fixed interval (default: 10 minutes).
+4. Lookup uses multiple candidates per item — normalized name, level-stripped, orb-suffix-stripped, and alias-expanded forms (e.g. `gcp` → `Gemcutter's Prism`).
+5. If no exact price is found, the system tries tier fallbacks, unique category min/max ranges, and uncut gem family ranges.
+6. As a last resort, single-letter-off fuzzy matching corrects common OCR substitution errors against known pricing keys.
+7. Matched quotes are adjusted by detected quantity before rendering.
+8. Overlay output is rendered next to the captured item rows with threshold-based color coding.
 
 If an item is not recognized or not available in the current pricing data, it doesn't show a value.
 
-OCR resolution profiles include static late-row offsets and adaptive row-shift detection.
-When more than 5 runes appear next to an item name, the game pushes item text to a second line;
-adaptive shifting detects this and realigns OCR rows accordingly.
-
+OCR resolution profiles define capture region offsets for each supported resolution.
 If your PoE2 resolution is unsupported, OCR and overlay pricing are disabled and an error popup lists supported resolutions.
+Untested resolutions will show a warning popup on startup.
 
 ## Price Sources
 
@@ -104,8 +143,12 @@ The app fetches PoE2 economy data from poe.ninja.
 Refresh types:
 
 - `Currency`
+- `Expedition`
+- `UncutGems`
 - `Runes`
 - `Verisium`
 - `UniqueWeapons`
 - `UniqueArmours`
 - `UniqueAccessories`
+
+Unique item types (Weapons, Armours, Accessories) are fetched from the stash endpoint; all other types use the exchange endpoint.
