@@ -17,5 +17,6 @@ Please follow these instructions:
 - "DebugLogging": true
 - "SaveDebugImages": true,
 - "DebugOverlay": true,
-- Go back to Path of Exile with the rune window open, then screenshot the full overlay and provide the image below.
-- Go to the command prompt window for RuneshapePriceChecker and copy the full data in there, by dragging across all of it and pressing Ctrl + C, then come back to this page and press Ctrl + V to paste.
+- Go back to Path of Exile with the rune window open, then screenshot the full overlay and provide the image here:
+- Go to the command prompt window for RuneshapePriceChecker and copy the full data in there, by dragging across all of it and pressing Ctrl + C, then come back to this page and press Ctrl + V to paste the data here:
+- Go to the ocr-debug folder, copy the images that are in there and paste them here:
