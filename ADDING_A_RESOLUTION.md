@@ -29,24 +29,30 @@ The six numbers are: `WindowWidth, WindowHeight, CaptureOffsetX, CaptureOffsetY,
 
 ## 3) Tune the Red OCR Box
 
-The red box must cover the item list area so the tool can read it correctly. The purple background should render from the left side of the box, covering the runes, so we can render the parsed values from the red box.
+The red box must cover the item list area so the tool can read it correctly. The black background should render from the left side of the box, covering the runes, so we can render the parsed values from the red box.
 
 Here is an example of how the box looks on 1080p:
 
-![1080p OCR bounds example](https://i.vgy.me/MRENMT.png)
+![1080p OCR bounds example](https://i.vgy.me/ohQ5zW.png)
+
+Its vital that you get the box to look as close to the image as possible, so that everything functions correctly: 
+- The left line of the red box should line up with the start of the 'a' in the Runeshape Combinations text above it.
+- The right line should line up with the right edge of each item in the list.
+- The top line should line up with the top of the first entry in the list.
+- The bottom line should line up with the small black line at the bottom of the list.
 
 Use these rules, adjusting by small amounts each time, restarting, and checking again:
 
 | If this is wrong | Change this value |
 |---|---|
-| Box too far left | Increase `CaptureOffsetX` |
-| Box too far right | Decrease `CaptureOffsetX` |
-| Box too high | Increase `CaptureOffsetY` |
-| Box too low | Decrease `CaptureOffsetY` |
-| Box too narrow | Increase `CaptureWidth` |
-| Box too wide | Decrease `CaptureWidth` |
-| Box too short | Increase `CaptureHeight` |
-| Box too tall | Decrease `CaptureHeight` |
+| Box too far left | Increase the third value `CaptureOffsetX` |
+| Box too far right | Decrease the third value `CaptureOffsetX` |
+| Box too high | Increase the fourth value `CaptureOffsetY` |
+| Box too low | Decrease the fourth value `CaptureOffsetY` |
+| Box too narrow | Increase the fifth value `CaptureWidth` |
+| Box too wide | Decrease the fifth value `CaptureWidth` |
+| Box too short | Increase the sixth value `CaptureHeight` |
+| Box too tall | Decrease the sixth value `CaptureHeight` |
 
 You can also check the `ocr-debug` folder for `raw.png`, `text-extract.png`, and `preprocessed.png` to see what the tool is reading.
 
