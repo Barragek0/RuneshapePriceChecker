@@ -26,7 +26,7 @@ It reads visible rows on the runeshape page with OCR, looks up live prices from 
 	- Check `ocr-debug/` for captured images when `SaveDebugImages` is enabled.
 	- If n/a appears in logging next to an item that is available on poe ninja with a price, or if the text isn't matching correctly, submit an issue.
 - No OCR output:
-	- Confirm Tesseract is installed and in `PATH`. The tool auto-installs it on first run if missing.
+	- Confirm Tesseract is installed and in `PATH`. The tool auto-installs it on first run if missing. If auto-install fails, download the installer from https://github.com/UB-Mannheim/tesseract/wiki (use the 64-bit installer, e.g. `tesseract-ocr-w64-setup-5.5.0.20241111.exe`).
 	- Confirm you're in `borderless windowed` on a supported resolution.
 	- Confirm you're tabbed into the game, so the game is in the foreground.
 - No overlay visible:

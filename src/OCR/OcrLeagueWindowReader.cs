@@ -78,8 +78,15 @@ public sealed class OcrLeagueWindowReader(
         {
             _tesseractUnavailable = true;
             logger.LogWarning(
-                "OCR disabled: {Reason} If startup auto-install did not complete, install Tesseract and restart RuneshapePriceChecker.",
+                "OCR disabled: {Reason} Install Tesseract from https://github.com/UB-Mannheim/tesseract/wiki then restart RuneshapePriceChecker.",
                 ex.Message);
+            return new LeagueWindowSnapshot(Array.Empty<string>(), capturedAt, InterfaceDetected: _lastInterfaceDetected);
+        }
+        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 2)
+        {
+            _tesseractUnavailable = true;
+            logger.LogWarning(
+                "OCR disabled: Tesseract not found. Install from https://github.com/UB-Mannheim/tesseract/wiki then restart RuneshapePriceChecker.");
             return new LeagueWindowSnapshot(Array.Empty<string>(), capturedAt, InterfaceDetected: _lastInterfaceDetected);
         }
         catch (Exception ex)

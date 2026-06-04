@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net.Http;
 
 namespace RuneshapePriceChecker.Startup;
 
@@ -30,19 +31,33 @@ internal static class TesseractBootstrapper
         LogWarning($"Tesseract not found at configured path '{configuredPath}'.");
         LogInfo("Installing Tesseract via winget...");
 
-        if (!TryRunWingetInstall())
+        if (TryRunWingetInstall())
         {
-            LogWarning("Automatic install failed. Install Tesseract manually.");
-            return configuredPath;
+            if (TryResolveTesseractPath(configuredPath, out resolvedPath))
+            {
+                LogInfo($"Tesseract install completed via winget. Resolved executable path: '{resolvedPath}'.");
+                return resolvedPath;
+            }
+
+            LogWarning("winget install completed but Tesseract executable path could not be resolved.");
+        }
+        else
+        {
+            LogInfo("winget not available or install failed. Trying direct download...");
         }
 
-        if (TryResolveTesseractPath(configuredPath, out resolvedPath))
+        if (TryDownloadAndInstallTesseract())
         {
-            LogInfo($"Tesseract install completed. Resolved executable path: '{resolvedPath}'.");
-            return resolvedPath;
+            if (TryResolveTesseractPath(configuredPath, out resolvedPath))
+            {
+                LogInfo($"Tesseract install completed via direct download. Resolved executable path: '{resolvedPath}'.");
+                return resolvedPath;
+            }
+
+            LogWarning("Direct install completed but Tesseract executable path could not be resolved.");
         }
 
-        LogWarning("Tesseract installation completed but executable path could not be resolved automatically.");
+        LogWarning("Automatic Tesseract install failed. Install manually from https://github.com/UB-Mannheim/tesseract/wiki then restart.");
         return configuredPath;
     }
 
@@ -64,6 +79,132 @@ internal static class TesseractBootstrapper
         };
 
         return RunProcessWithLiveLogging(startInfo, "winget install tesseract", TimeSpan.FromMinutes(5));
+    }
+
+    private const string TesseractInstallerUrl =
+        "https://github.com/tesseract-ocr/tesseract/releases/download/5.5.0/tesseract-ocr-w64-setup-5.5.0.20241111.exe";
+
+    private static bool TryDownloadAndInstallTesseract()
+    {
+        var tempDir = Path.GetTempPath();
+        var installerPath = Path.Combine(tempDir, "tesseract-installer.exe");
+
+        try
+        {
+            LogInfo($"Downloading Tesseract installer from {TesseractInstallerUrl}...");
+
+            using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+            using var response = client.GetAsync(TesseractInstallerUrl, HttpCompletionOption.ResponseHeadersRead).GetAwaiter().GetResult();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                LogWarning($"Failed to download Tesseract installer (HTTP {(int)response.StatusCode}).");
+                return false;
+            }
+
+            var contentLength = response.Content.Headers.ContentLength;
+            if (contentLength > 0)
+            {
+                LogInfo($"Installer size: {contentLength / 1024 / 1024} MB");
+            }
+
+            using var fileStream = File.Create(installerPath);
+            response.Content.ReadAsStreamAsync().GetAwaiter().GetResult().CopyTo(fileStream);
+            fileStream.Flush();
+            fileStream.Close();
+
+            LogInfo("Download complete. Running installer (you may see a UAC prompt)...");
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = installerPath,
+                Arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART",
+                UseShellExecute = true,
+                Verb = "runas",
+                CreateNoWindow = true
+            };
+
+            var installed = RunElevatedInstaller(startInfo, "tesseract silent installer", TimeSpan.FromMinutes(5));
+            LogInfo(installed
+                ? "Tesseract silent installer completed."
+                : "Tesseract silent installer failed.");
+
+            return installed;
+        }
+        catch (Exception ex)
+        {
+            LogWarning($"Direct Tesseract install failed: {ex.Message}");
+            return false;
+        }
+        finally
+        {
+            TryDeleteFile(installerPath);
+        }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+            // Best effort cleanup.
+        }
+    }
+
+    private static bool RunElevatedInstaller(ProcessStartInfo startInfo, string operationName, TimeSpan timeout)
+    {
+        try
+        {
+            using var process = Process.Start(startInfo);
+            if (process is null)
+            {
+                LogInfo($"{operationName}: elevation prompt was cancelled or failed to start.");
+                return false;
+            }
+
+            var startedAt = DateTime.UtcNow;
+            var nextHeartbeat = startedAt.AddSeconds(12);
+
+            while (!process.HasExited)
+            {
+                if (DateTime.UtcNow - startedAt > timeout)
+                {
+                    try { process.Kill(entireProcessTree: true); } catch { }
+                    LogWarning($"{operationName} timed out after {(int)timeout.TotalMinutes} minutes.");
+                    return false;
+                }
+
+                if (DateTime.UtcNow >= nextHeartbeat)
+                {
+                    var elapsed = (int)(DateTime.UtcNow - startedAt).TotalSeconds;
+                    LogInfo($"{operationName} is still running ({elapsed}s elapsed)...");
+                    nextHeartbeat = DateTime.UtcNow.AddSeconds(12);
+                }
+
+                process.WaitForExit(500);
+            }
+
+            process.WaitForExit();
+
+            if (process.ExitCode != 0)
+            {
+                LogWarning($"{operationName} exited with code {process.ExitCode}.");
+                return false;
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LogWarning($"{operationName} threw an exception: {ex.Message}");
+            return false;
+        }
     }
 
     private static bool TryEnsureWingetAvailable()

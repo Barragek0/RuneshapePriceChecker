@@ -77,6 +77,7 @@ var host = Host.CreateDefaultBuilder(args)
         logging.ClearProviders();
         logging.SetMinimumLevel(LogLevel.Debug);
         logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
+        logging.AddFilter("Microsoft.Extensions.Http.DefaultHttpClientFactory", LogLevel.Warning);
         logging.AddConsole(options =>
         {
             options.FormatterName = CompactConsoleFormatter.FormatterName;

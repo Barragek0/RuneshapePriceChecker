@@ -12,6 +12,7 @@ namespace RuneshapePriceChecker.Startup;
 
 internal sealed class UpdateChecker(
     IOptions<UpdateOptions> updateOptions,
+    IHostApplicationLifetime lifetime,
     ILogger<UpdateChecker> logger) : IHostedService
 {
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -96,35 +97,16 @@ internal sealed class UpdateChecker(
         logger.LogInformation("Launching updater for version {Version}...", latestVersion);
         try
         {
-            using var process = new Process
+            Process.Start(new ProcessStartInfo
             {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = updaterPath,
-                    Arguments = $"--url \"{zipAsset.BrowserDownloadUrl}\" --version \"{latestVersionText}\"",
-                    WorkingDirectory = installDir,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true
-                }
-            };
+                FileName = updaterPath,
+                Arguments = $"--url \"{zipAsset.BrowserDownloadUrl}\" --version \"{latestVersionText}\"",
+                WorkingDirectory = installDir,
+                UseShellExecute = true
+            });
 
-            process.OutputDataReceived += (_, e) =>
-            {
-                if (!string.IsNullOrWhiteSpace(e.Data))
-                    logger.LogInformation("[Updater] {Output}", e.Data);
-            };
-            process.ErrorDataReceived += (_, e) =>
-            {
-                if (!string.IsNullOrWhiteSpace(e.Data))
-                    logger.LogWarning("[Updater] {Output}", e.Data);
-            };
-
-            process.Start();
-            process.BeginOutputReadLine();
-            process.BeginErrorReadLine();
-            await process.WaitForExitAsync(cancellationToken);
+            logger.LogInformation("Updater launched. Shutting down to allow update...");
+            lifetime.StopApplication();
         }
         catch (Exception ex)
         {
