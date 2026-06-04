@@ -35,13 +35,13 @@ Here is an example of how the box looks on 1080p:
 
 ![1080p OCR bounds example](https://i.vgy.me/ohQ5zW.png)
 
-Use these rules, adjusting by small amounts each time, restarting, and checking again:
-
 Its vital that you get the box to look as close to the image as possible, so that everything functions correctly: 
 - The left line of the red box should line up with the start of the 'a' in the Runeshape Combinations text above it.
 - The right line should line up with the right edge of each item in the list.
 - The top line should line up with the top of the first entry in the list.
 - The bottom line should line up with the small black line at the bottom of the list.
+
+Use these rules, adjusting by small amounts each time, restarting, and checking again:
 
 | If this is wrong | Change this value |
 |---|---|
