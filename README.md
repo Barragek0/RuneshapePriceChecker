@@ -9,6 +9,7 @@ It reads visible rows on the runeshape page with OCR, looks up live prices from 
 - Windows
 - .NET 8 SDK
 - Tesseract OCR installed and available in `PATH`. The tool will automatically install it if you don't have it.
+- Your in-game UI Brightness setting, under Graphics, must be set above -0.8, with it ideally being at least 0.0. If you set it below 0.0, its more likely that it will incorrectly match the text with the wrong items, and if you set it to less than -0.7, it may not be able to detect the text on the interface at all.
 
 ## How it Looks
 ![example](https://i.vgy.me/1XkXx8.png)
