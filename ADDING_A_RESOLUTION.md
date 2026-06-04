@@ -29,7 +29,7 @@ The six numbers are: `WindowWidth, WindowHeight, CaptureOffsetX, CaptureOffsetY,
 
 ## 3) Tune the Red OCR Box
 
-The red box must cover the item list area so the tool can read it correctly. The purple background should render from the left side of the box, covering the runes, so we can render the parsed values from the red box.
+The red box must cover the item list area so the tool can read it correctly. The black background should render from the left side of the box, covering the runes, so we can render the parsed values from the red box.
 
 Here is an example of how the box looks on 1080p:
 
