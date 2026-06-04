@@ -565,9 +565,9 @@ public sealed class OcrLeagueWindowReader(
             return false;
         }
 
-        var sampleX = Math.Clamp(options.LeaguePanelAnchorSampleX, 0, bitmap.Width - 1);
-        var sampleY = Math.Clamp(options.LeaguePanelAnchorSampleY, 0, bitmap.Height - 1);
-        var sampleRadius = Math.Clamp(options.LeaguePanelAnchorSampleRadiusPx, 0, 3);
+        var sampleX = ComputeAnchorX(bitmap, options);
+        var sampleY = ComputeAnchorY(bitmap, options);
+        var sampleRadius = ComputeAnchorRadius(bitmap, options);
 
         var minX = Math.Max(0, sampleX - sampleRadius);
         var maxX = Math.Min(bitmap.Width - 1, sampleX + sampleRadius);
@@ -575,58 +575,92 @@ public sealed class OcrLeagueWindowReader(
         var maxY = Math.Min(bitmap.Height - 1, sampleY + sampleRadius);
 
         var rgbPixels = ReadRgbPixels(bitmap);
-        var sampleCount = 0;
-        var sumR = 0;
-        var sumG = 0;
-        var sumB = 0;
+        var tolerance = Math.Max(1, options.LeaguePanelAnchorTolerance);
+        var minLuminance = options.LeaguePanelAnchorMinLuminance;
+        var maxSpread = options.LeaguePanelAnchorMaxChannelSpread;
+        var targetR = options.LeaguePanelAnchorTargetR;
+        var targetG = options.LeaguePanelAnchorTargetG;
+        var targetB = options.LeaguePanelAnchorTargetB;
 
         for (var y = minY; y <= maxY; y++)
         {
             var rowOffset = y * bitmap.Width;
             for (var x = minX; x <= maxX; x++)
             {
-                var pixelIndex = rowOffset + x;
-                var rgbIndex = pixelIndex * 3;
-                sumR += rgbPixels[rgbIndex];
-                sumG += rgbPixels[rgbIndex + 1];
-                sumB += rgbPixels[rgbIndex + 2];
-                sampleCount++;
+                var rgbIndex = (rowOffset + x) * 3;
+                var r = rgbPixels[rgbIndex];
+                var g = rgbPixels[rgbIndex + 1];
+                var b = rgbPixels[rgbIndex + 2];
+
+                var maxChannel = Math.Max(r, Math.Max(g, b));
+                var minChannel = Math.Min(r, Math.Min(g, b));
+                var spread = maxChannel - minChannel;
+                var luminance = ((299 * r) + (587 * g) + (114 * b)) / 1000;
+
+                var dr = r - targetR;
+                var dg = g - targetG;
+                var db = b - targetB;
+                var distanceToTarget = Math.Sqrt((dr * dr) + (dg * dg) + (db * db));
+
+                var isNearTargetPalette = distanceToTarget <= tolerance;
+                var isLightNeutral = luminance >= minLuminance && spread <= maxSpread;
+
+                if (isNearTargetPalette || isLightNeutral)
+                {
+                    signal = new LeaguePanelAnchorSignal(x, y, r, g, b, luminance, spread, distanceToTarget);
+                    return true;
+                }
             }
         }
 
-        if (sampleCount == 0)
+        var centerRgbIndex = (sampleY * bitmap.Width + sampleX) * 3;
+        var cr = rgbPixels[centerRgbIndex];
+        var cg = rgbPixels[centerRgbIndex + 1];
+        var cb = rgbPixels[centerRgbIndex + 2];
+        var cmaxChannel = Math.Max(cr, Math.Max(cg, cb));
+        var cminChannel = Math.Min(cr, Math.Min(cg, cb));
+        var cspread = cmaxChannel - cminChannel;
+        var cluminance = ((299 * cr) + (587 * cg) + (114 * cb)) / 1000;
+        var cdr = cr - targetR;
+        var cdg = cg - targetG;
+        var cdb = cb - targetB;
+        var cdistance = Math.Sqrt((cdr * cdr) + (cdg * cdg) + (cdb * cdb));
+
+        signal = new LeaguePanelAnchorSignal(sampleX, sampleY, cr, cg, cb, cluminance, cspread, cdistance);
+        return false;
+    }
+
+    private static int ComputeAnchorX(Bitmap bitmap, OcrOptions options)
+    {
+        if (options.LeaguePanelAnchorFractionX > 0f)
         {
-            return false;
+            return (int)(bitmap.Width * Math.Clamp(options.LeaguePanelAnchorFractionX, 0f, 1f));
         }
 
-        var r = sumR / sampleCount;
-        var g = sumG / sampleCount;
-        var b = sumB / sampleCount;
-        var maxChannel = Math.Max(r, Math.Max(g, b));
-        var minChannel = Math.Min(r, Math.Min(g, b));
-        var spread = maxChannel - minChannel;
-        var luminance = ((299 * r) + (587 * g) + (114 * b)) / 1000;
+        return Math.Clamp(options.LeaguePanelAnchorSampleX, 0, bitmap.Width - 1);
+    }
 
-        var dr = r - options.LeaguePanelAnchorTargetR;
-        var dg = g - options.LeaguePanelAnchorTargetG;
-        var db = b - options.LeaguePanelAnchorTargetB;
-        var distanceToTarget = Math.Sqrt((dr * dr) + (dg * dg) + (db * db));
+    private static int ComputeAnchorY(Bitmap bitmap, OcrOptions options)
+    {
+        if (options.LeaguePanelAnchorFractionY > 0f)
+        {
+            return (int)(bitmap.Height * Math.Clamp(options.LeaguePanelAnchorFractionY, 0f, 1f));
+        }
 
-        signal = new LeaguePanelAnchorSignal(
-            sampleX,
-            sampleY,
-            r,
-            g,
-            b,
-            luminance,
-            spread,
-            distanceToTarget);
+        return Math.Clamp(options.LeaguePanelAnchorSampleY, 0, bitmap.Height - 1);
+    }
 
-        var isNearTargetPalette = distanceToTarget <= Math.Max(1, options.LeaguePanelAnchorTolerance);
-        var isLightNeutral = luminance >= options.LeaguePanelAnchorMinLuminance &&
-            spread <= options.LeaguePanelAnchorMaxChannelSpread;
+    private static int ComputeAnchorRadius(Bitmap bitmap, OcrOptions options)
+    {
+        if (options.LeaguePanelAnchorSampleRadiusFraction > 0f)
+        {
+            return Math.Clamp(
+                (int)(bitmap.Height * options.LeaguePanelAnchorSampleRadiusFraction),
+                2,
+                20);
+        }
 
-        return isNearTargetPalette || isLightNeutral;
+        return Math.Clamp(options.LeaguePanelAnchorSampleRadiusPx, 2, 20);
     }
 
     private static bool TryCaptureFromWindowClient(WindowCaptureContext context, OcrCaptureRegion absoluteRegion, out Bitmap bitmap)

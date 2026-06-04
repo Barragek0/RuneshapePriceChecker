@@ -14,6 +14,8 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient, IOption
     private readonly ConcurrentDictionary<string, (decimal MinChaos, decimal MaxChaos)> _uncutGemRanges = new(StringComparer.OrdinalIgnoreCase);
     private decimal _divineOrbChaosValue = 150m;
     private decimal _exaltedOrbChaosValue;
+    private decimal _currencyMinChaos;
+    private decimal _currencyMaxChaos;
     private static readonly Regex NonAlphaNumeric = new("[^A-Za-z0-9]+", RegexOptions.Compiled);
     private static readonly Regex LeadingQuantityWithX = new("^(?:\\d+|[AaIiLlTt|])\\s*[Xx]\\s+", RegexOptions.Compiled);
     private static readonly Regex LeadingQuantityWithoutX = new("^(?:\\d+|[IiLl|])\\s+", RegexOptions.Compiled);
@@ -61,6 +63,11 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient, IOption
         {
             var totalChaosValue = exactChaosValue * quantity;
             return new PriceQuote(FormatAmount(totalChaosValue), totalChaosValue, false);
+        }
+
+        if (TryResolveRandomCurrency(key, quantity, out var currencyQuote))
+        {
+            return currencyQuote;
         }
 
         if (_fallbackPrices.TryGetValue(key, out var fallbackChaosValue))
@@ -164,27 +171,54 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient, IOption
             return false;
         }
 
-        if (source.Length != candidate.Length)
+        var lenDiff = source.Length - candidate.Length;
+        if (lenDiff == 0)
         {
-            return false;
-        }
-
-        var differences = 0;
-        for (var i = 0; i < source.Length; i++)
-        {
-            if (source[i] == candidate[i])
+            var differences = 0;
+            for (var i = 0; i < source.Length; i++)
             {
-                continue;
+                if (source[i] == candidate[i])
+                {
+                    continue;
+                }
+
+                differences++;
+                if (differences > 1)
+                {
+                    return false;
+                }
             }
 
-            differences++;
-            if (differences > 1)
-            {
-                return false;
-            }
+            return differences == 1;
         }
 
-        return differences == 1;
+        if (lenDiff is 1 or -1)
+        {
+            var longer = lenDiff == 1 ? source : candidate;
+            var shorter = lenDiff == 1 ? candidate : source;
+
+            var differences = 0;
+            var si = 0;
+            for (var li = 0; li < longer.Length && si < shorter.Length; li++, si++)
+            {
+                if (longer[li] == shorter[si])
+                {
+                    continue;
+                }
+
+                differences++;
+                if (differences > 1)
+                {
+                    return false;
+                }
+
+                si--;
+            }
+
+            return differences <= 1;
+        }
+
+        return false;
     }
 
     private static IEnumerable<string> BuildLookupCandidates(string itemName)
@@ -283,6 +317,9 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient, IOption
         {
             _exaltedOrbChaosValue = latest.ExaltedOrbChaosValue;
         }
+
+        _currencyMinChaos = latest.CurrencyMinChaos;
+        _currencyMaxChaos = latest.CurrencyMaxChaos;
     }
 
     private void RebuildUncutGemRanges()
@@ -336,6 +373,26 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient, IOption
         }
 
         return false;
+    }
+
+    private bool TryResolveRandomCurrency(string key, int quantity, out PriceQuote? quote)
+    {
+        quote = null;
+        if (!key.Equals("RANDOM CURRENCY", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (_currencyMinChaos <= 0m || _currencyMaxChaos <= 0m)
+        {
+            return false;
+        }
+
+        var minTotal = _currencyMinChaos * quantity;
+        var maxTotal = _currencyMaxChaos * quantity;
+        var label = $"{FormatAmount(minTotal)} - {FormatAmount(maxTotal)}";
+        quote = new PriceQuote(label, maxTotal, true);
+        return true;
     }
 
     private bool TryResolveUniqueCategoryRange(string normalizedItemName, out (decimal MinChaos, decimal MaxChaos) range)

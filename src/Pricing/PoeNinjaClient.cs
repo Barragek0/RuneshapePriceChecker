@@ -20,6 +20,8 @@ public sealed class PoeNinjaClient(HttpClient httpClient, IOptionsMonitor<Pricin
         var pricingOptions = _options.CurrentValue;
         var exactPrices = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
         var uniqueCategoryRanges = new Dictionary<string, (decimal MinChaos, decimal MaxChaos)>(StringComparer.OrdinalIgnoreCase);
+        decimal currencyMinChaos = 0m;
+        decimal currencyMaxChaos = 0m;
 
         var encodedLeague = Uri.EscapeDataString(pricingOptions.League);
         var typesToFetch = pricingOptions.IncludedTypes
@@ -94,6 +96,14 @@ public sealed class PoeNinjaClient(HttpClient httpClient, IOptionsMonitor<Pricin
                 {
                     parsedCount++;
                 }
+
+                if (type.Equals("Currency", StringComparison.OrdinalIgnoreCase) && chaosPrice > 0m)
+                {
+                    if (currencyMinChaos == 0m || chaosPrice < currencyMinChaos)
+                        currencyMinChaos = chaosPrice;
+                    if (chaosPrice > currencyMaxChaos)
+                        currencyMaxChaos = chaosPrice;
+                }
             }
 
             logger.LogInformation("Fetched {Count} price rows from poe.ninja type {Type}.", parsedCount, type);
@@ -107,7 +117,7 @@ public sealed class PoeNinjaClient(HttpClient httpClient, IOptionsMonitor<Pricin
             ? exaltedValue
             : 0m;
 
-        return new PoeNinjaPricingSnapshot(exactPrices, uniqueCategoryRanges, divineOrbChaosValue, exaltedOrbChaosValue);
+        return new PoeNinjaPricingSnapshot(exactPrices, uniqueCategoryRanges, divineOrbChaosValue, exaltedOrbChaosValue, currencyMinChaos, currencyMaxChaos);
     }
 
     private static string GetEndpointForType(string type, PricingCacheOptions options)
