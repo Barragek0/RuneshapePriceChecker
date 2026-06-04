@@ -45,14 +45,14 @@ Use these rules, adjusting by small amounts each time, restarting, and checking 
 
 | If this is wrong | Change this value |
 |---|---|
-| Box too far left | Increase `CaptureOffsetX` |
-| Box too far right | Decrease `CaptureOffsetX` |
-| Box too high | Increase `CaptureOffsetY` |
-| Box too low | Decrease `CaptureOffsetY` |
-| Box too narrow | Increase `CaptureWidth` |
-| Box too wide | Decrease `CaptureWidth` |
-| Box too short | Increase `CaptureHeight` |
-| Box too tall | Decrease `CaptureHeight` |
+| Box too far left | Increase the third value `CaptureOffsetX` |
+| Box too far right | Decrease the third value `CaptureOffsetX` |
+| Box too high | Increase the fourth value `CaptureOffsetY` |
+| Box too low | Decrease the fourth value `CaptureOffsetY` |
+| Box too narrow | Increase the fifth value `CaptureWidth` |
+| Box too wide | Decrease the fifth value `CaptureWidth` |
+| Box too short | Increase the sixth value `CaptureHeight` |
+| Box too tall | Decrease the sixth value `CaptureHeight` |
 
 You can also check the `ocr-debug` folder for `raw.png`, `text-extract.png`, and `preprocessed.png` to see what the tool is reading.
 
