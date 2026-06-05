@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms;
@@ -43,6 +44,8 @@ public sealed class Poe2WindowResolutionService(
     private bool? _lastForegroundState;
     private string? _unsupportedResolutionPopupShownForKey;
     private string? _untestedResolutionKeyShown;
+    private bool _fullscreenWarningShown;
+    private bool _uiBrightnessWarningShown;
 
     public OcrCaptureRegion? CurrentCaptureRegion => _currentCaptureRegion;
 
@@ -100,6 +103,10 @@ public sealed class Poe2WindowResolutionService(
         _isPoe2WindowForeground = isForegroundByWindowFamily || isForegroundByTitle || isForegroundByProcess;
         LogForegroundStateIfChanged(_isPoe2WindowForeground);
 
+        var configInfo = ReadPoe2ConfigInfo();
+        ShowFullscreenWarningPopupIfNeeded(configInfo.IsFullscreen);
+        ShowUiBrightnessWarningPopupIfNeeded(configInfo.UiBrightness);
+
         var handle = foregroundCandidate?.WindowHandle ?? candidates[0].WindowHandle;
 
         if (!NativeMethods.GetClientRect(handle, out var rect))
@@ -136,6 +143,23 @@ public sealed class Poe2WindowResolutionService(
         var resolutionKey = $"{width}x{height}";
         if (!OcrResolutionProfiles.TryGet(resolutionKey, out var profile))
         {
+            if (configInfo.ResolutionKey is not null &&
+                OcrResolutionProfiles.TryGet(configInfo.ResolutionKey, out _))
+            {
+                if (!string.Equals(_currentResolutionKey, resolutionKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    logger.LogDebug(
+                        "Detected transitional PoE2 client resolution {DetectedResolution}; config resolution is {ConfigResolution}. Waiting for window to stabilize.",
+                        resolutionKey,
+                        configInfo.ResolutionKey);
+                    _currentResolutionKey = resolutionKey;
+                    _currentCaptureRegion = null;
+                    _currentResolutionProfile = null;
+                }
+
+                return;
+            }
+
             if (!string.Equals(_currentResolutionKey, resolutionKey, StringComparison.OrdinalIgnoreCase))
             {
                 logger.LogWarning("Detected PoE2 client resolution {Resolution}, but no OCR profile exists. OCR capture will remain disabled until a profile is added.", resolutionKey);
@@ -306,6 +330,68 @@ public sealed class Poe2WindowResolutionService(
         }
     }
 
+    private void ShowUiBrightnessWarningPopupIfNeeded(float? uiBrightness)
+    {
+        if (_uiBrightnessWarningShown || uiBrightness is null)
+            return;
+
+        if (uiBrightness.Value >= 1.01f)
+            return;
+
+        _uiBrightnessWarningShown = true;
+
+        var message =
+            "Your in-game UI Brightness setting, under Graphics, must be set above -0.8, " +
+            "with it ideally being at least 0.0." +
+            $"{Environment.NewLine}{Environment.NewLine}" +
+            "If you set it below 0.0, it's more likely that it will incorrectly match the text " +
+            "with the wrong items, and if you set it below -0.8, it may not be able to detect " +
+            "the text on the interface at all.";
+
+        try
+        {
+            MessageBox.Show(
+                message,
+                "RuneshapePriceChecker - UI Brightness Too Low",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning,
+                MessageBoxDefaultButton.Button1,
+                MessageBoxOptions.DefaultDesktopOnly);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to display UI brightness warning popup.");
+        }
+    }
+
+    private void ShowFullscreenWarningPopupIfNeeded(bool isFullscreen)
+    {
+        if (!isFullscreen || _fullscreenWarningShown)
+            return;
+
+        _fullscreenWarningShown = true;
+
+        var message =
+            "PoE2 is running in exclusive fullscreen mode, which prevents OCR screen capture." +
+            $"{Environment.NewLine}{Environment.NewLine}" +
+            "Please switch to Borderless Windowed or Windowed mode in the game's Display settings.";
+
+        try
+        {
+            MessageBox.Show(
+                message,
+                "RuneshapePriceChecker - Fullscreen Detected",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning,
+                MessageBoxDefaultButton.Button1,
+                MessageBoxOptions.DefaultDesktopOnly);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to display fullscreen warning popup.");
+        }
+    }
+
     private void ShowUntestedResolutionPopupIfNeeded(string resolutionKey, OcrResolutionProfile profile)
     {
         if (profile.Confirmed)
@@ -336,6 +422,71 @@ public sealed class Poe2WindowResolutionService(
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Failed to display untested resolution popup.");
+        }
+    }
+
+    private readonly record struct Poe2ConfigInfo(string? ResolutionKey, bool IsFullscreen, float? UiBrightness);
+
+    private static Poe2ConfigInfo ReadPoe2ConfigInfo()
+    {
+        try
+        {
+            var configPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                "My Games",
+                "Path of Exile 2",
+                "poe2_production_Config.ini");
+
+            if (!File.Exists(configPath))
+                return default;
+
+            int? width = null;
+            int? height = null;
+            var fullscreen = false;
+            float? uiBrightness = null;
+
+            foreach (var line in File.ReadLines(configPath))
+            {
+                var trimmed = line.Trim();
+
+                if (trimmed.StartsWith("resolution_width=", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (int.TryParse(trimmed.AsSpan(trimmed.IndexOf('=') + 1), out var w))
+                        width = w;
+                }
+                else if (trimmed.StartsWith("resolution_height=", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (int.TryParse(trimmed.AsSpan(trimmed.IndexOf('=') + 1), out var h))
+                        height = h;
+                }
+                else if (trimmed.StartsWith("ui_brigthness=", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (float.TryParse(
+                        trimmed.AsSpan(trimmed.IndexOf('=') + 1),
+                        NumberStyles.Float,
+                        CultureInfo.InvariantCulture,
+                        out var brightness))
+                    {
+                        uiBrightness = brightness;
+                    }
+                }
+                else if (trimmed.Equals("fullscreen=true", StringComparison.OrdinalIgnoreCase))
+                {
+                    fullscreen = true;
+                }
+            }
+
+            var resolutionKey = width.HasValue && height.HasValue
+                ? $"{width}x{height}"
+                : null;
+
+            return new Poe2ConfigInfo(resolutionKey, fullscreen, uiBrightness);
+        }
+        catch (Exception ex)
+        {
+            // Config file may be locked during game startup; gracefully fall back.
+            System.Diagnostics.Debug.WriteLine($"Failed to read PoE2 config: {ex.Message}");
+            return default;
         }
     }
 
