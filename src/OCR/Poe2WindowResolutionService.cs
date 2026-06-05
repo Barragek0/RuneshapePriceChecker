@@ -335,7 +335,7 @@ public sealed class Poe2WindowResolutionService(
         if (_uiBrightnessWarningShown || uiBrightness is null)
             return;
 
-        if (uiBrightness.Value >= 1.01f)
+        if (uiBrightness.Value >= 1.00f)
             return;
 
         _uiBrightnessWarningShown = true;
