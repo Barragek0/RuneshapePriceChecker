@@ -70,7 +70,7 @@ public sealed class Poe2WindowResolutionService(
                 logger.LogWarning(ex, "Failed to refresh PoE2 window resolution state.");
             }
 
-            var pollSeconds = Math.Max(2, _options.CurrentValue.ResolutionPollIntervalSeconds);
+            var pollSeconds = Math.Max(1, _options.CurrentValue.ResolutionPollIntervalSeconds);
             await Task.Delay(TimeSpan.FromSeconds(pollSeconds), stoppingToken).ConfigureAwait(false);
         }
     }

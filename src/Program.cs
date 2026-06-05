@@ -12,11 +12,18 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Console;
 
 DebugConsoleWindow.TryOpen();
+ConsoleCloseHandler.Register();
 
-var resolvedTesseractPath = TesseractBootstrapper.EnsureInstalled("tesseract");
+TryDeleteFile(Path.Combine(AppContext.BaseDirectory, "Update.exe.old"));
+
+var resolvedTesseractDataPath = TesseractBootstrapper.ResolveTessDataPath();
 AppSettingsBootstrapper.EnsureExists();
 
 var host = Host.CreateDefaultBuilder(args)
+    .ConfigureHostOptions(options =>
+    {
+        options.ShutdownTimeout = TimeSpan.Zero;
+    })
     .ConfigureAppConfiguration(config =>
     {
         config.SetBasePath(AppContext.BaseDirectory);
@@ -50,7 +57,7 @@ var host = Host.CreateDefaultBuilder(args)
             .Bind(context.Configuration.GetSection("OCR"));
         services.PostConfigure<OcrOptions>(options =>
         {
-            options.TesseractExePath = resolvedTesseractPath;
+            options.TesseractDataPath = resolvedTesseractDataPath;
         });
 
         services.AddHttpClient<IPoeNinjaClient, PoeNinjaClient>(client =>
@@ -91,3 +98,8 @@ var host = Host.CreateDefaultBuilder(args)
     .Build();
 
 await host.RunAsync().ConfigureAwait(false);
+
+static void TryDeleteFile(string path)
+{
+    try { if (File.Exists(path)) File.Delete(path); } catch { }
+}

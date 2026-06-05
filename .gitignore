@@ -1,6 +1,10 @@
 bin/
 obj/
 scripts/
+tests/*/bin/
+tests/*/obj/
+native/
+tesseract/
 tmp/
 perf-logs/
 .vs/

@@ -2,7 +2,7 @@ namespace RuneshapePriceChecker.OCR;
 
 public sealed class OcrOptions
 {
-    public string TesseractExePath { get; set; } = "tesseract";
+    public string TesseractDataPath { get; set; } = string.Empty;
 
     public string Language { get; set; } = "eng";
 

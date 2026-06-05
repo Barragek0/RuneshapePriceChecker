@@ -1,12 +1,11 @@
-using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Text.RegularExpressions;
 using RuneshapePriceChecker.Configuration;
 using RuneshapePriceChecker.Contracts;
 using RuneshapePriceChecker.Pricing;
+using RuneshapePriceChecker.Startup;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -35,6 +34,8 @@ public sealed class OcrLeagueWindowReader(
     private bool _tesseractExecutionConfirmedLogged;
     private string _lastCaptureMethod = string.Empty;
     private DateTimeOffset _lastDebugImageSavedAtUtc = DateTimeOffset.MinValue;
+    private NativeTesseractEngine? _tesseractEngine;
+    private readonly object _engineLock = new();
 
     public LeagueWindowSnapshot ReadSnapshot()
     {
@@ -234,65 +235,9 @@ public sealed class OcrLeagueWindowReader(
     private (string Text, int[] LineYPositions) ExecuteTesseractWithTsv(
         Bitmap bitmap, int psm, OcrOptions options, int upscaleFactor)
     {
-        var baseName = Path.Combine(Path.GetTempPath(), $"rpc-tsv-{Guid.NewGuid():N}");
-        var imagePath = baseName + ".png";
-        var tsvPath = baseName + ".tsv";
-        var txtPath = baseName + ".txt";
-        try
-        {
-            bitmap.Save(imagePath, ImageFormat.Png);
-
-            var args = $"\"{imagePath}\" \"{baseName}\" -l {options.Language} --oem 1 --psm {psm} -c preserve_interword_spaces=1 -c tessedit_create_tsv=1";
-
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = options.TesseractExePath,
-                Arguments = args,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-
-            using var process = Process.Start(startInfo)
-                ?? throw new InvalidOperationException("Failed to start tesseract process.");
-
-            if (!process.WaitForExit(TimeSpan.FromSeconds(Math.Max(1, options.CommandTimeoutSeconds))))
-            {
-                try { process.Kill(entireProcessTree: true); } catch { }
-                throw new TimeoutException("OCR command timed out.");
-            }
-
-            var stderr = process.StandardError.ReadToEnd();
-            process.StandardOutput.ReadToEnd();
-
-            if (process.ExitCode != 0)
-                throw new InvalidOperationException($"Tesseract failed (exit code {process.ExitCode}): {stderr}");
-
-            var text = File.Exists(txtPath)
-                ? File.ReadAllText(txtPath)
-                : ExecuteTesseractForBitmap(bitmap, psm, options);
-
-            var lineYs = new List<int>();
-            if (File.Exists(tsvPath))
-            {
-                foreach (var tsvLine in File.ReadLines(tsvPath).Skip(1))
-                {
-                    var cols = tsvLine.Split('\t');
-                    if (cols.Length < 12 || cols[0] != "4") continue;
-                    if (int.TryParse(cols[7], out var top) && int.TryParse(cols[9], out var h))
-                        lineYs.Add((top - 12) / upscaleFactor);
-                }
-            }
-
-            return (text, lineYs.ToArray());
-        }
-        finally
-        {
-            TryDelete(imagePath);
-            TryDelete(txtPath);
-            TryDelete(tsvPath);
-        }
+        var engine = GetOrCreateEngine(options);
+        engine.SetPageSegMode(psm);
+        return (engine.Recognize(bitmap, out var lineYs, upscaleFactor), lineYs);
     }
 
     private static readonly int[] _emptyRowPositions = [];
@@ -415,29 +360,48 @@ public sealed class OcrLeagueWindowReader(
 
     private string ExecuteTesseractForBitmap(Bitmap bitmap, int psm, OcrOptions options)
     {
-        var filePath = Path.Combine(Path.GetTempPath(), $"runeshapepricechecker-ocr-{Guid.NewGuid():N}.png");
-        try
-        {
-            bitmap.Save(filePath, ImageFormat.Png);
-            return ExecuteTesseract(filePath, psm, options, null);
-        }
-        finally
-        {
-            TryDelete(filePath);
-        }
+        var engine = GetOrCreateEngine(options);
+        engine.SetPageSegMode(psm);
+        return engine.Recognize(bitmap, out _, 1);
     }
 
     private string ExecuteTesseractForBitmap(Bitmap bitmap, int psm, OcrOptions options, IReadOnlyList<string>? extraConfigs)
     {
-        var filePath = Path.Combine(Path.GetTempPath(), $"runeshapepricechecker-ocr-{Guid.NewGuid():N}.png");
-        try
+        _ = extraConfigs;
+        var engine = GetOrCreateEngine(options);
+        engine.SetPageSegMode(psm);
+        return engine.Recognize(bitmap, out _, 1);
+    }
+
+    private NativeTesseractEngine GetOrCreateEngine(OcrOptions options)
+    {
+        if (_tesseractEngine is not null)
+            return _tesseractEngine;
+
+        lock (_engineLock)
         {
-            bitmap.Save(filePath, ImageFormat.Png);
-            return ExecuteTesseract(filePath, psm, options, extraConfigs);
-        }
-        finally
-        {
-            TryDelete(filePath);
+            if (_tesseractEngine is not null)
+                return _tesseractEngine;
+
+            var language = !string.IsNullOrWhiteSpace(options.Language)
+                ? options.Language
+                : "eng";
+
+            if (!TesseractBootstrapper.IsLanguageDataAvailable(language))
+            {
+                TesseractBootstrapper.EnsureLanguageDataAvailableAsync(language, CancellationToken.None)
+                    .GetAwaiter().GetResult();
+            }
+
+            var tessDataPath = !string.IsNullOrWhiteSpace(options.TesseractDataPath)
+                ? options.TesseractDataPath
+                : TesseractBootstrapper.ResolveTessDataPath();
+
+            if (string.IsNullOrWhiteSpace(tessDataPath))
+                throw new FileNotFoundException("Tesseract traineddata directory not found.");
+
+            _tesseractEngine = new NativeTesseractEngine(tessDataPath, language);
+            return _tesseractEngine;
         }
     }
 
@@ -951,87 +915,6 @@ public sealed class OcrLeagueWindowReader(
         }
     }
 
-    private string ExecuteTesseract(string imagePath, int psm, OcrOptions options, IReadOnlyList<string>? extraConfigs)
-    {
-        if (!IsExecutableAvailable(options.TesseractExePath))
-        {
-            throw new FileNotFoundException(
-                $"Tesseract executable was not found. Configure OCR:TesseractExePath or install tesseract and add it to PATH. Current value: '{options.TesseractExePath}'.");
-        }
-
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = options.TesseractExePath,
-            Arguments = BuildTesseractArguments(imagePath, options.Language, psm, extraConfigs),
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        using var process = Process.Start(startInfo)
-            ?? throw new InvalidOperationException("Failed to start tesseract process.");
-
-        if (!process.WaitForExit(TimeSpan.FromSeconds(Math.Max(1, options.CommandTimeoutSeconds))))
-        {
-            try
-            {
-                process.Kill(entireProcessTree: true);
-            }
-            catch
-            {
-                // Ignored: best-effort timeout cleanup.
-            }
-
-            throw new TimeoutException("OCR command timed out.");
-        }
-
-        var stdout = process.StandardOutput.ReadToEnd();
-        var stderr = process.StandardError.ReadToEnd();
-
-        if (process.ExitCode != 0)
-        {
-            throw new InvalidOperationException($"Tesseract failed (exit code {process.ExitCode}): {stderr}");
-        }
-
-        if (!string.IsNullOrWhiteSpace(stderr)
-            && _appOptions.CurrentValue.DebugLogging)
-        {
-            logger.LogDebug("Tesseract stderr: {stderr}", stderr.Trim());
-        }
-
-        return stdout;
-    }
-
-    private static bool IsExecutableAvailable(string executable)
-    {
-        if (Path.IsPathRooted(executable))
-        {
-            return File.Exists(executable);
-        }
-
-        var candidates = executable.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
-            ? new[] { executable }
-            : new[] { executable, $"{executable}.exe" };
-
-        var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
-        var pathSegments = pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
-
-        foreach (var segment in pathSegments)
-        {
-            foreach (var candidate in candidates)
-            {
-                var fullPath = Path.Combine(segment.Trim(), candidate);
-                if (File.Exists(fullPath))
-                {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
     private static IReadOnlyList<string> ExtractLikelyItemNames(string rawText)
     {
         var lines = rawText
@@ -1057,34 +940,6 @@ public sealed class OcrLeagueWindowReader(
         }
 
         return normalized.Trim(' ', '-', '\'', ',');
-    }
-
-    private static string BuildTesseractArguments(string imagePath, string language, int psm, IReadOnlyList<string>? extraConfigs)
-    {
-        var args = new StringBuilder();
-        args.Append('"').Append(imagePath).Append('"');
-        args.Append(" stdout");
-        args.Append(" -l ").Append(language);
-        args.Append(" --oem 1");
-        args.Append(" --psm ").Append(psm);
-        args.Append(" -c preserve_interword_spaces=1");
-        args.Append(" -c tessedit_do_invert=0");
-        args.Append(" -c load_system_dawg=0");
-        args.Append(" -c load_freq_dawg=0");
-        if (extraConfigs is not null)
-        {
-            foreach (var config in extraConfigs)
-            {
-                if (string.IsNullOrWhiteSpace(config))
-                {
-                    continue;
-                }
-
-                args.Append(" -c ").Append(config.Trim());
-            }
-        }
-
-        return args.ToString();
     }
 
     private static Bitmap AddWhiteBorder(Bitmap source, int borderPx)
@@ -1291,21 +1146,6 @@ public sealed class OcrLeagueWindowReader(
         if (region.Width <= 0 || region.Height <= 0)
         {
             throw new InvalidOperationException("OCR capture region must have positive width and height.");
-        }
-    }
-
-    private static void TryDelete(string path)
-    {
-        try
-        {
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
-        }
-        catch
-        {
-            // Ignore temp-file cleanup failures.
         }
     }
 

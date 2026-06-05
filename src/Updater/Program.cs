@@ -131,7 +131,13 @@ static async Task RunStandaloneCheckAsync(string owner, string repo, string inst
 static async Task FinishUpdateAsync(string tempZip, string newVersion, string installDir)
 {
     const string mainExeName = "RuneshapePriceChecker.exe";
+    const string updaterExeName = "Update.exe";
     await CloseMainProcessAsync(mainExeName);
+
+    var oldUpdaterPath = Path.Combine(installDir, $"{updaterExeName}.old");
+    try { if (File.Exists(oldUpdaterPath)) File.Delete(oldUpdaterPath); } catch { }
+    var currentUpdaterPath = Path.Combine(installDir, updaterExeName);
+    try { if (File.Exists(currentUpdaterPath)) File.Move(currentUpdaterPath, oldUpdaterPath); } catch { }
 
     Log("Extracting update...");
     await Task.Run(() => ExtractZip(tempZip, installDir));
@@ -225,8 +231,8 @@ static void Fail(string message)
 {
     Log($"FATAL: {message}");
     Console.WriteLine();
-    Console.WriteLine("Press any key to close...");
-    Console.ReadKey(intercept: true);
+    Log("The console will close in 10 seconds...");
+    Thread.Sleep(10000);
     Environment.Exit(1);
 }
 
@@ -305,6 +311,7 @@ static async Task CloseMainProcessAsync(string exeName)
 
 static void ExtractZip(string zipPath, string destinationDir)
 {
+    var failed = new List<string>();
     using var archive = ZipFile.OpenRead(zipPath);
     foreach (var entry in archive.Entries)
     {
@@ -319,11 +326,29 @@ static void ExtractZip(string zipPath, string destinationDir)
         var destDir = Path.GetDirectoryName(destPath)!;
         if (!Directory.Exists(destDir)) Directory.CreateDirectory(destDir);
 
+        var extracted = false;
         for (var retry = 0; retry < 5; retry++)
         {
-            try { entry.ExtractToFile(destPath, overwrite: true); break; }
+            try
+            {
+                if (File.Exists(destPath))
+                {
+                    try { File.Delete(destPath); } catch { }
+                }
+                entry.ExtractToFile(destPath, overwrite: true);
+                extracted = true;
+                break;
+            }
             catch (IOException) when (retry < 4) { Thread.Sleep(500); }
         }
+
+        if (!extracted)
+            failed.Add(entry.FullName);
+    }
+
+    if (failed.Count > 0)
+    {
+        Log($"WARNING: {failed.Count} file(s) could not be extracted: {string.Join(", ", failed)}");
     }
 }
 

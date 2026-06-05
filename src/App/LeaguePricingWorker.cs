@@ -19,38 +19,54 @@ public sealed class LeaguePricingWorker(
     IOptionsMonitor<OcrOptions> ocrOptions,
     ILogger<LeaguePricingWorker> logger) : BackgroundService
 {
-    private static readonly TimeSpan TargetLoopInterval = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan MinOcrInterval = TimeSpan.FromMilliseconds(120);
+    private static readonly TimeSpan StaleRenderTimeout = TimeSpan.FromMilliseconds(180);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var latestSnapshot = new LeagueWindowSnapshot(Array.Empty<string>(), DateTimeOffset.UtcNow);
         var hasCompletedSnapshot = false;
         Task<LeagueWindowSnapshot>? inFlightSnapshotTask = null;
+        var lastOcrStart = 0L;
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            var loopStarted = Stopwatch.GetTimestamp();
-
             try
             {
-                inFlightSnapshotTask ??= StartSnapshotReadTask(reader, stoppingToken);
-
-                if (inFlightSnapshotTask.IsCompleted)
+                if (inFlightSnapshotTask is null)
                 {
-                    try
+                    var sinceLastOcr = Stopwatch.GetElapsedTime(lastOcrStart);
+                    if (sinceLastOcr >= MinOcrInterval)
                     {
-                        latestSnapshot = await inFlightSnapshotTask.ConfigureAwait(false);
-                        hasCompletedSnapshot = true;
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogError(ex, "OCR snapshot read failed.");
-                    }
-
-                    if (!stoppingToken.IsCancellationRequested)
-                    {
+                        lastOcrStart = Stopwatch.GetTimestamp();
                         inFlightSnapshotTask = StartSnapshotReadTask(reader, stoppingToken);
                     }
+                }
+
+                if (inFlightSnapshotTask is not null)
+                {
+                    var completed = await Task.WhenAny(
+                        inFlightSnapshotTask,
+                        Task.Delay(StaleRenderTimeout, stoppingToken)).ConfigureAwait(false);
+
+                    if (completed == inFlightSnapshotTask)
+                    {
+                        try
+                        {
+                            latestSnapshot = await inFlightSnapshotTask.ConfigureAwait(false);
+                            hasCompletedSnapshot = true;
+                        }
+                        catch (Exception ex)
+                        {
+                            logger.LogError(ex, "OCR snapshot read failed.");
+                        }
+
+                        inFlightSnapshotTask = null;
+                    }
+                }
+                else
+                {
+                    await Task.Delay(20, stoppingToken).ConfigureAwait(false);
                 }
 
                 var snapshot = hasCompletedSnapshot
@@ -94,13 +110,6 @@ public sealed class LeaguePricingWorker(
             catch (Exception ex)
             {
                 logger.LogError(ex, "Failed to render overlay snapshot.");
-            }
-
-            var elapsed = Stopwatch.GetElapsedTime(loopStarted);
-            var remainingDelay = TargetLoopInterval - elapsed;
-            if (remainingDelay > TimeSpan.Zero)
-            {
-                await Task.Delay(remainingDelay, stoppingToken).ConfigureAwait(false);
             }
         }
     }

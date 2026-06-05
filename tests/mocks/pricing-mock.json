@@ -1,0 +1,122 @@
+[
+    {
+        "name": "Chaos Orb",
+        "price": 0.9
+    },
+    {
+        "name": "Divine Orb",
+        "price": 145.0
+    },
+    {
+        "name": "Exalted Orb",
+        "price": 0.05
+    },
+    {
+        "name": "Regal Orb",
+        "price": 0.08
+    },
+    {
+        "name": "Vaal Orb",
+        "price": 0.06
+    },
+    {
+        "name": "Orb of Alchemy",
+        "price": 0.2
+    },
+    {
+        "name": "Mirror of Kalandra",
+        "price": 11430.0
+    },
+    {
+        "name": "Gemcutter's Prism",
+        "price": 0.8
+    },
+    {
+        "name": "Orb of Augmentation",
+        "price": 0.03
+    },
+    {
+        "name": "Orb of Transmutation",
+        "price": 0.02
+    },
+    {
+        "name": "Artificer's Orb",
+        "price": 0.5
+    },
+    {
+        "name": "Armourer's Scrap",
+        "price": 0.01
+    },
+    {
+        "name": "Blacksmith's Whetstone",
+        "price": 0.01
+    },
+    {
+        "name": "Scroll of Wisdom",
+        "price": 0.01
+    },
+    {
+        "name": "Lesser Jeweller's Orb",
+        "price": 0.4
+    },
+    {
+        "name": "Greater Jeweller's Orb",
+        "price": 2.5
+    },
+    {
+        "name": "Perfect Jeweller's Orb",
+        "price": 15.0
+    },
+    {
+        "name": "Orb of Annulment",
+        "price": 1.2
+    },
+    {
+        "name": "Orb of Chance",
+        "price": 0.04
+    },
+    {
+        "name": "Glassblower's Bauble",
+        "price": 0.15
+    },
+    {
+        "name": "Arcanist's Etcher",
+        "price": 0.3
+    },
+    {
+        "name": "Uncut Support Gem (Level 1)",
+        "price": 0.8
+    },
+    {
+        "name": "Uncut Support Gem (Level 2)",
+        "price": 1.4
+    },
+    {
+        "name": "Uncut Support Gem (Level 3)",
+        "price": 2.2
+    },
+    {
+        "name": "Uncut Skill Gem (Level 1)",
+        "price": 0.5
+    },
+    {
+        "name": "Uncut Skill Gem (Level 2)",
+        "price": 1.1
+    },
+    {
+        "name": "Uncut Skill Gem (Level 3)",
+        "price": 40.0
+    },
+    {
+        "name": "Uncut Spirit Gem (Level 1)",
+        "price": 3.0
+    },
+    {
+        "name": "Uncut Spirit Gem (Level 2)",
+        "price": 4.5
+    },
+    {
+        "name": "Uncut Spirit Gem (Level 3)",
+        "price": 66.2
+    }
+]
