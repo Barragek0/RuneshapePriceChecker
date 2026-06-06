@@ -237,11 +237,11 @@ $anchorSampleX = 0
 $anchorFractionX = 0.0
 
 $profiles = @(
-    @{ Key="1600x900";  CaptureW=240; CaptureH=450 }
-    @{ Key="1920x1080"; CaptureW=288; CaptureH=540 }
-    @{ Key="2560x1440"; CaptureW=418; CaptureH=720 }
-    @{ Key="3440x1440"; CaptureW=390; CaptureH=725 }
-    @{ Key="3840x2160"; CaptureW=680; CaptureH=1080 }
+    @{ Key = "1600x900"; CaptureW = 240; CaptureH = 450 }
+    @{ Key = "1920x1080"; CaptureW = 288; CaptureH = 540 }
+    @{ Key = "2560x1440"; CaptureW = 418; CaptureH = 720 }
+    @{ Key = "3440x1440"; CaptureW = 390; CaptureH = 725 }
+    @{ Key = "3840x2160"; CaptureW = 680; CaptureH = 1080 }
 )
 
 foreach ($p in $profiles) {
