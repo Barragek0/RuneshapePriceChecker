@@ -28,6 +28,7 @@ public static class PricingTextRules
     {
         ["0RB"] = "ORB",
         ["GRB"] = "ORB",
+        ["CEM"] = "GEM",
         ["LRON"] = "IRON"
     };
 
