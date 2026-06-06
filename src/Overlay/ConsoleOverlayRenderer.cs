@@ -234,7 +234,7 @@ public sealed class ConsoleOverlayRenderer(
     {
         if (chaosValue < 0m)
         {
-            return Color.FromArgb(255, 140, 140, 140);
+            return Color.FromArgb(255, 220, 60, 60);
         }
 
         var chaos = Math.Max(0m, chaosValue);

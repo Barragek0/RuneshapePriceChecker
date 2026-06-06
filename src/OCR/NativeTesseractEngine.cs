@@ -19,6 +19,7 @@ internal sealed class NativeTesseractEngine : IDisposable
             throw new InvalidOperationException($"Tesseract init failed (code {result}). datapath='{tesseractDataPath}' language='{language}'");
 
         NativeMethods.TessBaseAPISetVariable(_handle, "preserve_interword_spaces", "1");
+        NativeMethods.TessBaseAPISetVariable(_handle, "debug_file", "nul");
     }
 
     public void SetPageSegMode(int mode)

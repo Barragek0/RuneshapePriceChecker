@@ -1,6 +1,7 @@
 bin/
 obj/
-scripts/
+scripts/*
+!scripts/monitor-performance.ps1
 tests/*/bin/
 tests/*/obj/
 native/
