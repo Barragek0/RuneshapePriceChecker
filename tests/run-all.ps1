@@ -210,6 +210,63 @@ Test "ZIP extraction preserves existing appsettings.json" {
     }
 }
 
+# ZIP self-overwrite test — simulates the updater running as Update.exe
+# and extracting itself as Update.exe.new for the main app to swap on startup.
+Test "ZIP extracts running exe as .new and extracts other files" {
+    $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("rpc-self-" + [Guid]::NewGuid().ToString("N"))
+    $zip = "$tmp.zip"; $ext = "$tmp-ext"
+    try {
+        New-Item -ItemType Directory $tmp -Force | Out-Null
+        "old-updater" | Out-File "$tmp\Update.exe" -Encoding UTF8
+        "new-app" | Out-File "$tmp\RuneshapePriceChecker.exe" -Encoding UTF8
+        "cfg" | Out-File "$tmp\config.json" -Encoding UTF8
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        [System.IO.Compression.ZipFile]::CreateFromDirectory($tmp, $zip)
+        New-Item -ItemType Directory $ext -Force | Out-Null
+
+        $selfExe = "Update.exe"
+        $archive = [System.IO.Compression.ZipFile]::OpenRead($zip)
+        foreach ($entry in $archive.Entries) {
+            if ($entry.Name -eq "appsettings.json" -and (Test-Path (Join-Path $ext $entry.FullName))) { continue }
+            $destPath = Join-Path $ext $entry.FullName
+            if ($entry.Name -eq $selfExe) { $destPath += ".new" }
+            $destDir = Split-Path $destPath -Parent
+            if ($destDir -and -not (Test-Path $destDir)) { New-Item -ItemType Directory $destDir -Force | Out-Null }
+            $extracted = $false
+            for ($r = 0; $r -lt 5; $r++) {
+                try {
+                    if (Test-Path $destPath) { try { Remove-Item $destPath -Force -ErrorAction Stop } catch { } }
+                    [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $destPath, $true)
+                    $extracted = $true; break
+                }
+                catch [System.IO.IOException] { if ($r -lt 4) { Start-Sleep -Milliseconds 500 } }
+            }
+            if (-not $extracted) { throw "failed to extract $($entry.Name)" }
+        }
+        $archive.Dispose()
+
+        if (Test-Path "$ext\Update.exe") { throw "Update.exe should not exist directly" }
+        if (-not (Test-Path "$ext\Update.exe.new")) { throw "Update.exe.new was not created" }
+        if ((Get-Content "$ext\Update.exe.new" -Raw).Trim() -ne "old-updater") { throw "wrong content in Update.exe.new" }
+        if (-not (Test-Path "$ext\RuneshapePriceChecker.exe")) { throw "other exe not extracted" }
+        if ((Get-Content "$ext\RuneshapePriceChecker.exe" -Raw).Trim() -ne "new-app") { throw "wrong content in other exe" }
+        if (-not (Test-Path "$ext\config.json")) { throw "config.json not extracted" }
+
+        # Simulate main app swapping .new on startup
+        $updaterPath = Join-Path $ext "Update.exe"
+        $updaterNewPath = Join-Path $ext "Update.exe.new"
+        try { Remove-Item $updaterPath -Force -ErrorAction Stop } catch { }
+        Move-Item $updaterNewPath $updaterPath
+        if (-not (Test-Path $updaterPath)) { throw "swap failed: Update.exe missing" }
+        if (Test-Path $updaterNewPath) { throw "swap failed: Update.exe.new still exists" }
+        if ((Get-Content $updaterPath -Raw).Trim() -ne "old-updater") { throw "swap produced wrong content" }
+    }
+    finally {
+        Remove-Item $tmp, $ext -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item $zip -Force -ErrorAction SilentlyContinue
+    }
+}
+
 $updElapsed = $sectionWatch.ElapsedMilliseconds
 Write-Host "  $upPass/$($upPass+$upFail) checks passed (${updElapsed}ms)" -ForegroundColor $(if ($upFail -eq 0) { "Green" } else { "Red" })
 if ($upFail -gt 0) { throw "$upFail updater check(s) failed" }
