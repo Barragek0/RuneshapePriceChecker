@@ -311,6 +311,7 @@ static async Task CloseMainProcessAsync(string exeName)
 
 static void ExtractZip(string zipPath, string destinationDir)
 {
+    var selfExe = Path.GetFileName(Environment.ProcessPath);
     var failed = new List<string>();
     using var archive = ZipFile.OpenRead(zipPath);
     foreach (var entry in archive.Entries)
@@ -323,6 +324,12 @@ static void ExtractZip(string zipPath, string destinationDir)
         }
 
         var destPath = Path.Combine(destinationDir, entry.FullName);
+        if (selfExe is not null &&
+            entry.Name.Equals(selfExe, StringComparison.OrdinalIgnoreCase))
+        {
+            destPath += ".new";
+        }
+
         var destDir = Path.GetDirectoryName(destPath)!;
         if (!Directory.Exists(destDir)) Directory.CreateDirectory(destDir);
 
@@ -339,7 +346,10 @@ static void ExtractZip(string zipPath, string destinationDir)
                 extracted = true;
                 break;
             }
-            catch (IOException) when (retry < 4) { Thread.Sleep(500); }
+            catch (IOException)
+            {
+                if (retry < 4) { Thread.Sleep(500); }
+            }
         }
 
         if (!extracted)

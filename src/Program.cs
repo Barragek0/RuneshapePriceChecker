@@ -16,6 +16,14 @@ ConsoleCloseHandler.Register();
 
 TryDeleteFile(Path.Combine(AppContext.BaseDirectory, "Update.exe.old"));
 
+var updaterNewPath = Path.Combine(AppContext.BaseDirectory, "Update.exe.new");
+if (File.Exists(updaterNewPath))
+{
+    var updaterPath = Path.Combine(AppContext.BaseDirectory, "Update.exe");
+    try { File.Delete(updaterPath); } catch { }
+    try { File.Move(updaterNewPath, updaterPath); } catch { }
+}
+
 var resolvedTesseractDataPath = TesseractBootstrapper.ResolveTessDataPath();
 AppSettingsBootstrapper.EnsureExists();
 
