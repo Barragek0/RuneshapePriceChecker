@@ -215,6 +215,90 @@ Write-Host "  $upPass/$($upPass+$upFail) checks passed (${updElapsed}ms)" -Foreg
 if ($upFail -gt 0) { throw "$upFail updater check(s) failed" }
 
 # ----------------------------------------------------------------
+# Resolution profiles — anchor position validation
+# Ensures the league panel anchor detection produces sensible values
+# for every profile, using the same computation as the live code.
+# ----------------------------------------------------------------
+Write-Host ""
+Write-Host "--- Resolutions ---" -ForegroundColor Yellow
+$sectionWatch = [System.Diagnostics.Stopwatch]::StartNew()
+$resPass = 0; $resFail = 0
+
+function ResTest($name, [ScriptBlock]$block) {
+    try { & $block; $script:resPass++ }
+    catch { $script:resFail++; Write-Host "  FAIL: $name -> $_" -ForegroundColor Red }
+}
+
+# Mirror the exact computation from OcrLeagueWindowReader / OcrCaptureBoundsOverlayService
+$anchorFractionY = 0.023
+$anchorSampleRadiusPx = 5
+$anchorSampleRadiusYPx = 10
+$anchorSampleX = 0
+$anchorFractionX = 0.0
+
+$profiles = @(
+    @{ Key="1600x900";  CaptureW=240; CaptureH=450 }
+    @{ Key="1920x1080"; CaptureW=288; CaptureH=540 }
+    @{ Key="2560x1440"; CaptureW=418; CaptureH=720 }
+    @{ Key="3440x1440"; CaptureW=390; CaptureH=725 }
+    @{ Key="3840x2160"; CaptureW=680; CaptureH=1080 }
+)
+
+foreach ($p in $profiles) {
+    $key = $p.Key
+    $w = $p.CaptureW
+    $h = $p.CaptureH
+
+    # Compute anchor X (mirrors ComputeAnchorX)
+    $leftX = if ($anchorFractionX -gt 0) { [int]($w * [Math]::Max(0, [Math]::Min(1, $anchorFractionX))) } else { [Math]::Max(0, [Math]::Min($w - 1, $anchorSampleX)) }
+    $rightX = $w - 1 - $leftX
+
+    # Compute anchor Y (mirrors ComputeAnchorY)
+    $sampleY = if ($anchorFractionY -gt 0) { [int]($h * [Math]::Max(0, [Math]::Min(1, $anchorFractionY))) } else { [Math]::Max(0, [Math]::Min($h - 1, 0)) }
+
+    # Compute radius X (mirrors ComputeAnchorRadiusX)
+    $sampleRadiusX = [Math]::Max(2, [Math]::Min(20, $anchorSampleRadiusPx))
+    # Compute radius Y (mirrors ComputeAnchorRadiusY)
+    $sampleRadiusY = [Math]::Max(2, [Math]::Min(20, $anchorSampleRadiusYPx))
+
+    # Search region bounds (mirrors CheckAnchorRegion clamping)
+    $leftMinX = [Math]::Max(0, $leftX - $sampleRadiusX)
+    $leftMaxX = [Math]::Min($w - 1, $leftX + $sampleRadiusX)
+    $rightMinX = [Math]::Max(0, $rightX - $sampleRadiusX)
+    $rightMaxX = [Math]::Min($w - 1, $rightX + $sampleRadiusX)
+    $minY = [Math]::Max(0, $sampleY - $sampleRadiusY)
+    $maxY = [Math]::Min($h - 1, $sampleY + $sampleRadiusY)
+
+    ResTest "$key : left anchor X at left edge" { if ($leftX -ne 0) { throw "leftX=$leftX, expected 0" } }
+    ResTest "$key : right anchor X at right edge" { if ($rightX -ne ($w - 1)) { throw "rightX=$rightX, expected $($w-1)" } }
+    ResTest "$key : anchor Y within top 5%" { if ($sampleY -gt [int]($h * 0.05)) { throw "sampleY=$sampleY too far from top" } }
+    ResTest "$key : radius X in range [2,20]" { if ($sampleRadiusX -lt 2 -or $sampleRadiusX -gt 20) { throw "radiusX=$sampleRadiusX" } }
+    ResTest "$key : radius Y in range [2,20]" { if ($sampleRadiusY -lt 2 -or $sampleRadiusY -gt 20) { throw "radiusY=$sampleRadiusY" } }
+    ResTest "$key : left search region within bitmap" {
+        if ($leftMinX -lt 0 -or $leftMaxX -ge $w) { throw "left X [$leftMinX,$leftMaxX] outside [0,$($w-1)]" }
+    }
+    ResTest "$key : right search region within bitmap" {
+        if ($rightMinX -lt 0 -or $rightMaxX -ge $w) { throw "right X [$rightMinX,$rightMaxX] outside [0,$($w-1)]" }
+    }
+    ResTest "$key : Y search region within bitmap" {
+        if ($minY -lt 0 -or $maxY -ge $h) { throw "Y [$minY,$maxY] outside [0,$($h-1)]" }
+    }
+    ResTest "$key : search region covers at least 50 pixels" {
+        $area = ($leftMaxX - $leftMinX + 1) * ($maxY - $minY + 1)
+        if ($area -lt 50) { throw "search area=$area too small" }
+    }
+    ResTest "$key : left and right anchors symmetric" {
+        $distFromLeft = $leftX
+        $distFromRight = ($w - 1) - $rightX
+        if ($distFromLeft -ne $distFromRight) { throw "asymmetry: left=$distFromLeft right=$distFromRight" }
+    }
+}
+
+$resElapsed = $sectionWatch.ElapsedMilliseconds
+Write-Host "  $resPass/$($resPass+$resFail) checks passed (${resElapsed}ms)" -ForegroundColor $(if ($resFail -eq 0) { "Green" } else { "Red" })
+if ($resFail -gt 0) { throw "$resFail resolution check(s) failed" }
+
+# ----------------------------------------------------------------
 # Integration checks
 # Pure PowerShell — validates file structure, resources
 # ----------------------------------------------------------------

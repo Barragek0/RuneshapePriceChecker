@@ -151,7 +151,8 @@ public sealed class OcrLeagueWindowReader(
             {
                 _waitingForLeagueListingPanelLogged = true;
                 logger.LogDebug(
-                    "OCR paused: waiting for league listing panel anchor color. Signal X={X} Y={Y} RGB=({R},{G},{B}) L={Luminance} Spread={Spread} Distance={Distance:F1}.",
+                    "OCR paused: waiting for league listing panel anchor color ({Side} corner). Signal X={X} Y={Y} RGB=({R},{G},{B}) L={Luminance} Spread={Spread} Distance={Distance:F1}.",
+                    anchorSignal.Side,
                     anchorSignal.X,
                     anchorSignal.Y,
                     anchorSignal.R,
@@ -166,7 +167,12 @@ public sealed class OcrLeagueWindowReader(
             return string.Empty;
         }
 
-        _waitingForLeagueListingPanelLogged = false;
+        if (_appOptions.CurrentValue.DebugLogging && _waitingForLeagueListingPanelLogged)
+        {
+            _waitingForLeagueListingPanelLogged = false;
+            logger.LogDebug("OCR resumed: league listing panel anchor color detected.");
+        }
+
         _lastInterfaceDetected = true;
 
         var debugContext = options.SaveDebugImages
@@ -519,26 +525,51 @@ public sealed class OcrLeagueWindowReader(
         int B,
         int Luminance,
         int ChannelSpread,
-        double DistanceToTarget);
+        double DistanceToTarget,
+        string Side = "left");
 
     private static bool IsLeaguePanelAnchorColorMatch(Bitmap bitmap, OcrOptions options, out LeaguePanelAnchorSignal signal)
     {
         signal = new LeaguePanelAnchorSignal(0, 0, 0, 0, 0, 0, 0, double.MaxValue);
         if (bitmap.Width <= 0 || bitmap.Height <= 0)
+            return false;
+
+        var leftX = ComputeAnchorX(bitmap, options);
+        var sampleY = ComputeAnchorY(bitmap, options);
+        var radiusX = ComputeAnchorRadiusX(bitmap, options);
+        var radiusY = ComputeAnchorRadiusY(bitmap, options);
+        var rgbPixels = ReadRgbPixels(bitmap);
+
+        var rightX = bitmap.Width - 1 - leftX;
+
+        if (!CheckAnchorRegion(rgbPixels, bitmap.Width, bitmap.Height, leftX, sampleY, radiusX, radiusY, options, out signal))
         {
+            signal = signal with { Side = "left" };
             return false;
         }
 
-        var sampleX = ComputeAnchorX(bitmap, options);
-        var sampleY = ComputeAnchorY(bitmap, options);
-        var sampleRadius = ComputeAnchorRadius(bitmap, options);
+        if (!CheckAnchorRegion(rgbPixels, bitmap.Width, bitmap.Height, rightX, sampleY, radiusX, radiusY, options, out var rightSignal))
+        {
+            signal = rightSignal with { Side = "right" };
+            return false;
+        }
 
-        var minX = Math.Max(0, sampleX - sampleRadius);
-        var maxX = Math.Min(bitmap.Width - 1, sampleX + sampleRadius);
-        var minY = Math.Max(0, sampleY - sampleRadius);
-        var maxY = Math.Min(bitmap.Height - 1, sampleY + sampleRadius);
+        return true;
+    }
 
-        var rgbPixels = ReadRgbPixels(bitmap);
+    private static bool CheckAnchorRegion(
+        byte[] rgbPixels, int width, int height,
+        int sampleX, int sampleY, int radiusX, int radiusY,
+        OcrOptions options,
+        out LeaguePanelAnchorSignal signal)
+    {
+        signal = new LeaguePanelAnchorSignal(0, 0, 0, 0, 0, 0, 0, double.MaxValue);
+
+        var minX = Math.Max(0, sampleX - radiusX);
+        var maxX = Math.Min(width - 1, sampleX + radiusX);
+        var minY = Math.Max(0, sampleY - radiusY);
+        var maxY = Math.Min(height - 1, sampleY + radiusY);
+
         var tolerance = Math.Max(1, options.LeaguePanelAnchorTolerance);
         var minLuminance = options.LeaguePanelAnchorMinLuminance;
         var maxSpread = options.LeaguePanelAnchorMaxChannelSpread;
@@ -548,7 +579,7 @@ public sealed class OcrLeagueWindowReader(
 
         for (var y = minY; y <= maxY; y++)
         {
-            var rowOffset = y * bitmap.Width;
+            var rowOffset = y * width;
             for (var x = minX; x <= maxX; x++)
             {
                 var rgbIndex = (rowOffset + x) * 3;
@@ -577,7 +608,7 @@ public sealed class OcrLeagueWindowReader(
             }
         }
 
-        var centerRgbIndex = (sampleY * bitmap.Width + sampleX) * 3;
+        var centerRgbIndex = (sampleY * width + sampleX) * 3;
         var cr = rgbPixels[centerRgbIndex];
         var cg = rgbPixels[centerRgbIndex + 1];
         var cb = rgbPixels[centerRgbIndex + 2];
@@ -614,7 +645,7 @@ public sealed class OcrLeagueWindowReader(
         return Math.Clamp(options.LeaguePanelAnchorSampleY, 0, bitmap.Height - 1);
     }
 
-    private static int ComputeAnchorRadius(Bitmap bitmap, OcrOptions options)
+    private static int ComputeAnchorRadiusX(Bitmap bitmap, OcrOptions options)
     {
         if (options.LeaguePanelAnchorSampleRadiusFraction > 0f)
         {
@@ -625,6 +656,19 @@ public sealed class OcrLeagueWindowReader(
         }
 
         return Math.Clamp(options.LeaguePanelAnchorSampleRadiusPx, 2, 20);
+    }
+
+    private static int ComputeAnchorRadiusY(Bitmap bitmap, OcrOptions options)
+    {
+        if (options.LeaguePanelAnchorSampleRadiusYFraction > 0f)
+        {
+            return Math.Clamp(
+                (int)(bitmap.Height * options.LeaguePanelAnchorSampleRadiusYFraction),
+                2,
+                20);
+        }
+
+        return Math.Clamp(options.LeaguePanelAnchorSampleRadiusYPx, 2, 20);
     }
 
     private static bool TryCaptureFromWindowClient(WindowCaptureContext context, OcrCaptureRegion absoluteRegion, out Bitmap bitmap)

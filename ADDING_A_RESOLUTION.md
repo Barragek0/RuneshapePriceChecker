@@ -15,15 +15,20 @@ This guide explains how to add support for a new resolution.
 
 1. Open `src/OCR/OcrResolutionProfiles.cs`.
 2. Copy the `1920x1080` line and paste it below.
-3. Change the key, first two numbers (resolution), and remove `{ Confirmed = true }`.
+3. Change the key, and remove `{ Confirmed = true }`.
 
 Example for 2560x1440:
 
 ```csharp
-["2560x1440"] = new(2560, 1440, 320, 210, 400, 730),
+["2560x1440"] = new(320, 210, 400, 730),
 ```
 
-The six numbers are: `WindowWidth, WindowHeight, CaptureOffsetX, CaptureOffsetY, CaptureWidth, CaptureHeight`.
+The four numbers are: `CaptureOffsetX, CaptureOffsetY, CaptureWidth, CaptureHeight`. The resolution is read from the key (e.g. `"2560x1440"`).
+
+- `CaptureOffsetX` — How many pixels from the left edge of the game window to the left edge of the red OCR box.
+- `CaptureOffsetY` — How many pixels from the top edge of the game window to the top edge of the red OCR box.
+- `CaptureWidth` — How wide the red OCR box should be, in pixels.
+- `CaptureHeight` — How tall the red OCR box should be, in pixels.
 
 4. Save and restart the app. You'll see an "Untested Resolution" warning — this is normal and will appear every time until the profile is marked with `{ Confirmed = true }`, which you should only do after you have confirmed its fully working.
 
@@ -45,14 +50,14 @@ Use these rules, adjusting by small amounts each time, restarting, and checking 
 
 | If this is wrong | Change this value |
 |---|---|
-| Box too far left | Increase the third value `CaptureOffsetX` |
-| Box too far right | Decrease the third value `CaptureOffsetX` |
-| Box too high | Increase the fourth value `CaptureOffsetY` |
-| Box too low | Decrease the fourth value `CaptureOffsetY` |
-| Box too narrow | Increase the fifth value `CaptureWidth` |
-| Box too wide | Decrease the fifth value `CaptureWidth` |
-| Box too short | Increase the sixth value `CaptureHeight` |
-| Box too tall | Decrease the sixth value `CaptureHeight` |
+| Box too far left | Increase the first value `CaptureOffsetX` |
+| Box too far right | Decrease the first value `CaptureOffsetX` |
+| Box too high | Increase the second value `CaptureOffsetY` |
+| Box too low | Decrease the second value `CaptureOffsetY` |
+| Box too narrow | Increase the third value `CaptureWidth` |
+| Box too wide | Decrease the third value `CaptureWidth` |
+| Box too short | Increase the fourth value `CaptureHeight` |
+| Box too tall | Decrease the fourth value `CaptureHeight` |
 
 You can also check the `ocr-debug` folder for `raw.png`, `text-extract.png`, and `preprocessed.png` to see what the tool is reading.
 
@@ -64,7 +69,7 @@ Once the red box is positioned correctly and OCR is producing good results:
 2. Add `{ Confirmed = true }` to your profile:
 
 ```csharp
-["2560x1440"] = new(2560, 1440, 320, 210, 400, 730) { Confirmed = true },
+["2560x1440"] = new(320, 210, 400, 730) { Confirmed = true },
 ```
 
 3. The untested-resolution warning will stop appearing.

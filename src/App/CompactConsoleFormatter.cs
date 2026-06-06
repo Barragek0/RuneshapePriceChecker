@@ -53,7 +53,25 @@ public sealed class CompactConsoleFormatter : ConsoleFormatter
             builder.AppendLine(logEntry.Exception.ToString());
         }
 
+        var originalColor = Console.ForegroundColor;
+        try
+        {
+            Console.ForegroundColor = GetLogLevelColor(logEntry.LogLevel);
+        }
+        catch
+        {
+            // Console may be unavailable in some contexts
+        }
+
         textWriter.Write(builder.ToString());
+
+        try
+        {
+            Console.ForegroundColor = originalColor;
+        }
+        catch
+        {
+        }
     }
 
     private static string ShortenCategory(string category)
@@ -87,6 +105,20 @@ public sealed class CompactConsoleFormatter : ConsoleFormatter
             LogLevel.Error => "error",
             LogLevel.Critical => "critical",
             _ => "none"
+        };
+    }
+
+    private static ConsoleColor GetLogLevelColor(LogLevel level)
+    {
+        return level switch
+        {
+            LogLevel.Critical => ConsoleColor.Red,
+            LogLevel.Error => ConsoleColor.Red,
+            LogLevel.Warning => ConsoleColor.Yellow,
+            LogLevel.Information => ConsoleColor.Gray,
+            LogLevel.Debug => ConsoleColor.DarkGray,
+            LogLevel.Trace => ConsoleColor.DarkGray,
+            _ => ConsoleColor.Gray
         };
     }
 }

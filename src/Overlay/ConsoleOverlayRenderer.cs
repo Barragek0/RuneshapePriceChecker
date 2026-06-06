@@ -290,6 +290,7 @@ public sealed class ConsoleOverlayRenderer(
                 lock (_sync)
                 {
                     _overlayForm = form;
+                    Monitor.PulseAll(_sync);
                 }
 
                 Application.Run(form);
@@ -306,6 +307,11 @@ public sealed class ConsoleOverlayRenderer(
 
             _overlayThread.SetApartmentState(ApartmentState.STA);
             _overlayThread.Start();
+
+            while (_overlayForm is null)
+            {
+                Monitor.Wait(_sync);
+            }
         }
     }
 
@@ -422,7 +428,13 @@ public sealed class ConsoleOverlayRenderer(
                 return;
             }
 
+            lock (_stateSync)
+            {
+                _entries = [];
+            }
+
             Hide();
+            Bounds = new Rectangle(-32000, -32000, 1, 1);
         }
 
         protected override void OnPaint(PaintEventArgs e)

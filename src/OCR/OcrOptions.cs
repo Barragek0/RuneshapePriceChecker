@@ -48,15 +48,15 @@ public sealed class OcrOptions
 
     public int LeaguePanelAnchorSampleX { get; set; } = 0;
 
-    public int LeaguePanelAnchorSampleY { get; set; } = 12;
+    public int LeaguePanelAnchorSampleY { get; set; } = 0;
 
     public float LeaguePanelAnchorFractionX { get; set; } = 0f;
 
     public float LeaguePanelAnchorFractionY { get; set; } = 0.023f;
 
-    public int LeaguePanelAnchorSampleRadiusPx { get; set; } = 3;
+    public int LeaguePanelAnchorSampleRadiusPx { get; set; } = 5;
 
-    public float LeaguePanelAnchorSampleRadiusFraction { get; set; } = 0.005f;
+    public float LeaguePanelAnchorSampleRadiusFraction { get; set; } = 0f;
 
     public int LeaguePanelAnchorTargetR { get; set; } = 193;
 

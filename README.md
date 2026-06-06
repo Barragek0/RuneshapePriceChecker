@@ -8,8 +8,8 @@ It reads visible rows on the runeshape page with OCR, looks up live prices from 
 
 - Windows
 - .NET 8 SDK
-- Tesseract OCR installed and available in `PATH`. The tool will automatically install it if you don't have it.
 - Your in-game `UI Brightness` setting, under `Graphics`, must be set above `-0.8`, with it ideally being at least `0.0`. If you set it below `0.0`, its more likely that it will incorrectly match the text with the wrong items, and if you set it below `-0.8`, it may not be able to detect the text on the interface at all.
+- Borderless Windowed or Windowed display mode — exclusive fullscreen blocks screen capture entirely. The tool will warn you with a popup if it detects fullscreen mode.
 
 ## How it Looks
 ![example](https://i.vgy.me/1XkXx8.png)
@@ -26,14 +26,19 @@ It reads visible rows on the runeshape page with OCR, looks up live prices from 
 	- Check `ocr-debug/` for captured images when `SaveDebugImages` is enabled.
 	- If n/a appears in logging next to an item that is available on poe ninja with a price, or if the text isn't matching correctly, submit an issue.
 - No OCR output:
-	- Confirm Tesseract is installed and in `PATH`. The tool auto-installs it on first run if missing. If auto-install fails, download the installer from https://github.com/UB-Mannheim/tesseract/wiki (use the 64-bit installer, e.g. `tesseract-ocr-w64-setup-5.5.0.20241111.exe`).
-	- Confirm you're in `borderless windowed` on a supported resolution.
+	- Confirm you're in `borderless windowed` or `windowed` mode on a supported resolution (exclusive fullscreen is not supported).
 	- Confirm you're tabbed into the game, so the game is in the foreground.
+	- A popup will warn you on startup if your UI Brightness is too low or if fullscreen mode is detected — follow the advice in those popups.
+	- Enable `OCR:DebugOverlay` in `config/appsettings.json` to see what region the tool is capturing.
+	- Enable `OCR:SaveDebugImages` in `config/appsettings.json` to inspect captured images in the `ocr-debug/` folder.
 - No overlay visible:
 	- Enable `OCR:DebugOverlay` in `config/appsettings.json` to show the red capture bounds overlay.
 	- If the overlay appears but is misaligned, your resolution profile may need tuning (see `ADDING_A_RESOLUTION.md`).
+- Lossless Scaling or other overlay tools behaving oddly:
+	- The price overlay now fully destroys its window when there are no prices to show, so it shouldn't interfere with frame generation or scaling tools. If you still see issues, make sure you're on the latest version.
 - My resolution isn't supported:
 	- If you have the time and basic coding knowledge, you can add a new profile by following the step-by-step guide in `ADDING_A_RESOLUTION.md`. Interpolated profiles for 1440p, 3440×1440, and 4K are included but untested.
+	- The `tests/ResolutionVisualizer` tool can help you tune capture region offsets visually.
 
 ## Quick Start
 
@@ -53,6 +58,20 @@ To produce a single-file release build:
 ```powershell
 dotnet publish RuneshapePriceChecker.csproj -c Release
 ```
+
+## Testing
+
+The project includes an automated test suite that runs with mock data — no game window needed.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "./tests/run-all.ps1"
+```
+
+The suite covers pricing accuracy, OCR parsing, and updater logic. The release build runs these tests automatically before packaging.
+
+Additional test tools in `tests/`:
+- `OcrPricingSimulator` — drives the automated pricing and parsing checks.
+- `ResolutionVisualizer` — helps tune capture region offsets when adding a new resolution profile (see `ADDING_A_RESOLUTION.md`).
 
 ## Configuration
 

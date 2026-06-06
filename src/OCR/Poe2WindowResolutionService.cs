@@ -298,8 +298,7 @@ public sealed class Poe2WindowResolutionService(
 
         _unsupportedResolutionPopupShownForKey = detectedResolution;
 
-        var supported = OcrResolutionProfiles.All
-            .Select(profile => profile.Key)
+        var supported = OcrResolutionProfiles.SupportedResolutions
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(key => key, StringComparer.OrdinalIgnoreCase)
             .ToArray();
