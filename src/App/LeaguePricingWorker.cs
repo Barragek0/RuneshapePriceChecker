@@ -105,7 +105,7 @@ public sealed class LeaguePricingWorker(
                 }
 
                 debugOverlay.SetBannerMessage(unpricedBanner);
-                debugOverlay.SetDebugText(snapshot.ItemNames, snapshot.RowYPositions, snapshot.InterfaceDetected);
+                debugOverlay.SetDebugText(snapshot.ItemNames, snapshot.RowYPositions, snapshot.InterfaceDetected, statusLine: snapshot.CaptureMethod);
                 overlayRenderer.Render(snapshot, prices);
             }
             catch (Exception ex)

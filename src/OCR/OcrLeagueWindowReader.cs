@@ -38,13 +38,20 @@ public sealed class OcrLeagueWindowReader(
     private NativeTesseractEngine? _tesseractEngine;
     private readonly object _engineLock = new();
 
+    private string ResolveStatusLine()
+    {
+        var prefix = LosslessScaling.IsRunning ? "LS+" : "";
+        var method = _lastCaptureMethod.Length > 0 ? _lastCaptureMethod : "none";
+        return $"{prefix}{method}";
+    }
+
     public LeagueWindowSnapshot ReadSnapshot()
     {
         var capturedAt = DateTimeOffset.UtcNow;
 
         if (_tesseractUnavailable)
         {
-            return new LeagueWindowSnapshot(Array.Empty<string>(), capturedAt, InterfaceDetected: _lastInterfaceDetected);
+            return new LeagueWindowSnapshot(Array.Empty<string>(), capturedAt, InterfaceDetected: _lastInterfaceDetected, CaptureMethod: ResolveStatusLine());
         }
 
         try
@@ -52,7 +59,7 @@ public sealed class OcrLeagueWindowReader(
             var rawText = CaptureAndRecognize(out var attemptedRecognition);
             if (!attemptedRecognition)
             {
-                return new LeagueWindowSnapshot(Array.Empty<string>(), capturedAt, InterfaceDetected: _lastInterfaceDetected);
+                return new LeagueWindowSnapshot(Array.Empty<string>(), capturedAt, InterfaceDetected: _lastInterfaceDetected, CaptureMethod: ResolveStatusLine());
             }
 
             if (_appOptions.CurrentValue.DebugLogging && !_tesseractExecutionConfirmedLogged)
@@ -74,7 +81,7 @@ public sealed class OcrLeagueWindowReader(
                 logger.LogDebug("OCR detected {Count} items: {Items}", lines.Count, items);
             }
 
-            return new LeagueWindowSnapshot(lines, capturedAt, _lastRowYPositions, InterfaceDetected: true);
+            return new LeagueWindowSnapshot(lines, capturedAt, _lastRowYPositions, InterfaceDetected: true, CaptureMethod: ResolveStatusLine());
         }
         catch (FileNotFoundException ex)
         {
