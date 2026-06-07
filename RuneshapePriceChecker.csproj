@@ -105,4 +105,18 @@
     </ReadLinesFromFile>
     <Error Condition="$(_TestExitCode) != 0" Text="@(_TestErrLines, '%0a')" />
   </Target>
+
+  <Target Name="BuildInstaller" AfterTargets="PackageReleaseZip" Condition="'$(Configuration)' == 'Release' and '$(DesignTimeBuild)' != 'true'">
+    <PropertyGroup>
+      <_IsccPath></_IsccPath>
+      <_IsccPath Condition="Exists('C:\Program Files (x86)\Inno Setup 6\ISCC.exe')">C:\Program Files (x86)\Inno Setup 6\ISCC.exe</_IsccPath>
+    </PropertyGroup>
+
+    <Exec Condition="'$(_IsccPath)' != ''"
+          Command="&quot;$(_IsccPath)&quot; &quot;$(MSBuildProjectDirectory)\installer.iss&quot;"
+          WorkingDirectory="$(MSBuildProjectDirectory)" />
+
+    <Message Condition="'$(_IsccPath)' == ''"
+             Text="Inno Setup 6 not found at 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'. Skipping installer build. Install from https://jrsoftware.org/isinfo.php" Importance="High" />
+  </Target>
 </Project>

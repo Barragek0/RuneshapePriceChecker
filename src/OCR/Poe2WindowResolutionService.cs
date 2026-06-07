@@ -334,7 +334,12 @@ public sealed class Poe2WindowResolutionService(
         if (_uiBrightnessWarningShown || uiBrightness is null)
             return;
 
-        if (uiBrightness.Value >= 1.00f)
+        /** 
+          * In-game slider for this value works in a weird way. 
+          * It gets saved between 0.2 (-5.0 ingame) and 5 (+5.0 ingame) in the config.
+          * Slider has a -0.0 and +0.0 ingame value on the slider, which means 0.98 - 1 in the config.
+        **/
+        if (uiBrightness.Value >= 0.98f)
             return;
 
         _uiBrightnessWarningShown = true;
