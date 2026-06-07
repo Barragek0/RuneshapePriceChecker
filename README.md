@@ -15,7 +15,6 @@ It reads visible rows on the runeshape page with OCR, looks up live prices from 
 ![example](https://i.vgy.me/1XkXx8.png)
 
 ## Known Issues / Limitations
-- 1080p and widescreen 1440p are the only two confirmed working resolutions. 1440p and 4K profiles are included but untested — you'll see a warning popup. If one of these doesn't work on your setup, read `ADDING_A_RESOLUTION.md` for a step-by-step tuning guide. If it does work correctly, and the box is in the correct place as described in `ADDING_A_RESOLUTION.md`, please submit an issue letting me know, and i'll confirm the profile so there's no longer a warning when loading the game.
 - The new Skills and Supports don't have price data on poe.ninja, so the tool can't display prices for them.
 - If you use Lossless Scaling with this tool, you must use the 'WGC' Capture API. The tool may cause frame pacing issues if you are using the 'DXGI' API.
 
