@@ -16,7 +16,7 @@ It reads visible rows on the runeshape page with OCR, looks up live prices from 
 
 ## Known Issues / Limitations
 - The new Skills and Supports don't have price data on poe.ninja, so the tool can't display prices for them.
-- If you use Lossless Scaling with this tool, you must use the 'WGC' Capture API. The tool may cause frame pacing issues if you are using the 'DXGI' API.
+- If you use Lossless Scaling with this tool, you should use the 'WGC' Capture API. The tool may cause frame pacing issues if you are using the 'DXGI' API.
 
 ## Troubleshooting
 
