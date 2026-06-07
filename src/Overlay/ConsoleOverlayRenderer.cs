@@ -377,8 +377,6 @@ public sealed class ConsoleOverlayRenderer(
 
         public void SafeShow(OcrCaptureRegion captureRegion, IReadOnlyList<OverlayRowEntry> entries)
         {
-            _isHidden = false;
-
             if (IsDisposed)
             {
                 return;
@@ -386,9 +384,12 @@ public sealed class ConsoleOverlayRenderer(
 
             if (InvokeRequired)
             {
+                _isHidden = false;
                 BeginInvoke(new Action<OcrCaptureRegion, IReadOnlyList<OverlayRowEntry>>(SafeShow), captureRegion, entries);
                 return;
             }
+
+            _isHidden = false;
 
             lock (_stateSync)
             {
@@ -428,15 +429,15 @@ public sealed class ConsoleOverlayRenderer(
 
         public void SafeHide()
         {
-            if (IsDisposed || _isHidden)
+            if (IsDisposed)
             {
                 return;
             }
 
-            _isHidden = true;
-
             if (InvokeRequired)
             {
+                if (_isHidden) return;
+                _isHidden = true;
                 BeginInvoke(new Action(SafeHide));
                 return;
             }

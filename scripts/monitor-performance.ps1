@@ -101,6 +101,7 @@ Write-Section "Collecting Metrics (${DurationSeconds}s in parallel)"
 
 $procCount = [Environment]::ProcessorCount
 $osLogPath = Join-Path $runDir "os-metrics.csv"
+$dwmLogPath = Join-Path $runDir "dwm-metrics.csv"
 $counterLogPath = Join-Path $runDir "dotnet-counters.csv"
 $traceLogPath = Join-Path $runDir "cpu-trace.nettrace"
 
@@ -144,7 +145,53 @@ $osJob = Start-Job -Name "OSMetrics" -ScriptBlock {
     }
 } -ArgumentList $appProcess.Id, $osLogPath, $DurationSeconds, 1, $procCount
 
-# ---- Job 2: .NET runtime counters ----
+# ---- Job 2: DWM metrics ----
+$dwmJob = Start-Job -Name "DWMMetrics" -ScriptBlock {
+    param($logPath, $duration, $pollInterval, $procCount)
+    "Timestamp,CPU%,MemoryMB,Handles,Threads" | Out-File $logPath
+
+    $dwmPid = $null
+    $prevCpuTime = $null
+    $prevTime = $null
+    $endTime = (Get-Date).AddSeconds($duration)
+
+    while ((Get-Date) -lt $endTime) {
+        Start-Sleep -Seconds $pollInterval
+        try {
+            if ($null -eq $dwmPid) {
+                $dwmProc = Get-Process -Name "dwm" -ErrorAction SilentlyContinue
+                if ($dwmProc) { $dwmPid = $dwmProc.Id }
+            }
+
+            $proc = Get-Process -Id $dwmPid -ErrorAction Stop
+
+            $cpu = 0
+            $now = Get-Date
+            $cpuTime = $proc.TotalProcessorTime
+
+            if ($null -ne $prevCpuTime) {
+                $cpuMs = ($cpuTime - $prevCpuTime).TotalMilliseconds
+                $timeMs = ($now - $prevTime).TotalMilliseconds
+                if ($timeMs -gt 0) {
+                    $cpu = [math]::Round(($cpuMs / $timeMs) * 100 / $procCount, 2)
+                }
+            }
+
+            $prevCpuTime = $cpuTime
+            $prevTime = $now
+
+            $mem = [math]::Round($proc.WorkingSet64 / 1MB, 2)
+            $timestamp = $now.ToString("HH:mm:ss")
+
+            "$timestamp,$cpu,$mem,$($proc.HandleCount),$($proc.Threads.Count)" | Out-File $logPath -Append
+        }
+        catch {
+            $dwmPid = $null
+        }
+    }
+} -ArgumentList $dwmLogPath, $DurationSeconds, 1, $procCount
+
+# ---- Job 3: .NET runtime counters ----
 $counterJob = Start-Job -Name "DotNetCounters" -ScriptBlock {
     param($targetPid, $logPath, $duration)
     dotnet-counters collect --process-id $targetPid --format csv --output $logPath --duration $duration 2>&1 | Out-Null
@@ -152,18 +199,18 @@ $counterJob = Start-Job -Name "DotNetCounters" -ScriptBlock {
 
 # ---- Job 3: CPU trace (shorter — sampling only needs a few seconds) ----
 $traceDuration = [math]::Min(10, $DurationSeconds)
-$traceJob = Start-Job -Name "DotNetTrace" -ScriptBlock {
+$traceJob = Start-Job -Name "DotNetTrace" -ScriptBlock { # Job 4
     param($targetPid, $logPath, $duration)
     dotnet-trace collect --process-id $targetPid --format nettrace --output $logPath --duration $duration 2>&1 | Out-Null
 } -ArgumentList $appProcess.Id, $traceLogPath, $traceDuration
 
-Write-Host "OS metrics, .NET counters, and CPU trace collecting in parallel..."
+Write-Host "OS metrics, DWM metrics, .NET counters, and CPU trace collecting in parallel..."
 Write-Host "Waiting for all collectors (timeout: $($DurationSeconds + 10)s)..."
 
 $timeoutSeconds = $DurationSeconds + 10
-$null = Wait-Job $osJob, $counterJob, $traceJob -Timeout $timeoutSeconds
+$null = Wait-Job $osJob, $dwmJob, $counterJob, $traceJob -Timeout $timeoutSeconds
 
-$allJobs = @($osJob, $counterJob, $traceJob)
+$allJobs = @($osJob, $dwmJob, $counterJob, $traceJob)
 foreach ($job in $allJobs) {
     if ($job.State -eq 'Running') {
         Write-Host "Warning: $($job.Name) timed out; stopping." -ForegroundColor Yellow
@@ -181,6 +228,14 @@ if (Test-Path $osLogPath) {
 }
 else {
     Write-Host "OS metrics:     not collected" -ForegroundColor Yellow
+}
+
+if (Test-Path $dwmLogPath) {
+    $dwmLines = (Get-Content $dwmLogPath | Measure-Object -Line).Lines
+    Write-Host "DWM metrics:    $($dwmLines - 1) samples  -> $dwmLogPath" -ForegroundColor Green
+}
+else {
+    Write-Host "DWM metrics:    not collected" -ForegroundColor Yellow
 }
 
 if ((Test-Path $counterLogPath) -and ((Get-Item $counterLogPath).Length -gt 0)) {
@@ -235,6 +290,23 @@ if (Test-Path $osLogPath) {
     }
 }
 
+$dwmCpuAvg = "N/A"; $dwmCpuMax = "N/A"; $dwmMemAvg = "N/A"; $dwmHandleAvg = "N/A"
+
+if (Test-Path $dwmLogPath) {
+    $dwmData = Import-Csv $dwmLogPath
+    if ($dwmData.Count -gt 0) {
+        $dwmCpuAvg = [math]::Round(($dwmData | Measure-Object -Property 'CPU%' -Average).Average, 2)
+        $dwmCpuMax = [math]::Round(($dwmData | Measure-Object -Property 'CPU%' -Maximum).Maximum, 2)
+        $dwmMemAvg = [math]::Round(($dwmData | Measure-Object -Property 'MemoryMB' -Average).Average, 2)
+        $dwmHandleAvg = [math]::Round(($dwmData | Measure-Object -Property 'Handles' -Average).Average, 0)
+    }
+}
+
+$dwmWarning = ""
+if ($dwmCpuAvg -ne "N/A" -and [double]$dwmCpuAvg -gt 2.0) {
+    $dwmWarning = "  ** WARNING: DWM CPU is elevated. Tool may be overloading the compositor. **"
+}
+
 $summary = @"
 
 Performance Monitoring Summary
@@ -243,7 +315,7 @@ Date: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
 Duration: ${DurationSeconds}s
 Process: RuneshapePriceChecker (PID: $($appProcess.Id))
 
-OS Metrics (PowerShell):
+App Metrics:
   CPU (avg):     $cpuAvg%
   CPU (max):     $cpuMax%
   Memory (avg):  $memAvg MB
@@ -251,6 +323,12 @@ OS Metrics (PowerShell):
   Handles (avg): $handleAvg
   Threads (avg): $threadAvg
 
+DWM (dwm.exe) Metrics:
+  CPU (avg):     $dwmCpuAvg%
+  CPU (max):     $dwmCpuMax%
+  Memory (avg):  $dwmMemAvg MB
+  Handles (avg): $dwmHandleAvg
+$dwmWarning
 "@
 
 $summary | Out-File $summaryPath

@@ -445,15 +445,16 @@ public sealed class OcrCaptureBoundsOverlayService(
 
         public void SafeShowFrame(Rectangle frame, bool showOverlay, int panelWidth = 198)
         {
-            _isHidden = false;
-
             if (IsDisposed) return;
 
             if (InvokeRequired)
             {
+                _isHidden = false;
                 BeginInvoke(new Action<Rectangle, bool, int>(SafeShowFrame), frame, showOverlay, panelWidth);
                 return;
             }
+
+            _isHidden = false;
 
             _showDebugOverlay = showOverlay;
             _textPanelWidth = panelWidth;
@@ -481,12 +482,12 @@ public sealed class OcrCaptureBoundsOverlayService(
 
         public void SafeHide()
         {
-            if (IsDisposed || _isHidden) return;
-
-            _isHidden = true;
+            if (IsDisposed) return;
 
             if (InvokeRequired)
             {
+                if (_isHidden) return;
+                _isHidden = true;
                 BeginInvoke(new Action(SafeHide));
                 return;
             }
@@ -633,16 +634,16 @@ public sealed class OcrCaptureBoundsOverlayService(
 
         public void SafeShow(int x, int y)
         {
-            _isHidden = false;
-
             if (IsDisposed) return;
 
             if (InvokeRequired)
             {
+                _isHidden = false;
                 BeginInvoke(new Action<int, int>(SafeShow), x, y);
                 return;
             }
 
+            _isHidden = false;
             Bounds = new Rectangle(x, y, 400, 50);
             PinTopMost();
             Invalidate();
@@ -656,12 +657,12 @@ public sealed class OcrCaptureBoundsOverlayService(
 
         public void SafeHide()
         {
-            if (IsDisposed || _isHidden) return;
-
-            _isHidden = true;
+            if (IsDisposed) return;
 
             if (InvokeRequired)
             {
+                if (_isHidden) return;
+                _isHidden = true;
                 BeginInvoke(new Action(SafeHide));
                 return;
             }
