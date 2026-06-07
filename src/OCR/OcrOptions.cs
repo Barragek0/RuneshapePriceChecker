@@ -60,7 +60,7 @@ public sealed class OcrOptions
 
     public int LeaguePanelAnchorSampleRadiusPx { get; set; } = 5;
 
-    public int LeaguePanelAnchorSampleRadiusYPx { get; set; } = 15;
+    public int LeaguePanelAnchorSampleRadiusYPx { get; set; } = 25;
 
     public float LeaguePanelAnchorSampleRadiusFraction { get; set; } = 0f;
 
@@ -74,7 +74,7 @@ public sealed class OcrOptions
 
     public int LeaguePanelAnchorTolerance { get; set; } = 12;
 
-    public int LeaguePanelAnchorMinLuminance { get; set; } = 195;
+    public int LeaguePanelAnchorMinLuminance { get; set; } = 210;
 
     public int LeaguePanelAnchorMaxChannelSpread { get; set; } = 15;
 }

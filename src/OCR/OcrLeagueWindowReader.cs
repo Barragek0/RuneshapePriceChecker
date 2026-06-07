@@ -247,9 +247,14 @@ public sealed class OcrLeagueWindowReader(
             .Where(static line => line.Length > 0)
             .ToArray();
 
-        _lastRowYPositions = lineYs.Length > 0
-            ? lineYs
-            : ComputeRowPositions(preprocessed, lines.Length);
+        if (lineYs.Length >= lines.Length)
+        {
+            _lastRowYPositions = lineYs.Take(lines.Length).ToArray();
+        }
+        else
+        {
+            _lastRowYPositions = ComputeRowPositions(preprocessed, lines.Length);
+        }
 
         return string.Join(Environment.NewLine, lines);
     }
@@ -755,8 +760,8 @@ public sealed class OcrLeagueWindowReader(
     private static int ComputeAnchorRadiusY(int width, int height, OcrOptions options)
     {
         if (options.LeaguePanelAnchorSampleRadiusYFraction > 0f)
-            return Math.Clamp((int)(height * options.LeaguePanelAnchorSampleRadiusYFraction), 2, 20);
-        return Math.Clamp(options.LeaguePanelAnchorSampleRadiusYPx, 2, 20);
+            return Math.Clamp((int)(height * options.LeaguePanelAnchorSampleRadiusYFraction), 2, 50);
+        return Math.Clamp(options.LeaguePanelAnchorSampleRadiusYPx, 2, 50);
     }
 
     private static int ComputeAnchorX(Bitmap bitmap, OcrOptions options)

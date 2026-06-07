@@ -281,8 +281,8 @@ public sealed class DebugOverlayService(
             : Math.Clamp(options.LeaguePanelAnchorSampleRadiusPx, 2, 20);
 
         var sampleRadiusY = options.LeaguePanelAnchorSampleRadiusYFraction > 0f
-            ? Math.Clamp((int)(h * options.LeaguePanelAnchorSampleRadiusYFraction), 2, 20)
-            : Math.Clamp(options.LeaguePanelAnchorSampleRadiusYPx, 2, 20);
+            ? Math.Clamp((int)(h * options.LeaguePanelAnchorSampleRadiusYFraction), 2, 50)
+            : Math.Clamp(options.LeaguePanelAnchorSampleRadiusYPx, 2, 50);
 
         var rightX = w - 1 - leftX;
 
