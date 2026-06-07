@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Options;
 using RuneshapePriceChecker.Configuration;
@@ -281,7 +281,7 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient, IOption
 
             _exactPrices[normalized] = pair.Value;
 
-            if (PricingTextRules.TryGetTierFallbackKey(normalized, out var fallbackKey))
+            if (ItemNameParser.TryGetTierFallbackKey(normalized, out var fallbackKey))
             {
                 if (_fallbackPrices.TryGetValue(fallbackKey, out var existing))
                 {
@@ -326,7 +326,7 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient, IOption
     {
         _uncutGemRanges.Clear();
 
-        foreach (var family in PricingTextRules.UncutGemFamilies)
+        foreach (var family in ItemNameParser.UncutGemFamilies)
         {
             decimal? min = null;
             decimal? max = null;
@@ -353,7 +353,7 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient, IOption
     {
         range = default;
 
-        foreach (var family in PricingTextRules.UncutGemFamilies)
+        foreach (var family in ItemNameParser.UncutGemFamilies)
         {
             if (!normalizedItemName.StartsWith(family, StringComparison.OrdinalIgnoreCase))
             {
@@ -409,7 +409,7 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient, IOption
             return true;
         }
 
-        foreach (var candidate in PricingTextRules.BuildUniqueCategoryLookupCandidates(normalizedItemName))
+        foreach (var candidate in ItemNameParser.BuildUniqueCategoryLookupCandidates(normalizedItemName))
         {
             var normalizedCandidate = Normalize(candidate);
             if (_uniqueCategoryRanges.TryGetValue(normalizedCandidate, out range))
@@ -463,7 +463,7 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient, IOption
 
     private string FormatAmount(decimal chaosValue)
     {
-        return PricingTextRules.FormatAmount(
+        return ItemNameParser.FormatAmount(
             chaosValue,
             _divineOrbChaosValue,
             _exaltedOrbChaosValue,
@@ -478,7 +478,7 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient, IOption
         }
 
         var normalized = value
-            .Replace('’', '\'')
+            .Replace('\u2019', '\'')
             .Replace("'", string.Empty);
 
         normalized = LeadingQuantityWithX.Replace(normalized, string.Empty);
@@ -486,7 +486,7 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient, IOption
         normalized = NonAlphaNumeric.Replace(normalized, " ");
         normalized = normalized.Trim().ToUpperInvariant();
         normalized = SplitPossessive.Replace(normalized, "$1S $2");
-        normalized = PricingTextRules.ApplyNormalizedWordSwaps(normalized);
+        normalized = ItemNameParser.ApplyNormalizedWordSwaps(normalized);
 
         return normalized;
     }

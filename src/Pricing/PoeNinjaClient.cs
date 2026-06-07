@@ -218,7 +218,7 @@ public sealed class PoeNinjaClient(HttpClient httpClient, IOptionsMonitor<Pricin
                 yield return expanded;
             }
 
-            foreach (var alias in PricingTextRules.ExpandIdAliases(id))
+            foreach (var alias in ItemNameParser.ExpandIdAliases(id))
             {
                 if (!string.IsNullOrWhiteSpace(alias) && seen.Add(alias))
                 {

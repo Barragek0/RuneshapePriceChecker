@@ -28,7 +28,7 @@ await cache.RefreshAsync(CancellationToken.None).ConfigureAwait(false);
 var rows = new List<ResultRow>(inputItems.Count);
 foreach (var rawItem in inputItems)
 {
-    var parsed = PricingTextRules.ParseDetectedItem(rawItem);
+    var parsed = ItemNameParser.ParseDetectedItem(rawItem);
     var normalized = InMemoryPricingCache.Normalize(parsed.Name);
     var quote = cache.TryGetPriceQuote(parsed.Name, parsed.Quantity);
 

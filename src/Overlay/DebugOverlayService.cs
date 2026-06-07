@@ -5,13 +5,14 @@ using System.Windows.Forms;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using RuneshapePriceChecker.OCR;
 
-namespace RuneshapePriceChecker.OCR;
+namespace RuneshapePriceChecker.Overlay;
 
-public sealed class OcrCaptureBoundsOverlayService(
+public sealed class DebugOverlayService(
     IPoe2WindowResolutionProvider windowResolutionProvider,
     IOptionsMonitor<OcrOptions> options,
-    ILogger<OcrCaptureBoundsOverlayService> logger) : BackgroundService
+    ILogger<DebugOverlayService> logger) : BackgroundService
 {
     private readonly IOptionsMonitor<OcrOptions> _options = options;
     private Thread? _overlayThread;
@@ -224,7 +225,7 @@ public sealed class OcrCaptureBoundsOverlayService(
         lock (_bannerSync) { return _bannerForm; }
     }
 
-    public void SetDebugText(IReadOnlyList<string> lines, IReadOnlyList<int>? rowYPositions = null, bool interfaceDetected = true, string? statusLine = null)
+    public void SetDebugText(IReadOnlyList<string> lines, IReadOnlyList<int>? rowYPositions = null, bool interfaceDetected = true)
     {
         var overlay = GetOverlayForm();
         if (overlay is null) return;
@@ -254,7 +255,6 @@ public sealed class OcrCaptureBoundsOverlayService(
         }
 
         RefreshAnchorRegions(overlay);
-        overlay.SetStatusLine(statusLine);
         overlay.SetDebugLines(lines.ToArray(), rowYPositions?.ToArray());
     }
 
@@ -303,7 +303,6 @@ public sealed class OcrCaptureBoundsOverlayService(
         private int _anchorRadiusX;
         private int _anchorRadiusY;
         private volatile bool _isHidden = true;
-        private string? _statusLine;
 
         public BoundsOverlayForm()
         {
@@ -314,7 +313,6 @@ public sealed class OcrCaptureBoundsOverlayService(
             BackColor = TransparencyChroma;
             TransparencyKey = TransparencyChroma;
             DoubleBuffered = true;
-            Bounds = new Rectangle(-32000, -32000, 1, 1);
         }
 
         protected override bool ShowWithoutActivation => true;
@@ -372,26 +370,6 @@ public sealed class OcrCaptureBoundsOverlayService(
 
             var lines = _debugLines;
             var rowY = _debugRowY;
-
-            if (_statusLine is { } status)
-            {
-                using var statusFont = new Font("Segoe UI", 14f, FontStyle.Bold, GraphicsUnit.Pixel);
-                using var statusBrush = new SolidBrush(Color.FromArgb(220, 255, 255, 100));
-                using var statusOutline = new Pen(Color.FromArgb(220, 0, 0, 0), 2f)
-                {
-                    LineJoin = System.Drawing.Drawing2D.LineJoin.Round
-                };
-                var statusSize = e.Graphics.MeasureString(status, statusFont, PointF.Empty, StringFormat.GenericTypographic);
-                var statusX = boxX + ((Width - boxX - (int)statusSize.Width) / 2f);
-                var statusY = Height - statusSize.Height - 6f;
-                using var path = new System.Drawing.Drawing2D.GraphicsPath();
-                path.AddString(status, statusFont.FontFamily, (int)statusFont.Style,
-                    e.Graphics.DpiY * statusFont.SizeInPoints / 72f,
-                    new PointF(statusX, statusY), StringFormat.GenericTypographic);
-                e.Graphics.DrawPath(statusOutline, path);
-                e.Graphics.FillPath(statusBrush, path);
-            }
-
             if (lines.Length == 0)
                 return;
 
@@ -451,13 +429,6 @@ public sealed class OcrCaptureBoundsOverlayService(
         {
             _debugLines = lines;
             _debugRowY = rowY ?? [];
-            if (!IsDisposed && Visible)
-                Invalidate();
-        }
-
-        public void SetStatusLine(string? status)
-        {
-            _statusLine = status;
             if (!IsDisposed && Visible)
                 Invalidate();
         }
@@ -523,7 +494,6 @@ public sealed class OcrCaptureBoundsOverlayService(
             }
 
             Hide();
-            Bounds = new Rectangle(-32000, -32000, 1, 1);
         }
 
         public void SafeClose()
@@ -639,7 +609,6 @@ public sealed class OcrCaptureBoundsOverlayService(
             BackColor = TransparencyChroma;
             TransparencyKey = TransparencyChroma;
             DoubleBuffered = true;
-            Bounds = new Rectangle(-32000, -32000, 1, 1);
         }
 
         protected override bool ShowWithoutActivation => true;
@@ -701,19 +670,6 @@ public sealed class OcrCaptureBoundsOverlayService(
 
             Hide();
             Bounds = new Rectangle(-32000, -32000, 1, 1);
-        }
-
-        public void SafeClose()
-        {
-            if (IsDisposed) return;
-
-            if (InvokeRequired)
-            {
-                BeginInvoke(new Action(SafeClose));
-                return;
-            }
-
-            Close();
         }
 
         protected override void OnShown(EventArgs e)

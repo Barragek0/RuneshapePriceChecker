@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
@@ -421,9 +422,14 @@ public sealed class OcrLeagueWindowReader(
 
     private Bitmap CaptureBitmap(OcrCaptureRegion region, out string captureMethod, OcrOptions options)
     {
+        if (LosslessScaling.IsRunning)
+        {
+            return CaptureFromDesktop(region, out captureMethod);
+        }
+
         if (options.UseWindowClientCapture &&
             windowResolutionProvider.CurrentWindowCaptureContext is { } context &&
-            TryCaptureFromWindowClient(context, region, out var windowBitmap))
+            TryCaptureFromWindowClient(context, region, out var windowBitmap, useCaptureBlt: true))
         {
             if (!IsLikelyInvalidCapture(windowBitmap))
             {
@@ -453,6 +459,11 @@ public sealed class OcrLeagueWindowReader(
             logger.LogWarning("Window-client capture unavailable (BitBlt/PrintWindow). Falling back to desktop capture; overlapping windows can pollute OCR.");
         }
 
+        return CaptureFromDesktop(region, out captureMethod);
+    }
+
+    private static Bitmap CaptureFromDesktop(OcrCaptureRegion region, out string captureMethod)
+    {
         var bitmap = new Bitmap(region.Width, region.Height, PixelFormat.Format24bppRgb);
         using (var graphics = Graphics.FromImage(bitmap))
         {
@@ -463,11 +474,6 @@ public sealed class OcrLeagueWindowReader(
                 0,
                 new Size(region.Width, region.Height),
                 CopyPixelOperation.SourceCopy);
-        }
-
-        if (IsLikelyInvalidCapture(bitmap))
-        {
-            logger.LogWarning("Desktop capture frame appears invalid/black. Verify PoE2 is visible and not minimized.");
         }
 
         captureMethod = "desktop-copyfromscreen";
@@ -766,7 +772,7 @@ public sealed class OcrLeagueWindowReader(
         return ComputeAnchorRadiusY(bitmap.Width, bitmap.Height, options);
     }
 
-    private static bool TryCaptureFromWindowClient(WindowCaptureContext context, OcrCaptureRegion absoluteRegion, out Bitmap bitmap)
+    private static bool TryCaptureFromWindowClient(WindowCaptureContext context, OcrCaptureRegion absoluteRegion, out Bitmap bitmap, bool useCaptureBlt = true)
     {
         bitmap = null!;
 
@@ -797,6 +803,7 @@ public sealed class OcrLeagueWindowReader(
         {
             const uint srccopy = 0x00CC0020;
             const uint captureBlt = 0x40000000;
+            var rop = useCaptureBlt ? (srccopy | captureBlt) : srccopy;
             var success = NativeMethods.BitBlt(
                 destinationDc,
                 0,
@@ -806,7 +813,7 @@ public sealed class OcrLeagueWindowReader(
                 sourceDc,
                 sourceX,
                 sourceY,
-                srccopy | captureBlt);
+                rop);
 
             if (!success)
             {
@@ -1072,7 +1079,7 @@ public sealed class OcrLeagueWindowReader(
         normalized = NonNameChars.Replace(normalized, " ");
         normalized = MultiWhitespace.Replace(normalized, " ").Trim();
 
-        var parsed = PricingTextRules.ParseDetectedItem(normalized);
+        var parsed = ItemNameParser.ParseDetectedItem(normalized);
         if (!string.IsNullOrWhiteSpace(parsed.Name))
         {
             normalized = $"{parsed.Quantity}x {parsed.Name}";

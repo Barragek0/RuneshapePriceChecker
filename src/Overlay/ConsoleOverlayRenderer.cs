@@ -358,6 +358,7 @@ public sealed class ConsoleOverlayRenderer(
             BackColor = TransparencyChroma;
             TransparencyKey = TransparencyChroma;
             DoubleBuffered = true;
+            Bounds = new Rectangle(-32000, -32000, 1, 1);
         }
 
         protected override bool ShowWithoutActivation => true;

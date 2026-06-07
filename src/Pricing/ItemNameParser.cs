@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 
 namespace RuneshapePriceChecker.Pricing;
 
-public static class PricingTextRules
+public static class ItemNameParser
 {
     private static readonly Regex QuantityPrefixWithX = new("^(?<quantity>\\d+|[AaIiLlTt|Oo0])\\s*[xX]\\s+(?<name>.+)$", RegexOptions.Compiled);
     private static readonly Regex QuantityPrefixWithoutX = new("^(?<quantity>\\d+|[IiLl|Oo0])\\s+(?<name>.+)$", RegexOptions.Compiled);

@@ -1,6 +1,7 @@
 using RuneshapePriceChecker.Configuration;
 using RuneshapePriceChecker.Contracts;
 using RuneshapePriceChecker.OCR;
+using RuneshapePriceChecker.Overlay;
 using RuneshapePriceChecker.Pricing;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -13,7 +14,7 @@ public sealed class LeaguePricingWorker(
     ILeagueWindowReader reader,
     IPricingCache pricingCache,
     IOverlayRenderer overlayRenderer,
-    OcrCaptureBoundsOverlayService debugOverlay,
+    DebugOverlayService debugOverlay,
     IOptionsMonitor<PricingCacheOptions> pricingOptions,
     IOptionsMonitor<AppOptions> appOptions,
     IOptionsMonitor<OcrOptions> ocrOptions,
@@ -121,7 +122,7 @@ public sealed class LeaguePricingWorker(
 
     private static (string ItemName, int Quantity) ParseItemAndQuantity(string itemName)
     {
-        var parsed = PricingTextRules.ParseDetectedItem(itemName);
+        var parsed = ItemNameParser.ParseDetectedItem(itemName);
         return (parsed.Name, parsed.Quantity);
     }
 
@@ -153,7 +154,7 @@ public sealed class LeaguePricingWorker(
         var found = false;
         foreach (var name in itemNames)
         {
-            var parsed = PricingTextRules.ParseDetectedItem(name);
+            var parsed = ItemNameParser.ParseDetectedItem(name);
             var normalized = parsed.Name.Trim();
 
             if (string.IsNullOrWhiteSpace(normalized))

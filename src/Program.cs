@@ -82,8 +82,8 @@ var host = Host.CreateDefaultBuilder(args)
 
         services.AddHostedService(sp => sp.GetRequiredService<Poe2WindowResolutionService>());
         services.AddHostedService<SettingsController>();
-        services.AddSingleton<OcrCaptureBoundsOverlayService>();
-        services.AddHostedService(sp => sp.GetRequiredService<OcrCaptureBoundsOverlayService>());
+        services.AddSingleton<DebugOverlayService>();
+        services.AddHostedService(sp => sp.GetRequiredService<DebugOverlayService>());
         services.AddHostedService<PricingCacheRefreshWorker>();
         services.AddHostedService<LeaguePricingWorker>();
     })

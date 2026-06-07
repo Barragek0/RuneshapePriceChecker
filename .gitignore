@@ -15,3 +15,6 @@ perf-logs/
 *.log
 appsettings.json
 appsettings.release.json
+docs/
+.github/plans/
+.github/prompts/
