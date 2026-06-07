@@ -136,6 +136,14 @@ public sealed class OcrLeagueWindowReader(
         var region = ResolveCaptureRegion();
         ValidateRegion(region);
 
+        if (options.UseWindowClientCapture &&
+            windowResolutionProvider.CurrentWindowCaptureContext is { } preCheckCtx &&
+            !TryDetectInterfaceViaAnchors(region, options, preCheckCtx))
+        {
+            _lastInterfaceDetected = false;
+            return string.Empty;
+        }
+
         using var capturedBitmap = CaptureBitmap(region, out var captureMethod, options);
         if (_appOptions.CurrentValue.DebugLogging &&
             !string.Equals(_lastCaptureMethod, captureMethod, StringComparison.OrdinalIgnoreCase))
@@ -625,50 +633,137 @@ public sealed class OcrLeagueWindowReader(
         return false;
     }
 
-    private static int ComputeAnchorX(Bitmap bitmap, OcrOptions options)
+    private static bool TryDetectInterfaceViaAnchors(
+        OcrCaptureRegion region, OcrOptions options, WindowCaptureContext ctx)
     {
-        if (options.LeaguePanelAnchorFractionX > 0f)
+        var leftX = ComputeAnchorX(region.Width, region.Height, options);
+        var sampleY = ComputeAnchorY(region.Width, region.Height, options);
+        var radiusX = ComputeAnchorRadiusX(region.Width, region.Height, options);
+        var radiusY = ComputeAnchorRadiusY(region.Width, region.Height, options);
+
+        var relMinY = Math.Max(0, sampleY - radiusY);
+        var relMaxY = Math.Min(region.Height - 1, sampleY + radiusY);
+        var anchorH = relMaxY - relMinY + 1;
+        if (anchorH <= 0) return true;
+
+        var anchorAbsY = region.Y + relMinY;
+
+        if (TryCheckAnchorSide(ctx, region, options, leftX, radiusX, anchorAbsY, anchorH))
+            return true;
+
+        var rightX = region.Width - 1 - leftX;
+        return TryCheckAnchorSide(ctx, region, options, rightX, radiusX, anchorAbsY, anchorH);
+    }
+
+    private static bool TryCheckAnchorSide(
+        WindowCaptureContext ctx,
+        OcrCaptureRegion region,
+        OcrOptions options,
+        int anchorX,
+        int radiusX,
+        int anchorAbsY,
+        int anchorH)
+    {
+        var relMinX = Math.Max(0, anchorX - radiusX);
+        var relMaxX = Math.Min(region.Width - 1, anchorX + radiusX);
+        var anchorW = relMaxX - relMinX + 1;
+        if (anchorW <= 0) return true;
+
+        var anchorRegion = new OcrCaptureRegion(
+            region.X + relMinX, anchorAbsY, anchorW, anchorH);
+
+        if (!TryCaptureFromWindowClient(ctx, anchorRegion, out var anchorBmp))
+            return true;
+
+        using (anchorBmp)
         {
-            return (int)(bitmap.Width * Math.Clamp(options.LeaguePanelAnchorFractionX, 0f, 1f));
+            if (IsLikelyInvalidCapture(anchorBmp))
+                return true;
+            return AnyAnchorPixelMatch(anchorBmp, options);
+        }
+    }
+
+    private static bool AnyAnchorPixelMatch(Bitmap bitmap, OcrOptions options)
+    {
+        var rgb = ReadRgbPixels(bitmap);
+        var tolerance = Math.Max(1, options.LeaguePanelAnchorTolerance);
+        var minLuminance = options.LeaguePanelAnchorMinLuminance;
+        var maxSpread = options.LeaguePanelAnchorMaxChannelSpread;
+        var targetR = options.LeaguePanelAnchorTargetR;
+        var targetG = options.LeaguePanelAnchorTargetG;
+        var targetB = options.LeaguePanelAnchorTargetB;
+
+        for (var i = 0; i < rgb.Length; i += 3)
+        {
+            var r = rgb[i];
+            var g = rgb[i + 1];
+            var b = rgb[i + 2];
+
+            var maxChannel = Math.Max(r, Math.Max(g, b));
+            var minChannel = Math.Min(r, Math.Min(g, b));
+            var spread = maxChannel - minChannel;
+            var luminance = ((299 * r) + (587 * g) + (114 * b)) / 1000;
+
+            var dr = r - targetR;
+            var dg = g - targetG;
+            var db = b - targetB;
+            var distanceToTarget = Math.Sqrt((dr * dr) + (dg * dg) + (db * db));
+
+            if (distanceToTarget <= tolerance)
+                return true;
+            if (luminance >= minLuminance && spread <= maxSpread)
+                return true;
         }
 
-        return Math.Clamp(options.LeaguePanelAnchorSampleX, 0, bitmap.Width - 1);
+        return false;
+    }
+
+    private static int ComputeAnchorX(int width, int height, OcrOptions options)
+    {
+        if (options.LeaguePanelAnchorFractionX > 0f)
+            return (int)(width * Math.Clamp(options.LeaguePanelAnchorFractionX, 0f, 1f));
+        return Math.Clamp(options.LeaguePanelAnchorSampleX, 0, width - 1);
+    }
+
+    private static int ComputeAnchorY(int width, int height, OcrOptions options)
+    {
+        if (options.LeaguePanelAnchorFractionY > 0f)
+            return (int)(height * Math.Clamp(options.LeaguePanelAnchorFractionY, 0f, 1f));
+        return Math.Clamp(options.LeaguePanelAnchorSampleY, 0, height - 1);
+    }
+
+    private static int ComputeAnchorRadiusX(int width, int height, OcrOptions options)
+    {
+        if (options.LeaguePanelAnchorSampleRadiusFraction > 0f)
+            return Math.Clamp((int)(height * options.LeaguePanelAnchorSampleRadiusFraction), 2, 20);
+        return Math.Clamp(options.LeaguePanelAnchorSampleRadiusPx, 2, 20);
+    }
+
+    private static int ComputeAnchorRadiusY(int width, int height, OcrOptions options)
+    {
+        if (options.LeaguePanelAnchorSampleRadiusYFraction > 0f)
+            return Math.Clamp((int)(height * options.LeaguePanelAnchorSampleRadiusYFraction), 2, 20);
+        return Math.Clamp(options.LeaguePanelAnchorSampleRadiusYPx, 2, 20);
+    }
+
+    private static int ComputeAnchorX(Bitmap bitmap, OcrOptions options)
+    {
+        return ComputeAnchorX(bitmap.Width, bitmap.Height, options);
     }
 
     private static int ComputeAnchorY(Bitmap bitmap, OcrOptions options)
     {
-        if (options.LeaguePanelAnchorFractionY > 0f)
-        {
-            return (int)(bitmap.Height * Math.Clamp(options.LeaguePanelAnchorFractionY, 0f, 1f));
-        }
-
-        return Math.Clamp(options.LeaguePanelAnchorSampleY, 0, bitmap.Height - 1);
+        return ComputeAnchorY(bitmap.Width, bitmap.Height, options);
     }
 
     private static int ComputeAnchorRadiusX(Bitmap bitmap, OcrOptions options)
     {
-        if (options.LeaguePanelAnchorSampleRadiusFraction > 0f)
-        {
-            return Math.Clamp(
-                (int)(bitmap.Height * options.LeaguePanelAnchorSampleRadiusFraction),
-                2,
-                20);
-        }
-
-        return Math.Clamp(options.LeaguePanelAnchorSampleRadiusPx, 2, 20);
+        return ComputeAnchorRadiusX(bitmap.Width, bitmap.Height, options);
     }
 
     private static int ComputeAnchorRadiusY(Bitmap bitmap, OcrOptions options)
     {
-        if (options.LeaguePanelAnchorSampleRadiusYFraction > 0f)
-        {
-            return Math.Clamp(
-                (int)(bitmap.Height * options.LeaguePanelAnchorSampleRadiusYFraction),
-                2,
-                20);
-        }
-
-        return Math.Clamp(options.LeaguePanelAnchorSampleRadiusYPx, 2, 20);
+        return ComputeAnchorRadiusY(bitmap.Width, bitmap.Height, options);
     }
 
     private static bool TryCaptureFromWindowClient(WindowCaptureContext context, OcrCaptureRegion absoluteRegion, out Bitmap bitmap)

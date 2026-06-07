@@ -42,6 +42,10 @@ public sealed class OcrOptions
 
     public bool HideDebugOverlayWhenInterfaceNotDetected { get; set; } = false;
 
+    public bool ShowPricingOverlay { get; set; } = true;
+
+    public bool ShowBanner { get; set; } = true;
+
     public int CaptureBoundsOverlayIntervalMs { get; set; } = 250;
 
     public int RowUpscaleFactor { get; set; } = 2;
@@ -56,7 +60,7 @@ public sealed class OcrOptions
 
     public int LeaguePanelAnchorSampleRadiusPx { get; set; } = 5;
 
-    public int LeaguePanelAnchorSampleRadiusYPx { get; set; } = 10;
+    public int LeaguePanelAnchorSampleRadiusYPx { get; set; } = 15;
 
     public float LeaguePanelAnchorSampleRadiusFraction { get; set; } = 0f;
 

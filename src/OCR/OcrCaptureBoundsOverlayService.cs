@@ -143,12 +143,18 @@ public sealed class OcrCaptureBoundsOverlayService(
 
     public void ForceHide()
     {
+        if (_forceHidden)
+            return;
+
         _forceHidden = true;
         GetOverlayForm()?.SafeHide();
     }
 
     public void SetBannerMessage(string? message)
     {
+        if (!_options.CurrentValue.ShowBanner)
+            return;
+
         if (string.IsNullOrWhiteSpace(message))
         {
             var form = GetBannerForm();
@@ -295,6 +301,7 @@ public sealed class OcrCaptureBoundsOverlayService(
         private int _anchorY;
         private int _anchorRadiusX;
         private int _anchorRadiusY;
+        private volatile bool _isHidden = true;
 
         public BoundsOverlayForm()
         {
@@ -438,6 +445,8 @@ public sealed class OcrCaptureBoundsOverlayService(
 
         public void SafeShowFrame(Rectangle frame, bool showOverlay, int panelWidth = 198)
         {
+            _isHidden = false;
+
             if (IsDisposed) return;
 
             if (InvokeRequired)
@@ -472,7 +481,9 @@ public sealed class OcrCaptureBoundsOverlayService(
 
         public void SafeHide()
         {
-            if (IsDisposed) return;
+            if (IsDisposed || _isHidden) return;
+
+            _isHidden = true;
 
             if (InvokeRequired)
             {
@@ -585,6 +596,7 @@ public sealed class OcrCaptureBoundsOverlayService(
     {
         private static readonly Color TransparencyChroma = Color.FromArgb(1, 2, 3);
         private string? _message;
+        private volatile bool _isHidden = true;
 
         public BannerForm()
         {
@@ -621,6 +633,8 @@ public sealed class OcrCaptureBoundsOverlayService(
 
         public void SafeShow(int x, int y)
         {
+            _isHidden = false;
+
             if (IsDisposed) return;
 
             if (InvokeRequired)
@@ -642,7 +656,9 @@ public sealed class OcrCaptureBoundsOverlayService(
 
         public void SafeHide()
         {
-            if (IsDisposed) return;
+            if (IsDisposed || _isHidden) return;
+
+            _isHidden = true;
 
             if (InvokeRequired)
             {

@@ -14,9 +14,11 @@ namespace RuneshapePriceChecker.Overlay;
 public sealed class ConsoleOverlayRenderer(
     IPoe2WindowResolutionProvider windowResolutionProvider,
     IOptionsMonitor<PricingCacheOptions> pricingOptions,
+    IOptionsMonitor<OcrOptions> ocrOptions,
     ILogger<ConsoleOverlayRenderer> logger) : IOverlayRenderer, IDisposable
 {
     private readonly object _sync = new();
+    private readonly IOptionsMonitor<OcrOptions> _ocrOptions = ocrOptions;
     private Thread? _overlayThread;
     private PriceOverlayForm? _overlayForm;
 
@@ -24,6 +26,9 @@ public sealed class ConsoleOverlayRenderer(
     {
         try
         {
+            if (!_ocrOptions.CurrentValue.ShowPricingOverlay)
+                return;
+
             EnsureOverlayThreadStarted();
             var overlay = GetOverlayForm();
             if (overlay is null)
@@ -287,6 +292,7 @@ public sealed class ConsoleOverlayRenderer(
             _overlayThread = new Thread(() =>
             {
                 using var form = new PriceOverlayForm();
+                var _ = form.Handle;
                 lock (_sync)
                 {
                     _overlayForm = form;
@@ -319,6 +325,8 @@ public sealed class ConsoleOverlayRenderer(
     {
         lock (_sync)
         {
+            if (_overlayForm is { IsDisposed: true })
+                _overlayForm = null;
             return _overlayForm;
         }
     }
@@ -339,6 +347,7 @@ public sealed class ConsoleOverlayRenderer(
         private readonly object _stateSync = new();
         private IReadOnlyList<OverlayRowEntry> _entries = [];
         private OcrCaptureRegion _captureRegion = new(0, 0, 1, 1);
+        private volatile bool _isHidden = true;
 
         public PriceOverlayForm()
         {
@@ -368,6 +377,8 @@ public sealed class ConsoleOverlayRenderer(
 
         public void SafeShow(OcrCaptureRegion captureRegion, IReadOnlyList<OverlayRowEntry> entries)
         {
+            _isHidden = false;
+
             if (IsDisposed)
             {
                 return;
@@ -417,10 +428,12 @@ public sealed class ConsoleOverlayRenderer(
 
         public void SafeHide()
         {
-            if (IsDisposed)
+            if (IsDisposed || _isHidden)
             {
                 return;
             }
+
+            _isHidden = true;
 
             if (InvokeRequired)
             {
