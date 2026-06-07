@@ -568,19 +568,17 @@ public sealed class OcrLeagueWindowReader(
 
         var rightX = bitmap.Width - 1 - leftX;
 
-        if (!CheckAnchorRegion(rgbPixels, bitmap.Width, bitmap.Height, leftX, sampleY, radiusX, radiusY, options, out signal))
-        {
-            signal = signal with { Side = "left" };
-            return false;
-        }
+        if (CheckAnchorRegion(rgbPixels, bitmap.Width, bitmap.Height, leftX, sampleY, radiusX, radiusY, options, out signal))
+            return true;
 
-        if (!CheckAnchorRegion(rgbPixels, bitmap.Width, bitmap.Height, rightX, sampleY, radiusX, radiusY, options, out var rightSignal))
+        if (CheckAnchorRegion(rgbPixels, bitmap.Width, bitmap.Height, rightX, sampleY, radiusX, radiusY, options, out var rightSignal))
         {
             signal = rightSignal with { Side = "right" };
-            return false;
+            return true;
         }
 
-        return true;
+        signal = signal with { Side = "left" };
+        return false;
     }
 
     private static bool CheckAnchorRegion(
@@ -612,6 +610,9 @@ public sealed class OcrLeagueWindowReader(
                 var r = rgbPixels[rgbIndex];
                 var g = rgbPixels[rgbIndex + 1];
                 var b = rgbPixels[rgbIndex + 2];
+
+                if (r > g + b)
+                    continue;
 
                 var maxChannel = Math.Max(r, Math.Max(g, b));
                 var minChannel = Math.Min(r, Math.Min(g, b));
@@ -716,6 +717,9 @@ public sealed class OcrLeagueWindowReader(
             var r = rgb[i];
             var g = rgb[i + 1];
             var b = rgb[i + 2];
+
+            if (r > g + b)
+                continue;
 
             var maxChannel = Math.Max(r, Math.Max(g, b));
             var minChannel = Math.Min(r, Math.Min(g, b));
