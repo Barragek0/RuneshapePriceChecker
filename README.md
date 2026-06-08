@@ -2,7 +2,7 @@
 
 RuneshapePriceChecker is a Path of Exile 2 pricing tool for the Runes of Aldur League Mechanic.
 
-It reads visible rows on the runeshape page with OCR, looks up live prices from poe.ninja, and renders color-coded values beside each row.
+It reads visible rows on the runeshape page with OCR (Optical Character Recognition), looks up live prices from poe.ninja, and renders color-coded values beside each row.
 
 ## Requirements
 
