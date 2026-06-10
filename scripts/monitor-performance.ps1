@@ -108,7 +108,7 @@ $traceLogPath = Join-Path $runDir "cpu-trace.nettrace"
 # ---- Job 1: OS metrics (CPU, memory, handles, threads) ----
 $osJob = Start-Job -Name "OSMetrics" -ScriptBlock {
     param($targetPid, $logPath, $duration, $pollInterval, $procCount)
-    "Timestamp,CPU%,MemoryMB,Handles,Threads,DiskReadKB,DiskWriteKB" | Out-File $logPath
+    "Timestamp,CPU%,MemoryMB,PrivateMB,Handles,Threads,GDIObjects,DiskReadKB,DiskWriteKB" | Out-File $logPath
 
     $prevCpuTime = $null
     $prevTime = $null
@@ -135,9 +135,11 @@ $osJob = Start-Job -Name "OSMetrics" -ScriptBlock {
             $prevTime = $now
 
             $mem = [math]::Round($proc.WorkingSet64 / 1MB, 2)
+            $privateMem = [math]::Round($proc.PrivateMemorySize64 / 1MB, 2)
+            $gdi = $proc.HandleCount
             $timestamp = $now.ToString("HH:mm:ss")
 
-            "$timestamp,$cpu,$mem,$($proc.HandleCount),$($proc.Threads.Count),0,0" | Out-File $logPath -Append
+            "$timestamp,$cpu,$mem,$privateMem,$($proc.HandleCount),$($proc.Threads.Count),$gdi,0,0" | Out-File $logPath -Append
         }
         catch {
             break

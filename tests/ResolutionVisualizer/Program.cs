@@ -16,12 +16,17 @@ internal static class Program
 
 internal sealed class VisualizerForm : Form
 {
-    private readonly Dictionary<string, OcrResolutionProfile> _profiles;
+    private readonly Dictionary<string, OcrResolutionProfile> _profiles = new(StringComparer.OrdinalIgnoreCase);
     private string[] _profileKeys = [];
     private int _currentIndex;
     private float _userScale = 1f;
     private Bitmap? _screenshot;
     private readonly OpenFileDialog _openDialog = new() { Filter = "PNG Images|*.png|JPEG Images|*.jpg;*.jpeg|All Files|*.*" };
+
+    private bool _showDebugOverlay = true;
+    private bool _showScanZone = true;
+    private bool _showPriceOverlay = true;
+    private bool _showSetupOverlay;
 
     private static readonly string[] SampleItems =
     [
@@ -37,15 +42,22 @@ internal sealed class VisualizerForm : Form
 
     private static readonly string[] SamplePrices =
     [
-        "N/A", "N/A", "N/A", "N/A", "N/A", "N/A", "N/A", "N/A"
+        "3.8c", "N/A", "N/A", "N/A", "N/A", "N/A", "N/A", "N/A"
     ];
 
     public VisualizerForm()
     {
-        _profiles = OcrResolutionProfiles.All.ToDictionary(p => p.Key, StringComparer.OrdinalIgnoreCase);
-        _profileKeys = [.. _profiles.Keys.OrderBy(k => k)];
+        foreach (var kvp in OcrResolutionProfiles.All)
+            _profiles[kvp.Key] = kvp.Value;
+        _profileKeys = [.. _profiles.Keys.OrderBy(k =>
+        {
+            var parts = k.Split('x');
+            return int.TryParse(parts[0], out var w) && int.TryParse(parts[1], out var h)
+                ? (long)w * h
+                : 0L;
+        })];
 
-        Text = "Resolution Visualizer — O to load screenshot, ← → cycle, +/- zoom, R reset";
+        Text = "Resolution Visualizer — O load screenshot, ← → cycle, +/- zoom, R reset, S=scan P=prices U=setup";
         StartPosition = FormStartPosition.CenterScreen;
         DoubleBuffered = true;
         KeyPreview = true;
@@ -57,14 +69,20 @@ internal sealed class VisualizerForm : Form
         switch (e.KeyCode)
         {
             case Keys.Right:
-            case Keys.D:
-                _currentIndex = (_currentIndex + 1) % _profileKeys.Length;
-                Invalidate();
+                if (!e.Control && !e.Alt)
+                {
+                    _currentIndex = (_currentIndex + 1) % _profileKeys.Length;
+                    UpdateFormSize();
+                    Invalidate();
+                }
                 break;
             case Keys.Left:
-            case Keys.A:
-                _currentIndex = (_currentIndex - 1 + _profileKeys.Length) % _profileKeys.Length;
-                Invalidate();
+                if (!e.Control && !e.Alt)
+                {
+                    _currentIndex = (_currentIndex - 1 + _profileKeys.Length) % _profileKeys.Length;
+                    UpdateFormSize();
+                    Invalidate();
+                }
                 break;
             case Keys.Oemplus:
             case Keys.Add:
@@ -74,7 +92,7 @@ internal sealed class VisualizerForm : Form
                 break;
             case Keys.OemMinus:
             case Keys.Subtract:
-                _userScale = Math.Max(0.1f, _userScale - 0.1f);
+                _userScale = Math.Max(0.25f, _userScale - 0.1f);
                 UpdateFormSize();
                 Invalidate();
                 break;
@@ -87,19 +105,24 @@ internal sealed class VisualizerForm : Form
                 if (_openDialog.ShowDialog(this) == DialogResult.OK)
                 {
                     _screenshot?.Dispose();
-                    try
-                    {
-                        _screenshot = new Bitmap(_openDialog.FileName);
-                    }
-                    catch
-                    {
-                        _screenshot = null;
-                    }
-
+                    try { _screenshot = new Bitmap(_openDialog.FileName); }
+                    catch { _screenshot = null; }
                     UpdateFormSize();
                     Invalidate();
                 }
-
+                break;
+            case Keys.S:
+                _showScanZone = !_showScanZone;
+                Invalidate();
+                break;
+            case Keys.P:
+                _showPriceOverlay = !_showPriceOverlay;
+                Invalidate();
+                break;
+            case Keys.U:
+                _showSetupOverlay = !_showSetupOverlay;
+                _showDebugOverlay = !_showSetupOverlay;
+                Invalidate();
                 break;
         }
     }
@@ -107,9 +130,10 @@ internal sealed class VisualizerForm : Form
     private void UpdateFormSize()
     {
         if (_profileKeys.Length == 0) return;
-        var profile = _profiles[_profileKeys[_currentIndex]];
-        var w = (int)(profile.WindowWidth * _userScale) + 40;
-        var h = (int)(profile.WindowHeight * _userScale) + 80;
+        var key = _profileKeys[_currentIndex];
+        var (gw, gh) = ParseResolution(key);
+        var w = (int)(gw * _userScale) + 40;
+        var h = (int)(gh * _userScale) + 100;
         var screen = Screen.FromControl(this).WorkingArea;
         w = Math.Min(w, screen.Width - 100);
         h = Math.Min(h, screen.Height - 100);
@@ -120,9 +144,13 @@ internal sealed class VisualizerForm : Form
     private void UpdateTitle()
     {
         if (_profileKeys.Length == 0) return;
-        var profile = _profiles[_profileKeys[_currentIndex]];
-        var status = profile.Confirmed ? "Confirmed" : "Untested";
-        Text = $"Resolution Visualizer — {profile.Key} ({status}) — Zoom: {_userScale:F1}x — ← → cycle, +/- zoom, O load screenshot";
+        var key = _profileKeys[_currentIndex];
+        var flags = "";
+        if (_showDebugOverlay) flags += " DEBUG";
+        if (_showScanZone) flags += " SCAN";
+        if (_showPriceOverlay) flags += " PRICE";
+        if (_showSetupOverlay) flags += " SETUP";
+        Text = $"Resolution Visualizer — {key} — Zoom: {_userScale:F1}x —{flags} — ← → cycle, +/- zoom, O screenshot, S/P/U toggles";
     }
 
     protected override void OnLoad(EventArgs e)
@@ -142,9 +170,9 @@ internal sealed class VisualizerForm : Form
         g.PixelOffsetMode = PixelOffsetMode.HighQuality;
         g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
 
-        var profile = _profiles[_profileKeys[_currentIndex]];
-        var gameW = profile.WindowWidth;
-        var gameH = profile.WindowHeight;
+        var key = _profileKeys[_currentIndex];
+        var profile = _profiles[key];
+        var (gameW, gameH) = ParseResolution(key);
 
         var offsetX = (ClientSize.Width - (gameW * _userScale)) / 2f;
         var offsetY = 20f;
@@ -158,15 +186,14 @@ internal sealed class VisualizerForm : Form
         g.TranslateTransform(offsetX, offsetY);
         g.ScaleTransform(_userScale, _userScale);
 
-        DrawOverlayElements(g, profile);
-        DrawInfoBar(g, profile, gameH);
+        DrawOverlayElements(g, profile, gameW, gameH);
+        DrawInfoBar(g, key, profile, gameH);
     }
 
     private void DrawGameWindow(Graphics g, int w, int h)
     {
         if (_screenshot is not null)
         {
-            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
             g.DrawImage(_screenshot, 0, 0, w, h);
         }
         else
@@ -179,7 +206,7 @@ internal sealed class VisualizerForm : Form
 
             using var titleFont = new Font("Segoe UI", 12f, FontStyle.Regular, GraphicsUnit.Pixel);
             using var titleBrush = new SolidBrush(Color.White);
-            g.DrawString("Path of Exile 2  —  Borderless Window  (O to load screenshot)", titleFont, titleBrush, 8, 6);
+            g.DrawString("Path of Exile 2 — Borderless Window  (O to load screenshot)", titleFont, titleBrush, 8, 6);
 
             DrawMockPanel(g, w, h);
         }
@@ -206,30 +233,70 @@ internal sealed class VisualizerForm : Form
         }
     }
 
-    private void DrawOverlayElements(Graphics g, OcrResolutionProfile profile)
+    private void DrawOverlayElements(Graphics g, OcrResolutionProfile profile, int gameW, int gameH)
     {
         var cx = profile.CaptureOffsetX;
         var cy = profile.CaptureOffsetY;
         var cw = profile.CaptureWidth;
         var ch = profile.CaptureHeight;
-        var panelWidth = profile.CaptureOffsetX - 57;
 
-        using var dimBrush = new SolidBrush(Color.FromArgb(120, 0, 0, 0));
-        g.FillRectangle(dimBrush, cx - panelWidth - 30, cy, panelWidth + 30, ch);
-        g.FillRectangle(dimBrush, cx + cw + 5, cy, 220, ch);
+        if (_showScanZone)
+            DrawScanZone(g, profile);
+
+        if (_showSetupOverlay)
+        {
+            DrawSetupOverlay(g, profile);
+            return;
+        }
+
+        if (_showDebugOverlay)
+        {
+            var panelWidth = cx - 20;
+            DrawDebugPanelBackground(g, cx, cy, cw, ch, panelWidth);
+            DrawDebugText(g, cx, cy, cw, ch, panelWidth);
+        }
 
         using var boxPen = new Pen(Color.Red, 3);
         g.DrawRectangle(boxPen, cx, cy, cw, ch);
 
-        DrawDebugText(g, cx, cy, ch, panelWidth);
-        DrawPriceText(g, cx + cw + 5, cy, ch);
+        if (_showPriceOverlay)
+            DrawPriceText(g, cx, cy, cw, ch);
     }
 
-    private static void DrawDebugText(Graphics g, int boxX, int boxY, int boxH, int panelWidth)
+    private static void DrawScanZone(Graphics g, OcrResolutionProfile profile)
+    {
+        var cx = profile.CaptureOffsetX;
+        var cy = profile.CaptureOffsetY;
+        var cw = profile.CaptureWidth;
+        var ch = profile.CaptureHeight;
+
+        var scanLeft = cx + (int)(cw * ListDetector.LeftFraction);
+        var scanRight = cx + (int)(cw * ListDetector.RightFraction);
+        var scanY = cy + (int)(ch * ListDetector.TopRowFraction);
+
+        using var scanPen = new Pen(Color.FromArgb(220, 255, 255, 0), 2f)
+        {
+            DashStyle = DashStyle.Dash
+        };
+        g.DrawLine(scanPen, scanLeft, cy, scanLeft, scanY);
+        g.DrawLine(scanPen, scanRight, cy, scanRight, scanY);
+
+        using var dotBrush = new SolidBrush(Color.FromArgb(255, 255, 60, 60));
+        g.FillEllipse(dotBrush, scanLeft - 3, scanY - 3, 7, 7);
+        g.FillEllipse(dotBrush, scanRight - 3, scanY - 3, 7, 7);
+    }
+
+    private static void DrawDebugPanelBackground(Graphics g, int boxX, int boxY, int boxW, int boxH, int panelWidth)
+    {
+        using var dimBrush = new SolidBrush(Color.FromArgb(120, 0, 0, 0));
+        g.FillRectangle(dimBrush, 0, boxY, panelWidth, boxH);
+    }
+
+    private static void DrawDebugText(Graphics g, int boxX, int boxY, int boxW, int boxH, int panelWidth)
     {
         const float fontSizePx = 18f;
         const float minSizePx = 10f;
-        var maxWidth = panelWidth - 8;
+        var maxWidth = panelWidth - 16;
 
         using var font = new Font("Segoe UI", fontSizePx, FontStyle.Bold, GraphicsUnit.Pixel);
         using var fillBrush = new SolidBrush(Color.Red);
@@ -243,7 +310,7 @@ internal sealed class VisualizerForm : Form
         var rowH = boxH / Math.Max(1, SampleItems.Length);
         for (var i = 0; i < SampleItems.Length; i++)
         {
-            var text = SamplePrices[i];
+            var text = SampleItems[i];
             if (string.IsNullOrEmpty(text)) continue;
 
             var y = boxY + (i * rowH);
@@ -275,9 +342,12 @@ internal sealed class VisualizerForm : Form
         }
     }
 
-    private static void DrawPriceText(Graphics g, int px, int py, int boxH)
+    private static void DrawPriceText(Graphics g, int boxX, int boxY, int boxW, int boxH)
     {
+        var px = boxX + boxW + 5;
+
         using var font = new Font("Segoe UI", 21f, FontStyle.Bold, GraphicsUnit.Pixel);
+        using var greenBrush = new SolidBrush(Color.FromArgb(255, 88, 255, 122));
         using var grayBrush = new SolidBrush(Color.FromArgb(255, 140, 140, 140));
         using var outlinePen = new Pen(Color.FromArgb(255, 0, 0, 0), 2.2f)
         {
@@ -293,31 +363,121 @@ internal sealed class VisualizerForm : Form
             var text = SamplePrices[i];
             if (string.IsNullOrEmpty(text)) continue;
 
-            var y = py + (i * rowH) + ((rowH - (int)font.GetHeight(g)) / 2);
+            var y = boxY + (i * rowH) + ((rowH - (int)font.GetHeight(g)) / 2);
+            var brush = text.StartsWith("N/A") ? grayBrush : greenBrush;
+
             using var path = new GraphicsPath();
             path.AddString(text, font.FontFamily, (int)font.Style, emSize, new PointF(px + 2, y), StringFormat.GenericTypographic);
             g.DrawPath(outlinePen, path);
-            g.FillPath(grayBrush, path);
+            g.FillPath(brush, path);
         }
     }
 
-    private void DrawInfoBar(Graphics g, OcrResolutionProfile profile, int gameH)
+    private static void DrawSetupOverlay(Graphics g, OcrResolutionProfile profile)
     {
-        var status = profile.Confirmed ? "CONFIRMED" : "UNTESTED";
+        var cx = profile.CaptureOffsetX;
+        var cy = profile.CaptureOffsetY;
+        var cw = profile.CaptureWidth;
+        var ch = profile.CaptureHeight;
+
+        using var boxPen = new Pen(Color.Red, 3f);
+        g.DrawRectangle(boxPen, cx, cy, cw, ch);
+
+        DrawResizeHandles(g, cx, cy, cw, ch);
+
+        const int topBarHeight = 80;
+        var ctrlX = Math.Max(20, cx);
+        var ctrlY = Math.Max(20, cy - topBarHeight - 20);
+
+        using var ctrlBg = new SolidBrush(Color.FromArgb(28, 32, 40));
+        var ctrlW = 460;
+        var ctrlH = 80;
+        g.FillRectangle(ctrlBg, ctrlX, ctrlY, ctrlW, ctrlH);
+
+        using var titleFont = new Font("Segoe UI", 12f, FontStyle.Bold, GraphicsUnit.Pixel);
+        using var titleBrush = new SolidBrush(Color.White);
+        g.DrawString("Position the red box over the PoE2 item list panel", titleFont, titleBrush, ctrlX + 4, ctrlY + 4);
+
+        using var hintFont = new Font("Segoe UI", 9f, GraphicsUnit.Pixel);
+        using var hintBrush = new SolidBrush(Color.FromArgb(180, 185, 195));
+        g.DrawString("Drag inside to move. Drag edges or corners to resize.", hintFont, hintBrush, ctrlX + 4, ctrlY + 28);
+
+        using var btnBrush = new SolidBrush(Color.FromArgb(52, 211, 153));
+        using var btnTextBrush = new SolidBrush(Color.White);
+        using var btnFont = new Font("Segoe UI", 11f, FontStyle.Bold, GraphicsUnit.Pixel);
+        var btnW = 180;
+        var btnH = 30;
+        g.FillRectangle(btnBrush, ctrlX + 4, ctrlY + 50, btnW, btnH);
+        using var btnBorderPen = new Pen(Color.Black, 2);
+        g.DrawRectangle(btnBorderPen, ctrlX + 4, ctrlY + 50, btnW, btnH);
+        var btnText = "Confirm Position";
+        var btnTextSize = g.MeasureString(btnText, btnFont);
+        g.DrawString(btnText, btnFont, btnTextBrush, ctrlX + 4 + (btnW - btnTextSize.Width) / 2, ctrlY + 52);
+
+        var exampleX = Math.Max(cx + cw + 80, 500);
+        var exampleY = ctrlY;
+        var exampleW = 340;
+        var exampleH = 260;
+
+        using var exampleLabelFont = new Font("Segoe UI", 9f, FontStyle.Bold, GraphicsUnit.Pixel);
+        using var exampleLabelBrush = new SolidBrush(Color.FromArgb(200, 200, 210));
+        g.DrawString("Example:", exampleLabelFont, exampleLabelBrush, exampleX, exampleY);
+
+        using var exampleBgBrush = new SolidBrush(Color.FromArgb(20, 24, 30));
+        using var exampleBorderPen = new Pen(Color.FromArgb(100, 100, 110), 1);
+        g.FillRectangle(exampleBgBrush, exampleX, exampleY + 20, exampleW, exampleH);
+        g.DrawRectangle(exampleBorderPen, exampleX, exampleY + 20, exampleW, exampleH);
+
+        using var exampleTextFont = new Font("Segoe UI", 10f, GraphicsUnit.Pixel);
+        using var exampleTextBrush = new SolidBrush(Color.FromArgb(150, 150, 160));
+        var placeText = "(example.png)";
+        var placeSize = g.MeasureString(placeText, exampleTextFont);
+        g.DrawString(placeText, exampleTextFont, exampleTextBrush,
+            exampleX + (exampleW - placeSize.Width) / 2,
+            exampleY + 20 + (exampleH - placeSize.Height) / 2);
+    }
+
+    private static void DrawResizeHandles(Graphics g, int cx, int cy, int cw, int ch)
+    {
+        const int hs = 12;
+        using var handleBrush = new SolidBrush(Color.FromArgb(220, 255, 80, 80));
+        var handles = new[]
+        {
+            new Rectangle(cx - hs/2, cy - hs/2, hs, hs),
+            new Rectangle(cx + cw - hs/2, cy - hs/2, hs, hs),
+            new Rectangle(cx - hs/2, cy + ch - hs/2, hs, hs),
+            new Rectangle(cx + cw - hs/2, cy + ch - hs/2, hs, hs),
+            new Rectangle(cx + cw/2 - hs/2, cy - hs/2, hs, hs),
+            new Rectangle(cx + cw/2 - hs/2, cy + ch - hs/2, hs, hs),
+            new Rectangle(cx - hs/2, cy + ch/2 - hs/2, hs, hs),
+            new Rectangle(cx + cw - hs/2, cy + ch/2 - hs/2, hs, hs),
+        };
+        foreach (var h in handles)
+            g.FillEllipse(handleBrush, h);
+    }
+
+    private void DrawInfoBar(Graphics g, string key, OcrResolutionProfile profile, int gameH)
+    {
         var y = gameH + 12;
         using var font = new Font("Consolas", 11f, FontStyle.Regular, GraphicsUnit.Pixel);
         using var brush = new SolidBrush(Color.FromArgb(200, 200, 200));
-        using var statusBrush = new SolidBrush(profile.Confirmed
-            ? Color.FromArgb(88, 255, 122)
-            : Color.FromArgb(255, 196, 54));
 
-        var info = $"Profile: {profile.Key}  |  Capture: X={profile.CaptureOffsetX} Y={profile.CaptureOffsetY} W={profile.CaptureWidth} H={profile.CaptureHeight}  |  Status: ";
+        var info = $"Profile: {key}  |  Capture: X={profile.CaptureOffsetX} Y={profile.CaptureOffsetY} W={profile.CaptureWidth} H={profile.CaptureHeight}";
         g.DrawString(info, font, brush, 0, y);
-        var infoW = g.MeasureString(info, font).Width;
-        g.DrawString(status, font, statusBrush, infoW, y);
 
-        var nav = "← → cycle  |  +/- zoom  |  R reset  |  O load 1080p screenshot";
-        g.DrawString(nav, font, brush, 0, y + 18);
+        var scanInfo = $"  |  Scan: L={ListDetector.LeftFraction:F2} R={ListDetector.RightFraction:F2} TopRow={ListDetector.TopRowFraction:F2}";
+        g.DrawString(scanInfo, font, brush, 0, y + 18);
+
+        var nav = "← → cycle  |  +/- zoom  |  R reset  |  O load screenshot  |  S=scan P=prices U=setup";
+        g.DrawString(nav, font, brush, 0, y + 36);
+    }
+
+    private static (int w, int h) ParseResolution(string key)
+    {
+        var parts = key.Split('x');
+        int w = parts.Length >= 1 && int.TryParse(parts[0], out var pw) ? pw : 1920;
+        int h = parts.Length >= 2 && int.TryParse(parts[1], out var ph) ? ph : 1080;
+        return (w, h);
     }
 
     protected override void Dispose(bool disposing)

@@ -11,6 +11,7 @@ public static class AppSettingsBootstrapper
         "DebugLogging": false
     },
     "Pricing": {
+        "PricingSource": "poe2scout",
         "League": "Runes of Aldur",
         "RedThreshold": 0.5,
         "OrangeThreshold": 1.0,
@@ -26,6 +27,9 @@ public static class AppSettingsBootstrapper
     "Update": {
         "AutoUpdate": true,
         "IgnorePrereleases": false
+    },
+    "Window": {
+        "InitialSetupComplete": false
     }
 }
 """;

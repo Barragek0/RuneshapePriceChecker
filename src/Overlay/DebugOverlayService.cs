@@ -1,20 +1,24 @@
-using System.Drawing;
 using System.Runtime.InteropServices;
-using System.Threading;
-using System.Windows.Forms;
+using System.Text;
+using System.Text.Json.Nodes;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using RuneshapePriceChecker.App.Dashboard;
+using RuneshapePriceChecker.Configuration;
 using RuneshapePriceChecker.OCR;
 
 namespace RuneshapePriceChecker.Overlay;
 
 public sealed class DebugOverlayService(
     IPoe2WindowResolutionProvider windowResolutionProvider,
-    IOptionsMonitor<OcrOptions> options,
+    IOptionsMonitor<OcrOptions> ocrOptions,
+    IOptionsMonitor<WindowOptions> windowOptions,
+    DashboardService dashboard,
     ILogger<DebugOverlayService> logger) : BackgroundService
 {
-    private readonly IOptionsMonitor<OcrOptions> _options = options;
+    private readonly IOptionsMonitor<OcrOptions> _options = ocrOptions;
+    private readonly IOptionsMonitor<WindowOptions> _windowOptions = windowOptions;
     private Thread? _overlayThread;
     private BoundsOverlayForm? _overlayForm;
     private readonly object _overlaySync = new();
@@ -41,7 +45,7 @@ public sealed class DebugOverlayService(
                 logger.LogError(ex, "Failed to refresh OCR bounds overlay.");
             }
 
-            var intervalMs = Math.Max(100, options.CaptureBoundsOverlayIntervalMs);
+            var intervalMs = Math.Max(100, OcrConstants.CaptureBoundsOverlayIntervalMs);
             await Task.Delay(TimeSpan.FromMilliseconds(intervalMs), stoppingToken).ConfigureAwait(false);
         }
 
@@ -75,17 +79,20 @@ public sealed class DebugOverlayService(
             return;
         }
 
-        if (_forceHidden)
+        if (!options.HideDebugOverlayWhenInterfaceNotDetected)
+        {
+            _forceHidden = false;
+            _wasHidden = false;
+        }
+
+        if (_forceHidden || _setupInProgress)
         {
             overlay.SafeHide();
             return;
         }
 
         var frame = new Rectangle(region.X, region.Y, region.Width, region.Height);
-        var panelWidth = (windowResolutionProvider.CurrentResolutionProfile?.CaptureOffsetX ?? 255) - 57;
-
-        overlay.SafeShowFrame(frame, true, panelWidth);
-        RefreshAnchorRegions(overlay);
+        overlay.SafeShowFrame(frame, true);
     }
 
     private void EnsureOverlayThreadStarted()
@@ -137,7 +144,9 @@ public sealed class DebugOverlayService(
     }
 
     private bool _wasHidden;
-    private bool _forceHidden;
+    private volatile bool _forceHidden;
+    private volatile bool _setupInProgress;
+    public bool IsSetupInProgress => _setupInProgress;
     private Thread? _bannerThread;
     private BannerForm? _bannerForm;
     private readonly object _bannerSync = new();
@@ -149,6 +158,141 @@ public sealed class DebugOverlayService(
 
         _forceHidden = true;
         GetOverlayForm()?.SafeHide();
+    }
+
+    public bool NeedsInitialSetup()
+    {
+        return !_windowOptions.CurrentValue.InitialSetupComplete;
+    }
+
+    public void RunInitialSetup()
+    {
+        if (_setupInProgress) return;
+        var region = windowResolutionProvider.CurrentCaptureRegion;
+        if (region is null) return;
+
+        var ctx = windowResolutionProvider.CurrentWindowCaptureContext;
+        Rectangle gameBounds;
+        if (ctx is not null)
+        {
+            gameBounds = new Rectangle(ctx.ClientX, ctx.ClientY, ctx.ClientWidth, ctx.ClientHeight);
+        }
+        else
+        {
+            var screen = Screen.FromPoint(new Point(region.X, region.Y));
+            gameBounds = screen.Bounds;
+            logger.LogWarning("Setup: no window capture context available, falling back to screen bounds ({W}x{H})", gameBounds.Width, gameBounds.Height);
+        }
+
+        var initialRect = new Rectangle(region.X, region.Y, region.Width, region.Height);
+
+        _setupInProgress = true;
+        ForceHide();
+
+        var setupThread = new Thread(() =>
+        {
+            RunSetupFlow(initialRect, gameBounds);
+        })
+        {
+            IsBackground = true,
+            Name = "RuneshapePriceChecker-Setup"
+        };
+        setupThread.SetApartmentState(ApartmentState.STA);
+        setupThread.Start();
+    }
+
+    private void RunSetupFlow(Rectangle initialRect, Rectangle gameBounds)
+    {
+        while (true)
+        {
+            var continueClicked = new ManualResetEventSlim(false);
+            dashboard.SetOnSetupContinue(() => continueClicked.Set());
+            dashboard.ShowSetupPrompt();
+
+            continueClicked.Wait(TimeSpan.FromMinutes(5));
+
+            dashboard.HideSetupPrompt();
+
+            using var overlayForm = new SetupOverlayForm(initialRect, gameBounds);
+            var goBack = false;
+
+            overlayForm.SetupConfirmed += rect =>
+            {
+                SaveCustomOffsets(rect);
+                MarkSetupComplete();
+            };
+            overlayForm.GoBackClicked += () => goBack = true;
+            overlayForm.Disposed += (_, _) =>
+            {
+                _setupInProgress = false;
+                _forceHidden = false;
+            };
+
+            Application.Run(overlayForm);
+
+            if (!goBack) break;
+        }
+    }
+
+    private void SaveCustomOffsets(Rectangle rect)
+    {
+        try
+        {
+            var configPath = Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json");
+            if (!File.Exists(configPath)) return;
+
+            var json = File.ReadAllText(configPath, Encoding.UTF8);
+            var root = JsonNode.Parse(json);
+            if (root is null) return;
+
+            var ctx = windowResolutionProvider.CurrentWindowCaptureContext;
+            if (ctx is null)
+            {
+                logger.LogError("Setup: cannot save custom offsets — window capture context is no longer available.");
+                return;
+            }
+
+            var relX = rect.X - ctx.ClientX;
+            var relY = rect.Y - ctx.ClientY;
+
+            var windowNode = root["Window"] as JsonObject ?? new JsonObject();
+            windowNode["CustomOffsetX"] = relX;
+            windowNode["CustomOffsetY"] = relY;
+            windowNode["CustomWidth"] = rect.Width;
+            windowNode["CustomHeight"] = rect.Height;
+            root["Window"] = windowNode;
+
+            File.WriteAllText(configPath, root.ToJsonString(new() { WriteIndented = true }) + Environment.NewLine, Encoding.UTF8);
+
+            logger.LogInformation("Setup complete: custom region (window-relative) X={RelX} Y={RelY} W={W} H={H}", relX, relY, rect.Width, rect.Height);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to save custom offsets.");
+        }
+    }
+
+    private void MarkSetupComplete()
+    {
+        try
+        {
+            var configPath = Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json");
+            if (!File.Exists(configPath)) return;
+
+            var json = File.ReadAllText(configPath, Encoding.UTF8);
+            var root = JsonNode.Parse(json);
+            if (root is null) return;
+
+            var windowNode = root["Window"] as JsonObject ?? new JsonObject();
+            windowNode["InitialSetupComplete"] = true;
+            root["Window"] = windowNode;
+
+            File.WriteAllText(configPath, root.ToJsonString(new() { WriteIndented = true }) + Environment.NewLine, Encoding.UTF8);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to mark setup complete.");
+        }
     }
 
     public void SetBannerMessage(string? message)
@@ -216,7 +360,13 @@ public sealed class DebugOverlayService(
             _bannerThread.Start();
 
             while (_bannerForm is null)
-                Monitor.Wait(_bannerSync);
+            {
+                if (!Monitor.Wait(_bannerSync, TimeSpan.FromSeconds(5)))
+                {
+                    logger.LogWarning("Banner form creation timed out; banner will be unavailable.");
+                    return;
+                }
+            }
         }
     }
 
@@ -227,6 +377,8 @@ public sealed class DebugOverlayService(
 
     public void SetDebugText(IReadOnlyList<string> lines, IReadOnlyList<int>? rowYPositions = null, bool interfaceDetected = true, string? statusLine = null)
     {
+        if (_setupInProgress) return;
+
         var overlay = GetOverlayForm();
         if (overlay is null) return;
 
@@ -245,64 +397,28 @@ public sealed class DebugOverlayService(
             {
                 _wasHidden = false;
                 logger.LogInformation("Debug overlay SHOWN: interface detected.");
-                var region = windowResolutionProvider.CurrentCaptureRegion;
-                if (region is not null)
-                {
-                    var panelWidth = (windowResolutionProvider.CurrentResolutionProfile?.CaptureOffsetX ?? 255) - 57;
-                    overlay.SafeShowFrame(new Rectangle(region.X, region.Y, region.Width, region.Height), _options.CurrentValue.DebugOverlay, panelWidth);
-                }
             }
         }
+        else
+        {
+            _forceHidden = false;
+            _wasHidden = false;
+        }
 
-        RefreshAnchorRegions(overlay);
         overlay.SetStatusLine(statusLine);
         overlay.SetDebugLines(lines.ToArray(), rowYPositions?.ToArray());
-    }
-
-    private void RefreshAnchorRegions(BoundsOverlayForm overlay)
-    {
-        var region = windowResolutionProvider.CurrentCaptureRegion;
-        if (region is null) return;
-
-        var options = _options.CurrentValue;
-        var w = region.Width;
-        var h = region.Height;
-
-        var leftX = options.LeaguePanelAnchorFractionX > 0f
-            ? (int)(w * Math.Clamp(options.LeaguePanelAnchorFractionX, 0f, 1f))
-            : Math.Clamp(options.LeaguePanelAnchorSampleX, 0, w - 1);
-
-        var sampleY = options.LeaguePanelAnchorFractionY > 0f
-            ? (int)(h * Math.Clamp(options.LeaguePanelAnchorFractionY, 0f, 1f))
-            : Math.Clamp(options.LeaguePanelAnchorSampleY, 0, h - 1);
-
-        var sampleRadiusX = options.LeaguePanelAnchorSampleRadiusFraction > 0f
-            ? Math.Clamp((int)(h * options.LeaguePanelAnchorSampleRadiusFraction), 2, 20)
-            : Math.Clamp(options.LeaguePanelAnchorSampleRadiusPx, 2, 20);
-
-        var sampleRadiusY = options.LeaguePanelAnchorSampleRadiusYFraction > 0f
-            ? Math.Clamp((int)(h * options.LeaguePanelAnchorSampleRadiusYFraction), 2, 50)
-            : Math.Clamp(options.LeaguePanelAnchorSampleRadiusYPx, 2, 50);
-
-        var rightX = w - 1 - leftX;
-
-        overlay.SetAnchorRegions(leftX, rightX, sampleY, sampleRadiusX, sampleRadiusY);
     }
 
     private sealed class BoundsOverlayForm : Form
     {
         private static readonly Color TransparencyChroma = Color.FromArgb(1, 2, 3);
-        private int _textPanelWidth = 198;
+        private int _textPanelWidth = 400;
+        private const int DebugGap = 120;
         private const int BgPadding = 30;
         private Rectangle _frame;
         private string[] _debugLines = [];
         private int[] _debugRowY = [];
         private bool _showDebugOverlay;
-        private int _anchorLeftX;
-        private int _anchorRightX;
-        private int _anchorY;
-        private int _anchorRadiusX;
-        private int _anchorRadiusY;
         private volatile bool _isHidden = true;
         private string? _statusLine;
 
@@ -343,32 +459,31 @@ public sealed class DebugOverlayService(
             e.Graphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
             e.Graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
 
-            var boxX = _showDebugOverlay ? _textPanelWidth + BgPadding : 0;
-            var boxWidth = Width - boxX;
+            var debugWidth = _showDebugOverlay ? _textPanelWidth + BgPadding : 0;
+            var debugGap = _showDebugOverlay ? DebugGap : 0;
+            var boxWidth = Width - debugWidth - debugGap;
+            var debugX = boxWidth + debugGap;
 
             if (!_showDebugOverlay)
                 return;
 
-            var bgWidth = boxX;
-            using var bgBrush = new SolidBrush(Color.FromArgb(200, 0, 0, 0));
-            e.Graphics.FillRectangle(bgBrush, 0, 0, bgWidth, Height);
-
             using var pen = new Pen(Color.Red, 3);
-            e.Graphics.DrawRectangle(pen, boxX + 1, 1, Width - boxX - 3, Height - 3);
+            e.Graphics.DrawRectangle(pen, 0, 1, boxWidth - 1, _frame.Height - 1);
 
-            if (_anchorRadiusX > 0 && _anchorRadiusY > 0)
+            var scanLeft = (int)(boxWidth * ListDetector.LeftFraction);
+            var scanRight = (int)(boxWidth * ListDetector.RightFraction);
+            var ry = (int)(_frame.Height * ListDetector.TopRowFraction);
+
+            using var scanPen = new Pen(Color.FromArgb(220, 255, 255, 0), 2f)
             {
-                using var anchorPen = new Pen(Color.Red, 2);
-                var anchorW = _anchorRadiusX * 2 + 1;
-                var anchorH = _anchorRadiusY * 2 + 1;
-                var borderInset = 2;
-                var anchorLeft = boxX + 1 + borderInset;
-                var anchorTop = 1 + borderInset + Math.Max(0, _anchorY - _anchorRadiusY);
-                var redBoxInnerWidth = Width - boxX - 3;
-                var anchorRight = anchorLeft + redBoxInnerWidth - borderInset - anchorW;
-                e.Graphics.DrawRectangle(anchorPen, anchorLeft, anchorTop, anchorW, anchorH);
-                e.Graphics.DrawRectangle(anchorPen, anchorRight, anchorTop, anchorW, anchorH);
-            }
+                DashStyle = System.Drawing.Drawing2D.DashStyle.Dash
+            };
+            e.Graphics.DrawLine(scanPen, scanLeft, 0, scanLeft, ry);
+            e.Graphics.DrawLine(scanPen, scanRight, 0, scanRight, ry);
+
+            using var dotBrush = new SolidBrush(Color.FromArgb(255, 255, 60, 60));
+            e.Graphics.FillEllipse(dotBrush, scanLeft - 3, ry - 3, 7, 7);
+            e.Graphics.FillEllipse(dotBrush, scanRight - 3, ry - 3, 7, 7);
 
             var lines = _debugLines;
             var rowY = _debugRowY;
@@ -382,8 +497,8 @@ public sealed class DebugOverlayService(
                     LineJoin = System.Drawing.Drawing2D.LineJoin.Round
                 };
                 var statusSize = e.Graphics.MeasureString(status, statusFont, PointF.Empty, StringFormat.GenericTypographic);
-                var statusX = boxX + ((Width - boxX - (int)statusSize.Width) / 2f);
-                var statusY = Height - statusSize.Height - 6f;
+                var statusX = (boxWidth - (int)statusSize.Width) / 2f;
+                var statusY = _frame.Height + 4f;
                 using var path = new System.Drawing.Drawing2D.GraphicsPath();
                 path.AddString(status, statusFont.FontFamily, (int)statusFont.Style,
                     e.Graphics.DpiY * statusFont.SizeInPoints / 72f,
@@ -395,11 +510,7 @@ public sealed class DebugOverlayService(
             if (lines.Length == 0)
                 return;
 
-            const float defaultFontSizePx = 18f;
-            const float minFontSizePx = 10f;
-            const int maxTextWidthMargin = 8;
-            var maxTextWidth = _textPanelWidth - maxTextWidthMargin;
-
+            const float defaultFontSizePx = 14f;
             using var defaultFont = new Font("Segoe UI", defaultFontSizePx, FontStyle.Bold, GraphicsUnit.Pixel);
             using var fillBrush = new SolidBrush(Color.Red);
             using var outlinePen = new Pen(Color.FromArgb(255, 0, 0, 0), 2.2f)
@@ -414,36 +525,14 @@ public sealed class DebugOverlayService(
                 var y = (i < rowY.Length ? rowY[i] : 6 + (i * defaultLineHeight));
                 y = Math.Clamp(y, 0, Height - defaultLineHeight);
 
-                var defaultTextWidth = e.Graphics.MeasureString(lines[i], defaultFont, PointF.Empty, StringFormat.GenericTypographic).Width;
-                var scale = defaultTextWidth > maxTextWidth ? maxTextWidth / defaultTextWidth : 1f;
-                var effectiveFontSizePx = Math.Max(minFontSizePx, defaultFontSizePx * scale);
-
-                Font lineFont;
-                if (Math.Abs(effectiveFontSizePx - defaultFontSizePx) < 0.5f)
-                {
-                    lineFont = defaultFont;
-                }
-                else
-                {
-                    lineFont = new Font("Segoe UI", effectiveFontSizePx, FontStyle.Bold, GraphicsUnit.Pixel);
-                }
-
-                var lineFontSize = e.Graphics.DpiY * lineFont.SizeInPoints / 72f;
-                var textSize = e.Graphics.MeasureString(lines[i], lineFont, PointF.Empty, StringFormat.GenericTypographic);
-                var x = boxX - textSize.Width - 8;
-                var scaledLineHeight = lineFont.GetHeight(e.Graphics);
-                var yOffset = (defaultFont.GetHeight(e.Graphics) - scaledLineHeight) / 2f;
-                var adjustedY = y + yOffset;
+                var textSize = e.Graphics.MeasureString(lines[i], defaultFont, PointF.Empty, StringFormat.GenericTypographic);
+                var x = debugX + 8;
+                var fontSize = e.Graphics.DpiY * defaultFont.SizeInPoints / 72f;
 
                 using var path = new System.Drawing.Drawing2D.GraphicsPath();
-                path.AddString(lines[i], lineFont.FontFamily, (int)lineFont.Style, lineFontSize, new PointF(x, adjustedY), StringFormat.GenericTypographic);
+                path.AddString(lines[i], defaultFont.FontFamily, (int)defaultFont.Style, fontSize, new PointF(x, y), StringFormat.GenericTypographic);
                 e.Graphics.DrawPath(outlinePen, path);
                 e.Graphics.FillPath(fillBrush, path);
-
-                if (lineFont != defaultFont)
-                {
-                    lineFont.Dispose();
-                }
             }
         }
 
@@ -457,13 +546,6 @@ public sealed class DebugOverlayService(
 
         public void SetAnchorRegions(int leftX, int rightX, int y, int radiusX, int radiusY)
         {
-            _anchorLeftX = leftX;
-            _anchorRightX = rightX;
-            _anchorY = y;
-            _anchorRadiusX = radiusX;
-            _anchorRadiusY = radiusY;
-            if (!IsDisposed && Visible)
-                Invalidate();
         }
 
         public void SetStatusLine(string? status)
@@ -473,7 +555,7 @@ public sealed class DebugOverlayService(
                 Invalidate();
         }
 
-        public void SafeShowFrame(Rectangle frame, bool showOverlay, int panelWidth = 198)
+        public void SafeShowFrame(Rectangle frame, bool showOverlay, int panelWidth = 400)
         {
             if (IsDisposed) return;
 
@@ -488,18 +570,17 @@ public sealed class DebugOverlayService(
 
             _showDebugOverlay = showOverlay;
             _textPanelWidth = panelWidth;
-            var totalLeft = showOverlay ? _textPanelWidth + BgPadding : 0;
+            var extraWidth = showOverlay ? _textPanelWidth + BgPadding + DebugGap : 0;
+            var statusHeight = _statusLine is not null ? 30 : 0;
             var fullFrame = new Rectangle(
-                frame.X - totalLeft,
+                frame.X,
                 frame.Y,
-                frame.Width + totalLeft,
-                frame.Height);
-            if (_frame != frame || Bounds != fullFrame)
-            {
-                _frame = frame;
-                Bounds = fullFrame;
-                Invalidate();
-            }
+                frame.Width + extraWidth,
+                frame.Height + statusHeight);
+
+            _frame = frame;
+            Bounds = fullFrame;
+            Invalidate();
 
             PinTopMost();
 

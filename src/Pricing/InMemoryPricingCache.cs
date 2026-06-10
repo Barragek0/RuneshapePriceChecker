@@ -1,12 +1,16 @@
 ﻿using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RuneshapePriceChecker.Configuration;
 using RuneshapePriceChecker.Contracts;
 
 namespace RuneshapePriceChecker.Pricing;
 
-public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient, IOptionsMonitor<PricingCacheOptions> pricingOptions) : IPricingCache
+public sealed class InMemoryPricingCache(
+    IPricingSource pricingSource,
+    IOptionsMonitor<PricingCacheOptions> pricingOptions,
+    ILogger<InMemoryPricingCache> logger) : IPricingCache
 {
     private readonly ConcurrentDictionary<string, decimal> _exactPrices = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, decimal> _fallbackPrices = new(StringComparer.OrdinalIgnoreCase);
@@ -16,6 +20,9 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient, IOption
     private decimal _exaltedOrbChaosValue;
     private decimal _currencyMinChaos;
     private decimal _currencyMaxChaos;
+    private volatile bool _ready;
+
+    public bool IsReady => _ready;
     private static readonly Regex NonAlphaNumeric = new("[^A-Za-z0-9]+", RegexOptions.Compiled);
     private static readonly Regex LeadingQuantityWithX = new("^(?:\\d+|[AaIiLlTt|])\\s*[Xx]\\s+", RegexOptions.Compiled);
     private static readonly Regex LeadingQuantityWithoutX = new("^(?:\\d+|[IiLl|])\\s+", RegexOptions.Compiled);
@@ -40,6 +47,11 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient, IOption
             {
                 return quote;
             }
+        }
+
+        if (itemName.StartsWith("Unique ", StringComparison.OrdinalIgnoreCase))
+        {
+            logger.LogDebug("[Quote] All {Count} candidates failed for '{Name}'. Keys: {Keys}", keys.Length, itemName, string.Join(", ", keys));
         }
 
         if (TryResolveSingleLetterOffCandidate(keys, out var correctedKey))
@@ -267,7 +279,8 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient, IOption
 
     public async Task RefreshAsync(CancellationToken cancellationToken)
     {
-        var latest = await poeNinjaClient.FetchCurrentPricesAsync(cancellationToken).ConfigureAwait(false);
+        var league = pricingOptions.CurrentValue.League;
+        var latest = await pricingSource.FetchPricesAsync(league, cancellationToken).ConfigureAwait(false);
 
         _exactPrices.Clear();
         _fallbackPrices.Clear();
@@ -306,20 +319,15 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient, IOption
             _uniqueCategoryRanges[normalized] = pair.Value;
         }
 
+        RebuildUniqueCategoryAggregates();
+
         RebuildUncutGemRanges();
 
-        if (latest.DivineOrbChaosValue > 0)
-        {
-            _divineOrbChaosValue = latest.DivineOrbChaosValue;
-        }
-
-        if (latest.ExaltedOrbChaosValue > 0)
-        {
-            _exaltedOrbChaosValue = latest.ExaltedOrbChaosValue;
-        }
-
+        _divineOrbChaosValue = latest.DivineOrbChaosValue;
+        _exaltedOrbChaosValue = latest.ExaltedOrbChaosValue;
         _currencyMinChaos = latest.CurrencyMinChaos;
         _currencyMaxChaos = latest.CurrencyMaxChaos;
+        _ready = true;
     }
 
     private void RebuildUncutGemRanges()
@@ -346,6 +354,63 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient, IOption
             {
                 _uncutGemRanges[family] = (min.Value, max.Value);
             }
+        }
+    }
+
+    private void RebuildUniqueCategoryAggregates()
+    {
+        if (_uniqueCategoryRanges.Count == 0) return;
+
+        decimal? allMin = null, allMax = null;
+        decimal? ringMin = null, ringMax = null;
+        decimal? amuletMin = null, amuletMax = null;
+        decimal? beltMin = null, beltMax = null;
+        decimal? jewelleryMin = null, jewelleryMax = null;
+
+        foreach (var pair in _uniqueCategoryRanges)
+        {
+            var key = pair.Key;
+            allMin = allMin.HasValue ? Math.Min(allMin.Value, pair.Value.MinChaos) : pair.Value.MinChaos;
+            allMax = allMax.HasValue ? Math.Max(allMax.Value, pair.Value.MaxChaos) : pair.Value.MaxChaos;
+
+            var isRing = key.Contains("RING", StringComparison.OrdinalIgnoreCase);
+            var isAmulet = key.Contains("AMULET", StringComparison.OrdinalIgnoreCase);
+            var isBelt = key.Contains("BELT", StringComparison.OrdinalIgnoreCase) || key.Contains("SASH", StringComparison.OrdinalIgnoreCase);
+
+            if (isRing)
+            {
+                ringMin = ringMin.HasValue ? Math.Min(ringMin.Value, pair.Value.MinChaos) : pair.Value.MinChaos;
+                ringMax = ringMax.HasValue ? Math.Max(ringMax.Value, pair.Value.MaxChaos) : pair.Value.MaxChaos;
+            }
+            if (isAmulet)
+            {
+                amuletMin = amuletMin.HasValue ? Math.Min(amuletMin.Value, pair.Value.MinChaos) : pair.Value.MinChaos;
+                amuletMax = amuletMax.HasValue ? Math.Max(amuletMax.Value, pair.Value.MaxChaos) : pair.Value.MaxChaos;
+            }
+            if (isBelt)
+            {
+                beltMin = beltMin.HasValue ? Math.Min(beltMin.Value, pair.Value.MinChaos) : pair.Value.MinChaos;
+                beltMax = beltMax.HasValue ? Math.Max(beltMax.Value, pair.Value.MaxChaos) : pair.Value.MaxChaos;
+            }
+            if (isRing || isAmulet || isBelt)
+            {
+                jewelleryMin = jewelleryMin.HasValue ? Math.Min(jewelleryMin.Value, pair.Value.MinChaos) : pair.Value.MinChaos;
+                jewelleryMax = jewelleryMax.HasValue ? Math.Max(jewelleryMax.Value, pair.Value.MaxChaos) : pair.Value.MaxChaos;
+            }
+        }
+
+        if (allMin.HasValue && allMax.HasValue)
+            _uniqueCategoryRanges["UNIQUE"] = (allMin.Value, allMax.Value);
+        if (ringMin.HasValue && ringMax.HasValue)
+            _uniqueCategoryRanges["UNIQUE RING"] = (ringMin.Value, ringMax.Value);
+        if (amuletMin.HasValue && amuletMax.HasValue)
+            _uniqueCategoryRanges["UNIQUE AMULET"] = (amuletMin.Value, amuletMax.Value);
+        if (beltMin.HasValue && beltMax.HasValue)
+            _uniqueCategoryRanges["UNIQUE BELT"] = (beltMin.Value, beltMax.Value);
+        if (jewelleryMin.HasValue && jewelleryMax.HasValue)
+        {
+            _uniqueCategoryRanges["UNIQUE JEWELLERY"] = (jewelleryMin.Value, jewelleryMax.Value);
+            logger.LogDebug("[Aggregates] Added UNIQUE JEWELLERY range: {Min}-{Max}", jewelleryMin.Value, jewelleryMax.Value);
         }
     }
 
@@ -401,17 +466,20 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient, IOption
 
         if (_uniqueCategoryRanges.TryGetValue(normalizedItemName, out range))
         {
+            logger.LogDebug("[UniqueRange] Direct hit: '{Key}' => ({Min}-{Max})", normalizedItemName, range.MinChaos, range.MaxChaos);
             return true;
         }
 
         if (TryResolveCombinedJewelleryRange(normalizedItemName, out range))
         {
+            logger.LogDebug("[UniqueRange] Combined jewellery: '{Key}' => ({Min}-{Max})", normalizedItemName, range.MinChaos, range.MaxChaos);
             return true;
         }
 
         foreach (var candidate in ItemNameParser.BuildUniqueCategoryLookupCandidates(normalizedItemName))
         {
             var normalizedCandidate = Normalize(candidate);
+            logger.LogDebug("[UniqueRange] Candidate: '{Key}' -> '{Candidate}' -> '{Norm}' found={Found}", normalizedItemName, candidate, normalizedCandidate, _uniqueCategoryRanges.ContainsKey(normalizedCandidate));
             if (_uniqueCategoryRanges.TryGetValue(normalizedCandidate, out range))
             {
                 return true;
@@ -437,13 +505,11 @@ public sealed class InMemoryPricingCache(IPoeNinjaClient poeNinjaClient, IOption
         foreach (var pair in _uniqueCategoryRanges)
         {
             var key = pair.Key;
-            if (!key.StartsWith("UNIQUE ", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
+            // Match ring, amulet, or belt items in the unique accessory pool
             if (!key.Contains("RING", StringComparison.OrdinalIgnoreCase) &&
-                !key.Contains("AMULET", StringComparison.OrdinalIgnoreCase))
+                !key.Contains("AMULET", StringComparison.OrdinalIgnoreCase) &&
+                !key.Contains("BELT", StringComparison.OrdinalIgnoreCase) &&
+                !key.Contains("SASH", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }

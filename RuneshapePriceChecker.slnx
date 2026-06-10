@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/Dashboard/Dashboard.csproj" />
     <Project Path="src/Updater/Updater.csproj" />
   </Folder>
   <Project Path="RuneshapePriceChecker.csproj" />

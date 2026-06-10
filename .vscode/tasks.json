@@ -16,7 +16,7 @@
                 "isDefault": true
             },
             "problemMatcher": "$msCompile",
-            "detail": "Publishes RuneshapePriceChecker as a single-file Release executable and packages the release zip."
+            "detail": "Publishes RuneshapePriceChecker as a trimmed compressed single-file Release executable, runs tests, and packages the release zip + installer."
         },
         {
             "label": "Run with Hot Reload",
@@ -26,11 +26,9 @@
                 "watch",
                 "--project",
                 "RuneshapePriceChecker.csproj",
+                "--",
                 "run",
-                "--OCR:SaveDebugImages=true",
-                "--OCR:DebugOverlay=false",
-                "--OCR:HideDebugOverlayWhenInterfaceNotDetected=true",
-                "--App:DebugLogging=true",
+                "-p:UseRunOutput=true"
             ],
             "isBackground": true,
             "problemMatcher": "$msCompile",

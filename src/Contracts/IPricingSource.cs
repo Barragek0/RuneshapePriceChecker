@@ -1,6 +1,12 @@
 namespace RuneshapePriceChecker.Contracts;
 
-public sealed record PoeNinjaPricingSnapshot(
+public interface IPricingSource
+{
+    Task<IReadOnlyList<string>> FetchLeaguesAsync(CancellationToken cancellationToken);
+    Task<PricingSnapshot> FetchPricesAsync(string league, CancellationToken cancellationToken);
+}
+
+public sealed record PricingSnapshot(
     IReadOnlyDictionary<string, decimal> ExactPrices,
     IReadOnlyDictionary<string, (decimal MinChaos, decimal MaxChaos)> UniqueCategoryRanges,
     decimal DivineOrbChaosValue,

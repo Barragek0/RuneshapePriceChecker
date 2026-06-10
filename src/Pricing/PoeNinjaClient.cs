@@ -8,14 +8,14 @@ using Microsoft.Extensions.Options;
 
 namespace RuneshapePriceChecker.Pricing;
 
-public sealed class PoeNinjaClient(HttpClient httpClient, IOptionsMonitor<PricingCacheOptions> options, ILogger<PoeNinjaClient> logger) : IPoeNinjaClient
+public sealed class PoeNinjaClient(HttpClient httpClient, IOptionsMonitor<PricingCacheOptions> options, ILogger<PoeNinjaClient> logger) : IPricingSource
 {
     private readonly IOptionsMonitor<PricingCacheOptions> _options = options;
     private static readonly Regex NonAlphaNumeric = new("[^A-Za-z0-9]+", RegexOptions.Compiled);
     private const string DivineOrbKey = "DIVINE ORB";
     private const string ExaltedOrbKey = "EXALTED ORB";
 
-    public async Task<PoeNinjaPricingSnapshot> FetchCurrentPricesAsync(CancellationToken cancellationToken)
+    public async Task<PricingSnapshot> FetchPricesAsync(string league, CancellationToken cancellationToken)
     {
         var pricingOptions = _options.CurrentValue;
         var exactPrices = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
@@ -117,7 +117,7 @@ public sealed class PoeNinjaClient(HttpClient httpClient, IOptionsMonitor<Pricin
             ? exaltedValue
             : 0m;
 
-        return new PoeNinjaPricingSnapshot(exactPrices, uniqueCategoryRanges, divineOrbChaosValue, exaltedOrbChaosValue, currencyMinChaos, currencyMaxChaos);
+        return new PricingSnapshot(exactPrices, uniqueCategoryRanges, divineOrbChaosValue, exaltedOrbChaosValue, currencyMinChaos, currencyMaxChaos);
     }
 
     private static string GetEndpointForType(string type, PricingCacheOptions options)
@@ -276,5 +276,10 @@ public sealed class PoeNinjaClient(HttpClient httpClient, IOptionsMonitor<Pricin
 
         value = 0m;
         return false;
+    }
+
+    Task<IReadOnlyList<string>> IPricingSource.FetchLeaguesAsync(CancellationToken cancellationToken)
+    {
+        return Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
     }
 }

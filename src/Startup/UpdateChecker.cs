@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Reflection;
@@ -7,22 +8,48 @@ using System.Text.RegularExpressions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using RuneshapePriceChecker.App.Dashboard;
+using RuneshapePriceChecker.Configuration;
 
 namespace RuneshapePriceChecker.Startup;
 
 internal sealed class UpdateChecker(
     IOptions<UpdateOptions> updateOptions,
+    IOptionsMonitor<AppOptions> appOptions,
     IHostApplicationLifetime lifetime,
-    ILogger<UpdateChecker> logger) : IHostedService
+    ILogger<UpdateChecker> logger,
+    DashboardService dashboard) : IHostedService
 {
+    private volatile bool _updateAvailable;
+    private string? _downloadUrl;
+    private string? _localZipPath;
+    private string? _latestVersion;
+
+    public bool IsUpdateAvailable => _updateAvailable;
+
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        var opts = updateOptions.Value;
-        if (!opts.AutoUpdate)
-        {
-            return;
-        }
+        DashboardService.UpdateTrigger = progress => _ = ApplyUpdateAsync(progress);
 
+        _ = Task.Run(async () =>
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await CheckForUpdatesAsync().ConfigureAwait(false);
+                await Task.Delay(TimeSpan.FromMinutes(5), cancellationToken).ConfigureAwait(false);
+            }
+        }, cancellationToken);
+    }
+
+    private async Task CheckForUpdatesAsync()
+    {
+        var opts = updateOptions.Value;
+        var forceUpdate = appOptions.CurrentValue.ForceUpdateAvailable;
+
+        if (!opts.AutoUpdate && !forceUpdate)
+            return;
+
+        dashboard.SetStatus("Checking for updates...", "green");
         logger.LogInformation("Checking for updates via GitHub...");
 
         var installDir = AppContext.BaseDirectory;
@@ -53,12 +80,42 @@ internal sealed class UpdateChecker(
         catch (Exception ex)
         {
             logger.LogInformation("GitHub API unreachable ({Reason}). Assuming up to date.", ex.Message);
+            if (forceUpdate)
+            {
+                _localZipPath = FindLocalReleaseZip();
+                if (_localZipPath is not null)
+                {
+                    _downloadUrl = "local";
+                    _updateAvailable = true;
+                    dashboard.ShowUpdateButton();
+                }
+            }
             return;
         }
 
         if (latest is null)
         {
             logger.LogInformation("No GitHub releases found. Assuming up to date.");
+            if (forceUpdate)
+            {
+                _localZipPath = FindLocalReleaseZip();
+                if (_localZipPath is not null)
+                {
+                    _downloadUrl = "local";
+                    _updateAvailable = true;
+                    dashboard.ShowUpdateButton();
+                }
+            }
+            return;
+        }
+
+        var zipAsset = latest.Assets?.FirstOrDefault(a =>
+            a.Name?.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) == true &&
+            a.BrowserDownloadUrl is not null);
+
+        if (zipAsset is null && !forceUpdate)
+        {
+            logger.LogInformation("Latest release has no .zip asset. Skipping update.");
             return;
         }
 
@@ -69,52 +126,284 @@ internal sealed class UpdateChecker(
             return;
         }
 
-        if (latestVersion <= currentVersion)
+        if (latestVersion <= currentVersion && !forceUpdate)
         {
             logger.LogInformation("Already up to date ({Current} >= {Latest}).", currentVersion, latestVersion);
+            dashboard.SetStatus("Up to date", "green");
+
+            if (latestVersion == currentVersion && zipAsset is not null)
+            {
+                await RepairUpdaterIfNeededAsync(zipAsset, currentVersionText, installDir, logger);
+            }
+
             return;
         }
 
-        var zipAsset = latest.Assets?.FirstOrDefault(a =>
-            a.Name?.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) == true &&
-            a.BrowserDownloadUrl is not null);
-
-        if (zipAsset is null)
+        if (forceUpdate)
         {
-            logger.LogInformation("Latest release has no .zip asset. Skipping update.");
-            return;
+            _localZipPath = FindLocalReleaseZip();
+            if (_localZipPath is not null)
+            {
+                _downloadUrl = "local";
+                logger.LogInformation("ForceUpdateAvailable: using local zip {Path}", _localZipPath);
+            }
+            else if (zipAsset?.BrowserDownloadUrl is not null)
+            {
+                _downloadUrl = zipAsset.BrowserDownloadUrl;
+            }
         }
-
-        logger.LogInformation("Update available: {Current} -> {Latest}", currentVersion, latestVersion);
-
-        var updaterPath = Path.Combine(installDir, "Update.exe");
-        if (!File.Exists(updaterPath))
+        else if (zipAsset?.BrowserDownloadUrl is not null)
         {
-            logger.LogWarning("Update.exe not found. Cannot apply update.");
+            _downloadUrl = zipAsset.BrowserDownloadUrl;
+        }
+
+        _updateAvailable = true;
+        _latestVersion = latestVersionText;
+        dashboard.ShowUpdateButton();
+
+        if (latestVersion > currentVersion)
+            logger.LogInformation("Update available: {Current} -> {Latest}", currentVersion, latestVersion);
+    }
+
+    private static string? FindLocalReleaseZip()
+    {
+        var candidates = new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "bin", "Release", "RuneshapePriceChecker.zip"),
+            Path.Combine(AppContext.BaseDirectory, "RuneshapePriceChecker.zip"),
+        };
+
+        foreach (var path in candidates)
+        {
+            var full = Path.GetFullPath(path);
+            if (File.Exists(full)) return full;
+        }
+
+        return null;
+    }
+
+    public async Task ApplyUpdateAsync(IProgress<int>? progress = null)
+    {
+        if (_downloadUrl is null)
+        {
+            logger.LogWarning("No download URL available. Cannot apply update.");
             return;
         }
 
-        logger.LogInformation("Launching updater for version {Version}...", latestVersion);
+        var installDir = AppContext.BaseDirectory;
+        var tempZip = Path.Combine(Path.GetTempPath(), $"runeshape-update-{Guid.NewGuid():N}.zip");
+
         try
         {
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = updaterPath,
-                Arguments = $"--url \"{zipAsset.BrowserDownloadUrl}\" --version \"{latestVersionText}\"",
-                WorkingDirectory = installDir,
-                UseShellExecute = true
-            });
+            logger.LogInformation("Starting update download...");
+            progress?.Report(0);
 
-            logger.LogInformation("Updater launched. Shutting down to allow update...");
+            if (_downloadUrl == "local" && _localZipPath is not null)
+            {
+                File.Copy(_localZipPath, tempZip);
+                logger.LogInformation("Copied local zip for update simulation.");
+            }
+            else
+            {
+                using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+                using var response = await http.GetAsync(_downloadUrl, HttpCompletionOption.ResponseHeadersRead);
+                response.EnsureSuccessStatusCode();
+
+                var total = response.Content.Headers.ContentLength ?? -1;
+                await using var stream = await response.Content.ReadAsStreamAsync();
+                await using var fileStream = File.Create(tempZip);
+
+                var buffer = new byte[8192];
+                var downloaded = 0L;
+                var lastReported = 0;
+                int read;
+                while ((read = await stream.ReadAsync(buffer)) > 0)
+                {
+                    await fileStream.WriteAsync(buffer.AsMemory(0, read));
+                    downloaded += read;
+                    int pct;
+                    if (total > 0)
+                        pct = (int)(downloaded * 100 / total);
+                    else
+                        pct = Math.Min(99, lastReported + 1);
+
+                    if (pct != lastReported && progress is not null)
+                    {
+                        lastReported = pct;
+                        progress.Report(pct);
+                    }
+                }
+            }
+
+            logger.LogInformation("Download complete. Extracting updater...");
+            progress?.Report(100);
+
+            if (_downloadUrl == "local")
+            {
+                progress?.Report(100);
+
+                var scriptPath = Path.Combine(Path.GetTempPath(), $"runeshape-update-{Guid.NewGuid():N}.ps1");
+                File.WriteAllText(scriptPath,
+                    $"$zip = '{tempZip}'\r\n" +
+                    $"$dest = '{installDir}'\r\n" +
+                    $"$staging = Join-Path $env:TEMP \"runeshape-staging-$(New-Guid)\"\r\n" +
+                    $"Expand-Archive -Path $zip -DestinationPath $staging -Force\r\n" +
+                    $"Remove-Item $zip -Force\r\n" +
+                    $"Get-ChildItem $staging -Recurse | Copy-Item -Destination $dest -Force -ErrorAction SilentlyContinue\r\n" +
+                    $"Remove-Item $staging -Recurse -Force -ErrorAction SilentlyContinue\r\n" +
+                    $"Start-Process (Join-Path $dest 'RuneshapePriceChecker.exe')\r\n" +
+                    $"Remove-Item '{scriptPath}' -Force -ErrorAction SilentlyContinue\r\n");
+
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = "powershell.exe",
+                    Arguments = $"-ExecutionPolicy Bypass -WindowStyle Hidden -File \"{scriptPath}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                });
+
+                lifetime.StopApplication();
+                return;
+            }
+            else
+            {
+                var updaterPath = Path.Combine(installDir, "Update.exe");
+                using (var archive = ZipFile.OpenRead(tempZip))
+                {
+                    var updaterEntry = archive.Entries.FirstOrDefault(e =>
+                        e.Name.Equals("Update.exe", StringComparison.OrdinalIgnoreCase));
+                    if (updaterEntry is not null)
+                    {
+                        var tempUpdater = updaterPath + ".new";
+                        updaterEntry.ExtractToFile(tempUpdater, overwrite: true);
+                        try { File.Delete(updaterPath); } catch { }
+                        File.Move(tempUpdater, updaterPath);
+                    }
+                }
+
+                File.Delete(tempZip);
+
+                logger.LogInformation("Launching updater...");
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = updaterPath,
+                    Arguments = $"--url \"{_downloadUrl}\" --version \"{_latestVersion ?? "0.0.0"}\"",
+                    WorkingDirectory = installDir,
+                    UseShellExecute = true
+                });
+            }
+
+            await Task.Delay(500);
             lifetime.StopApplication();
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to launch Update.exe.");
+            try { File.Delete(tempZip); } catch { }
+            logger.LogError(ex, "Update failed.");
+            throw;
         }
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    private static async Task RepairUpdaterIfNeededAsync(
+        GitHubAsset? zipAsset, string expectedVersionText, string installDir, ILogger logger)
+    {
+        const string updaterExeName = "Update.exe";
+        var updaterPath = Path.Combine(installDir, updaterExeName);
+
+        if (!File.Exists(updaterPath))
+        {
+            logger.LogInformation("Update.exe not present; nothing to repair.");
+            return;
+        }
+
+        Version? expectedVersion = null;
+        TryParseVersion(expectedVersionText, out expectedVersion);
+
+        Version? diskVersion = null;
+        try
+        {
+            var fvi = FileVersionInfo.GetVersionInfo(updaterPath);
+            if (fvi.FileVersion is not null)
+            {
+                var clean = fvi.FileVersion;
+                var plusIdx = clean.IndexOf('+');
+                if (plusIdx >= 0) clean = clean[..plusIdx];
+                if (!TryParseVersion(clean, out diskVersion))
+                {
+                    var lastDot = clean.LastIndexOf('.');
+                    if (lastDot >= 0) TryParseVersion(clean[..lastDot], out diskVersion);
+                }
+            }
+        }
+        catch
+        {
+            logger.LogWarning("Could not read Update.exe file version.");
+        }
+
+        if (diskVersion is not null && expectedVersion is not null && diskVersion >= expectedVersion)
+        {
+            return;
+        }
+
+        logger.LogWarning(
+            "Update.exe is outdated (disk={DiskVersion}, expected={ExpectedVersion}). Repairing...",
+            diskVersion,
+            expectedVersion);
+
+        if (zipAsset?.BrowserDownloadUrl is null)
+        {
+            logger.LogWarning("No release zip URL available. Cannot repair Update.exe.");
+            return;
+        }
+
+        logger.LogInformation("Downloading current release zip to extract Update.exe...");
+
+        var tempZip = Path.Combine(Path.GetTempPath(), $"runeshape-selfrepair-{Guid.NewGuid():N}.zip");
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+            await using var stream = await http.GetStreamAsync(zipAsset.BrowserDownloadUrl);
+            await using var fileStream = File.Create(tempZip);
+            await stream.CopyToAsync(fileStream);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to download zip for Update.exe repair.");
+            try { File.Delete(tempZip); } catch { }
+            return;
+        }
+
+        try
+        {
+            using var archive = ZipFile.OpenRead(tempZip);
+            var updaterEntry = archive.Entries.FirstOrDefault(e =>
+                e.Name.Equals(updaterExeName, StringComparison.OrdinalIgnoreCase));
+
+            if (updaterEntry is null)
+            {
+                logger.LogWarning("Update.exe not found in release zip.");
+                return;
+            }
+
+            var tempExtracted = updaterPath + ".repairtmp";
+            updaterEntry.ExtractToFile(tempExtracted, overwrite: true);
+
+            try { File.Delete(updaterPath); } catch { }
+            File.Move(tempExtracted, updaterPath);
+
+            logger.LogInformation("Update.exe repaired successfully.");
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to extract Update.exe from zip.");
+        }
+        finally
+        {
+            try { File.Delete(tempZip); } catch { }
+        }
+    }
 
     private static async Task<GitHubRelease?> FetchLatestReleaseAsync(string owner, string repo, bool ignorePrereleases)
     {

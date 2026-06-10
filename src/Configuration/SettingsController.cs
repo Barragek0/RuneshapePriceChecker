@@ -8,66 +8,60 @@ public sealed class SettingsController(
     IConfiguration configuration,
     ILogger<SettingsController> logger) : BackgroundService
 {
-    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
     private const string SettingsFileName = "appsettings.json";
-    private DateTime _lastWriteUtc = DateTime.MinValue;
+    private FileSystemWatcher? _watcher;
+    private bool _ignoreNextChange = true;
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        RefreshConfiguration("startup");
+
         var settingsPath = ResolveSettingsPath();
         if (settingsPath is not null && File.Exists(settingsPath))
         {
-            _lastWriteUtc = File.GetLastWriteTimeUtc(settingsPath);
-        }
-
-        RefreshConfiguration("startup");
-
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            try
+            var dir = Path.GetDirectoryName(settingsPath)!;
+            _watcher = new FileSystemWatcher(dir, SettingsFileName)
             {
-                if (HasSettingsFileChanged())
+                NotifyFilter = NotifyFilters.LastWrite,
+                EnableRaisingEvents = true
+            };
+
+            _watcher.Changed += (_, _) =>
+            {
+                if (_ignoreNextChange)
                 {
-                    RefreshConfiguration("file-changed");
+                    _ignoreNextChange = false;
+                    return;
                 }
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Failed to refresh settings from {SettingsFile}.", SettingsFileName);
-            }
-
-            await Task.Delay(PollInterval, stoppingToken).ConfigureAwait(false);
+                try { RefreshConfiguration("file-changed"); }
+                catch (Exception ex) { logger.LogError(ex, "Failed to reload settings."); }
+            };
         }
-    }
-
-    private bool HasSettingsFileChanged()
-    {
-        var settingsPath = ResolveSettingsPath();
-        if (settingsPath is null || !File.Exists(settingsPath))
+        else
         {
-            return false;
+            logger.LogWarning("Settings file not found; file watching disabled.");
         }
 
-        var currentWriteUtc = File.GetLastWriteTimeUtc(settingsPath);
-        if (currentWriteUtc <= _lastWriteUtc)
-        {
-            return false;
-        }
-
-        _lastWriteUtc = currentWriteUtc;
-        return true;
+        stoppingToken.Register(() => _watcher?.Dispose());
+        return Task.CompletedTask;
     }
 
     private void RefreshConfiguration(string reason)
     {
         if (configuration is not IConfigurationRoot root)
         {
-            logger.LogWarning("Configuration root does not support explicit reload; settings polling is disabled.");
+            logger.LogWarning("Configuration root does not support reload.");
             return;
         }
 
         root.Reload();
         logger.LogInformation("Settings reloaded from {SettingsFile} ({Reason}).", SettingsFileName, reason);
+    }
+
+    public override void Dispose()
+    {
+        _watcher?.Dispose();
+        base.Dispose();
     }
 
     private static string? ResolveSettingsPath()

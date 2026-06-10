@@ -12,28 +12,59 @@ public sealed class PricingCacheRefreshWorker(
     ILogger<PricingCacheRefreshWorker> logger) : BackgroundService
 {
     private readonly IOptionsMonitor<PricingCacheOptions> _options = options;
+    private string? _lastPricingSource;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        var refreshCts = new CancellationTokenSource();
+
+        _options.OnChange((updated, _) =>
+        {
+            if (string.Equals(updated.PricingSource, _lastPricingSource, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            _lastPricingSource = updated.PricingSource;
+            try { refreshCts.Cancel(); }
+            catch (ObjectDisposedException) { }
+        });
+
         while (!stoppingToken.IsCancellationRequested)
         {
+            TimeSpan delay;
+
             try
             {
                 await cache.RefreshAsync(stoppingToken).ConfigureAwait(false);
+                _lastPricingSource = _options.CurrentValue.PricingSource;
                 logger.LogInformation("Pricing cache refreshed at {Timestamp}", DateTimeOffset.UtcNow);
+
+                delay = _options.CurrentValue.RefreshInterval;
+                if (delay <= TimeSpan.Zero)
+                    delay = TimeSpan.FromMinutes(10);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Pricing cache refresh failed.");
+                logger.LogWarning(ex, "Pricing cache refresh failed — retrying in 5s.");
+                delay = TimeSpan.FromSeconds(5);
             }
 
-            var delay = _options.CurrentValue.RefreshInterval;
-            if (delay <= TimeSpan.Zero)
+            if (refreshCts.IsCancellationRequested)
             {
-                delay = TimeSpan.FromMinutes(10);
+                var old = refreshCts;
+                refreshCts = new CancellationTokenSource();
+                old.Dispose();
             }
 
-            await Task.Delay(delay, stoppingToken).ConfigureAwait(false);
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, refreshCts.Token);
+            try { await Task.Delay(delay, linked.Token).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
+            catch (OperationCanceledException) { }
         }
+
+        refreshCts.Dispose();
     }
 }

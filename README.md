@@ -153,22 +153,5 @@ OCR resolution profiles define capture region offsets for each supported resolut
 If your PoE2 resolution is unsupported, OCR and overlay pricing are disabled and an error popup lists supported resolutions.
 Untested resolutions will show a warning popup on startup.
 
-## Price Sources
-
-The app fetches PoE2 economy data from poe.ninja.
-
-- Exchange endpoint: `/poe2/api/economy/exchange/current/overview`
-- Stash item endpoint: `/poe2/api/economy/stash/current/item/overview`
-
-Refresh types:
-
-- `Currency`
-- `Expedition`
-- `UncutGems`
-- `Runes`
-- `Verisium`
-- `UniqueWeapons`
-- `UniqueArmours`
-- `UniqueAccessories`
-
-Unique item types (Weapons, Armours, Accessories) are fetched from the stash endpoint; all other types use the exchange endpoint.
+## Disclaimer
+While the vast majority of code in this project was written by a person (I'd estimate 95%), AI has been used to update documentation, fix bugs that I could not find a solution for myself and help target the best areas that are in need of refactoring for readability and maintainability.

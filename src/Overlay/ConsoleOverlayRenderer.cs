@@ -3,11 +3,9 @@ using RuneshapePriceChecker.Configuration;
 using RuneshapePriceChecker.OCR;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Globalization;
 using System.Runtime.InteropServices;
-using System.Windows.Forms;
 
 namespace RuneshapePriceChecker.Overlay;
 
@@ -455,6 +453,7 @@ public sealed class ConsoleOverlayRenderer(
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
+            if (IsDisposed) return;
 
             IReadOnlyList<OverlayRowEntry> entries;
             lock (_stateSync)

@@ -1,6 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Project -->
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -8,12 +10,32 @@
     <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
     <AssemblyName>RuneshapePriceChecker</AssemblyName>
     <ApplicationIcon>img\rune.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="img\example.png" CopyToOutputDirectory="PreserveNewest" Link="img\example.png" Condition="Exists('img\example.png')" />
+  </ItemGroup>
+
+  <!-- Publish: trimmed self-contained (Release only, Debug uses framework-dependent for hot reload) -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <PublishSingleFile>true</PublishSingleFile>
-    <SelfContained>false</SelfContained>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <SelfContained>true</SelfContained>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <EventSourceSupport>false</EventSourceSupport>
+    <DebuggerSupport>false</DebuggerSupport>
+    <MetadataUpdaterSupport>false</MetadataUpdaterSupport>
+    <StartupHookSupport>false</StartupHookSupport>
+    <HttpActivityPropagationSupport>false</HttpActivityPropagationSupport>
+    <UseNativeHttpHandler>true</UseNativeHttpHandler>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
     <PublishDir>$(MSBuildProjectDirectory)\obj\Release\publish\</PublishDir>
   </PropertyGroup>
 
+  <!-- NuGet -->
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.8" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.8" />
@@ -22,16 +44,20 @@
     <PackageReference Include="Tesseract" Version="5.2.0" />
   </ItemGroup>
 
+  <!-- References -->
+  <ItemGroup>
+    <ProjectReference Include="src\Dashboard\Dashboard.csproj" />
+  </ItemGroup>
+
+  <!-- Exclude non-app source from compilation -->
   <ItemGroup>
     <Compile Remove="scripts\**\*.cs" />
     <Compile Remove="tests\**\*.cs" />
     <Compile Remove="src\Updater\**\*.cs" />
+    <Compile Remove="src\Dashboard\**\*.cs" />
   </ItemGroup>
 
-  <Target Name="RemoveLegacyAppSettingsFromOutput" AfterTargets="Build;Publish">
-    <Delete Files="$(TargetDir)appsettings.json;$(TargetDir)src\appsettings.json" ContinueOnError="true" />
-  </Target>
-
+  <!-- Tesseract: embed traineddata + native DLLs -->
   <Target Name="EnsureTessData" BeforeTargets="AssignTargetPaths">
     <PropertyGroup>
       <TessDataFile>$(MSBuildProjectDirectory)\tesseract\eng.traineddata</TessDataFile>
@@ -53,15 +79,29 @@
     </ItemGroup>
   </Target>
 
-  <Target Name="CopyUpdaterToOutput" AfterTargets="Build" Condition="'$(DesignTimeBuild)' != 'true'">
-    <Exec Command="dotnet build &quot;$(MSBuildProjectDirectory)\src\Updater\Updater.csproj&quot; -c $(Configuration) --nologo" />
-    <ItemGroup>
-      <_UpdaterOutputFiles Include="$(MSBuildProjectDirectory)\src\Updater\bin\$(Configuration)\net8.0\*" Exclude="$(MSBuildProjectDirectory)\src\Updater\bin\$(Configuration)\net8.0\*.pdb" />
-    </ItemGroup>
-    <Copy SourceFiles="@(_UpdaterOutputFiles)" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" />
+  <!-- Hot reload: use separate output directory so bin/Debug is never locked -->
+  <PropertyGroup Condition="'$(UseRunOutput)' == 'true'">
+    <OutputPath>bin\run\</OutputPath>
+    <IntermediateOutputPath>obj\run\</IntermediateOutputPath>
+  </PropertyGroup>
+
+  <!-- Release pipeline: Build -> Test -> Zip -> Installer -->
+
+  <Target Name="Test" AfterTargets="Publish" Condition="'$(Configuration)' == 'Release' and '$(DesignTimeBuild)' != 'true'">
+    <PropertyGroup>
+      <_TestLogFile>$(IntermediateOutputPath)test-output.log</_TestLogFile>
+    </PropertyGroup>
+    <Exec Command="powershell -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\tests\run-all.ps1&quot; 1&gt;&quot;$(_TestLogFile)&quot; 2&gt;&amp;1" IgnoreExitCode="true">
+      <Output TaskParameter="ExitCode" PropertyName="_TestExitCode" />
+    </Exec>
+    <Exec Command="powershell -ExecutionPolicy Bypass -Command Get-Content '$(_TestLogFile)'" Condition="$(_TestExitCode) == 0" />
+    <ReadLinesFromFile File="$(_TestLogFile)" Condition="Exists('$(_TestLogFile)') and $(_TestExitCode) != 0">
+      <Output TaskParameter="Lines" ItemName="_TestErrLines" />
+    </ReadLinesFromFile>
+    <Error Condition="$(_TestExitCode) != 0" Text="@(_TestErrLines, '%0a')" />
   </Target>
 
-  <Target Name="PackageReleaseZip" AfterTargets="Publish" Condition="'$(Configuration)' == 'Release' and '$(DesignTimeBuild)' != 'true'">
+  <Target Name="Zip" AfterTargets="Test" Condition="'$(Configuration)' == 'Release' and '$(DesignTimeBuild)' != 'true'">
     <PropertyGroup>
       <_UpdaterPublishDir>$(MSBuildProjectDirectory)\obj\Release\updater-publish\</_UpdaterPublishDir>
       <ReleaseZipPath>$(BaseOutputPath)$(Configuration)\RuneshapePriceChecker.zip</ReleaseZipPath>
@@ -92,21 +132,7 @@
     <RemoveDir Directories="$(ReleaseZipStageDir)" ContinueOnError="true" />
   </Target>
 
-  <Target Name="RunTestsAfterPublish" AfterTargets="PackageReleaseZip" Condition="'$(Configuration)' == 'Release' and '$(DesignTimeBuild)' != 'true'">
-    <PropertyGroup>
-      <_TestLogFile>$(IntermediateOutputPath)test-output.log</_TestLogFile>
-    </PropertyGroup>
-    <Exec Command="powershell -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\tests\run-all.ps1&quot; 1&gt;&quot;$(_TestLogFile)&quot; 2&gt;&amp;1" IgnoreExitCode="true">
-      <Output TaskParameter="ExitCode" PropertyName="_TestExitCode" />
-    </Exec>
-    <Exec Command="powershell -ExecutionPolicy Bypass -Command Get-Content '$(_TestLogFile)'" Condition="$(_TestExitCode) == 0" />
-    <ReadLinesFromFile File="$(_TestLogFile)" Condition="Exists('$(_TestLogFile)') and $(_TestExitCode) != 0">
-      <Output TaskParameter="Lines" ItemName="_TestErrLines" />
-    </ReadLinesFromFile>
-    <Error Condition="$(_TestExitCode) != 0" Text="@(_TestErrLines, '%0a')" />
-  </Target>
-
-  <Target Name="BuildInstaller" AfterTargets="PackageReleaseZip" Condition="'$(Configuration)' == 'Release' and '$(DesignTimeBuild)' != 'true'">
+  <Target Name="Installer" AfterTargets="Zip" Condition="'$(Configuration)' == 'Release' and '$(DesignTimeBuild)' != 'true'">
     <PropertyGroup>
       <_IsccPath></_IsccPath>
       <_IsccPath Condition="Exists('C:\Program Files (x86)\Inno Setup 6\ISCC.exe')">C:\Program Files (x86)\Inno Setup 6\ISCC.exe</_IsccPath>
@@ -117,6 +143,7 @@
           WorkingDirectory="$(MSBuildProjectDirectory)" />
 
     <Message Condition="'$(_IsccPath)' == ''"
-             Text="Inno Setup 6 not found at 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'. Skipping installer build. Install from https://jrsoftware.org/isinfo.php" Importance="High" />
+             Text="Inno Setup 6 not found. Skipping installer. Install from https://jrsoftware.org/isinfo.php" Importance="High" />
   </Target>
+
 </Project>

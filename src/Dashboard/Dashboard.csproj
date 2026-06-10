@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>RuneshapePriceChecker.Dashboard</AssemblyName>
+    <RootNamespace>RuneshapePriceChecker.App.Dashboard</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="..\..\img\rune.ico" Link="rune.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+  </ItemGroup>
+
+</Project>

@@ -1,3 +1,4 @@
+using RuneshapePriceChecker.App.Dashboard;
 using RuneshapePriceChecker.Configuration;
 using RuneshapePriceChecker.Contracts;
 using RuneshapePriceChecker.OCR;
@@ -15,6 +16,7 @@ public sealed class LeaguePricingWorker(
     IPricingCache pricingCache,
     IOverlayRenderer overlayRenderer,
     DebugOverlayService debugOverlay,
+    DashboardService dashboard,
     IOptionsMonitor<PricingCacheOptions> pricingOptions,
     IOptionsMonitor<AppOptions> appOptions,
     IOptionsMonitor<OcrOptions> ocrOptions,
@@ -22,6 +24,7 @@ public sealed class LeaguePricingWorker(
 {
     private static readonly TimeSpan MinOcrInterval = TimeSpan.FromMilliseconds(120);
     private static readonly TimeSpan StaleRenderTimeout = TimeSpan.FromMilliseconds(180);
+    private bool _setupTriggered;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -34,6 +37,13 @@ public sealed class LeaguePricingWorker(
         {
             try
             {
+                if (debugOverlay.IsSetupInProgress)
+                {
+                    dashboard.SetStatus("Initial setup — configure overlay position", "amber");
+                    await Task.Delay(200, stoppingToken).ConfigureAwait(false);
+                    continue;
+                }
+
                 if (inFlightSnapshotTask is null)
                 {
                     var sinceLastOcr = Stopwatch.GetElapsedTime(lastOcrStart);
@@ -64,6 +74,10 @@ public sealed class LeaguePricingWorker(
 
                         inFlightSnapshotTask = null;
                     }
+                    else
+                    {
+                        inFlightSnapshotTask = null;
+                    }
                 }
                 else
                 {
@@ -80,21 +94,35 @@ public sealed class LeaguePricingWorker(
                     debugOverlay.ForceHide();
                 }
 
+                if (snapshot.InterfaceDetected && debugOverlay.NeedsInitialSetup() && !_setupTriggered)
+                {
+                    _setupTriggered = true;
+                    debugOverlay.RunInitialSetup();
+                }
+
                 var prices = new Dictionary<string, PriceQuote?>(StringComparer.OrdinalIgnoreCase);
 
-                foreach (var itemName in snapshot.ItemNames)
+                if (pricingCache.IsReady)
                 {
-                    var (normalizedItemName, quantity) = ParseItemAndQuantity(itemName);
-                    var quote = pricingCache.TryGetPriceQuote(normalizedItemName, quantity);
-
-                    if (quote is null && IsRareUniqueItem(normalizedItemName))
+                    foreach (var itemName in snapshot.ItemNames)
                     {
-                        quote = new PriceQuote("?", pricingOptions.CurrentValue.OrangeThreshold, false);
+                        var (normalizedItemName, quantity) = ParseItemAndQuantity(itemName);
+                        var quote = pricingCache.TryGetPriceQuote(normalizedItemName, quantity);
+
+                        if (quote is null && IsRareUniqueItem(normalizedItemName))
+                        {
+                            quote = new PriceQuote("?", pricingOptions.CurrentValue.OrangeThreshold, false);
+                        }
+
+                        quote ??= new PriceQuote("N/A", -1m, false);
+
+                        prices[itemName] = quote;
                     }
-
-                    quote ??= new PriceQuote("N/A", -1m, false);
-
-                    prices[itemName] = quote;
+                }
+                else
+                {
+                    foreach (var itemName in snapshot.ItemNames)
+                        prices[itemName] = new PriceQuote("...", -1m, false);
                 }
 
                 var unpricedBanner = BuildUnpriceableBanner(snapshot.ItemNames);

@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using RuneshapePriceChecker.App;
+using RuneshapePriceChecker.App.Dashboard;
 using RuneshapePriceChecker.Configuration;
 using RuneshapePriceChecker.Contracts;
 using RuneshapePriceChecker.OCR;
@@ -11,8 +13,43 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Console;
 
-DebugConsoleWindow.TryOpen();
-ConsoleCloseHandler.Register();
+var mutex = new Mutex(true, @"Global\RuneshapePriceChecker_SingleInstance", out var createdNew);
+if (!createdNew)
+{
+    var result = MessageBox.Show(
+        "RuneshapePriceChecker is already running.\n\nYes = close the old instance and start a new one\nNo = do nothing",
+        "Already Running",
+        MessageBoxButtons.YesNo,
+        MessageBoxIcon.Question);
+
+    if (result == DialogResult.Yes)
+    {
+        var selfName = Process.GetCurrentProcess().ProcessName;
+        foreach (var proc in Process.GetProcessesByName(selfName))
+        {
+            if (proc.Id == Environment.ProcessId) continue;
+            try { proc.Kill(); proc.WaitForExit(3000); } catch { }
+        }
+
+        Thread.Sleep(500);
+
+        mutex.Dispose();
+        mutex = new Mutex(true, @"Global\RuneshapePriceChecker_SingleInstance", out createdNew);
+    }
+    else
+    {
+        mutex.Dispose();
+        return;
+    }
+}
+
+var dashboardSink = new DashboardLogSink();
+var configPath = Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json");
+var dashboardLoggerProvider = new DashboardLoggerProvider(dashboardSink, configPath);
+var dashboardService = new DashboardService(dashboardSink);
+var hostCts = new CancellationTokenSource();
+dashboardService.SetOnWindowClosed(hostCts.Cancel);
+dashboardService.Start();
 
 TryDeleteFile(Path.Combine(AppContext.BaseDirectory, "Update.exe.old"));
 
@@ -30,7 +67,7 @@ AppSettingsBootstrapper.EnsureExists();
 var host = Host.CreateDefaultBuilder(args)
     .ConfigureHostOptions(options =>
     {
-        options.ShutdownTimeout = TimeSpan.Zero;
+        options.ShutdownTimeout = TimeSpan.FromSeconds(2);
     })
     .ConfigureAppConfiguration(config =>
     {
@@ -42,15 +79,17 @@ var host = Host.CreateDefaultBuilder(args)
     {
         services.Configure<AppOptions>(context.Configuration.GetSection("App"));
         services.Configure<UpdateOptions>(context.Configuration.GetSection("Update"));
+        services.Configure<WindowOptions>(context.Configuration.GetSection("Window"));
 
         services.AddHostedService<UpdateChecker>();
+
+        services.AddSingleton(dashboardSink);
+        services.AddSingleton(dashboardService);
 
         services.AddOptions<PricingCacheOptions>()
             .Bind(context.Configuration.GetSection("Pricing"))
             .Validate(options =>
-                !string.IsNullOrWhiteSpace(options.PoeNinjaBaseUrl) &&
-                !string.IsNullOrWhiteSpace(options.ExchangeOverviewPath) &&
-                !string.IsNullOrWhiteSpace(options.StashItemOverviewPath) &&
+                !string.IsNullOrWhiteSpace(options.PricingSource) &&
                 !string.IsNullOrWhiteSpace(options.League) &&
                 options.IncludedTypes is { Length: > 0 } &&
                 options.RefreshInterval > TimeSpan.Zero &&
@@ -68,10 +107,16 @@ var host = Host.CreateDefaultBuilder(args)
             options.TesseractDataPath = resolvedTesseractDataPath;
         });
 
-        services.AddHttpClient<IPoeNinjaClient, PoeNinjaClient>(client =>
+        services.AddHttpClient<PoeNinjaClient>(client =>
         {
             client.Timeout = TimeSpan.FromSeconds(10);
         });
+        services.AddHttpClient<Poe2ScoutClient>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(10);
+        });
+
+        services.AddSingleton<IPricingSource, PricingSourceRouter>();
 
         services.AddSingleton<Poe2WindowResolutionService>();
         services.AddSingleton<IPoe2WindowResolutionProvider>(sp => sp.GetRequiredService<Poe2WindowResolutionService>());
@@ -90,6 +135,7 @@ var host = Host.CreateDefaultBuilder(args)
     .ConfigureLogging(logging =>
     {
         logging.ClearProviders();
+        logging.AddProvider(dashboardLoggerProvider);
         logging.SetMinimumLevel(LogLevel.Debug);
         logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
         logging.AddFilter("Microsoft.Extensions.Http.DefaultHttpClientFactory", LogLevel.Warning);
@@ -105,7 +151,19 @@ var host = Host.CreateDefaultBuilder(args)
     })
     .Build();
 
-await host.RunAsync().ConfigureAwait(false);
+var debugOverlay = host.Services.GetRequiredService<DebugOverlayService>();
+dashboardService.SetReRunSetupTrigger(debugOverlay.RunInitialSetup);
+dashboardService.SetOnWindowLoaded(() =>
+{
+    if (debugOverlay.NeedsInitialSetup())
+        debugOverlay.RunInitialSetup();
+});
+
+await host.RunAsync(hostCts.Token).ConfigureAwait(false);
+
+dashboardService.Stop();
+dashboardService.Dispose();
+mutex.Dispose();
 
 static void TryDeleteFile(string path)
 {

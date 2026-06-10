@@ -2,10 +2,10 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Windows.Forms;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using RuneshapePriceChecker.Configuration;
 
 namespace RuneshapePriceChecker.OCR;
 
@@ -31,10 +31,12 @@ public sealed record WindowCaptureContext(
 
 public sealed class Poe2WindowResolutionService(
     IOptionsMonitor<OcrOptions> options,
+    IOptionsMonitor<WindowOptions> windowOptions,
     ILogger<Poe2WindowResolutionService> logger) : BackgroundService, IPoe2WindowResolutionProvider
 {
     private sealed record Poe2WindowCandidate(IntPtr WindowHandle, uint ProcessId);
     private readonly IOptionsMonitor<OcrOptions> _options = options;
+    private readonly IOptionsMonitor<WindowOptions> _windowOptions = windowOptions;
 
     private volatile OcrCaptureRegion? _currentCaptureRegion;
     private volatile OcrResolutionProfile? _currentResolutionProfile;
@@ -42,8 +44,6 @@ public sealed class Poe2WindowResolutionService(
     private volatile WindowCaptureContext? _currentWindowCaptureContext;
     private volatile bool _isPoe2WindowForeground;
     private bool? _lastForegroundState;
-    private string? _unsupportedResolutionPopupShownForKey;
-    private string? _untestedResolutionKeyShown;
     private bool _fullscreenWarningShown;
     private bool _uiBrightnessWarningShown;
 
@@ -70,7 +70,7 @@ public sealed class Poe2WindowResolutionService(
                 logger.LogWarning(ex, "Failed to refresh PoE2 window resolution state.");
             }
 
-            var pollSeconds = Math.Max(1, _options.CurrentValue.ResolutionPollIntervalSeconds);
+            var pollSeconds = Math.Max(1, OcrConstants.ResolutionPollIntervalSeconds);
             await Task.Delay(TimeSpan.FromSeconds(pollSeconds), stoppingToken).ConfigureAwait(false);
         }
     }
@@ -141,39 +141,32 @@ public sealed class Poe2WindowResolutionService(
             height);
 
         var resolutionKey = $"{width}x{height}";
-        if (!OcrResolutionProfiles.TryGet(resolutionKey, out var profile))
+        var windowOpts = _windowOptions.CurrentValue;
+        OcrResolutionProfile? profile;
+
+        if (windowOpts.InitialSetupComplete &&
+            windowOpts.CustomOffsetX is { } cx && windowOpts.CustomOffsetY is { } cy &&
+            windowOpts.CustomWidth is { } cw && windowOpts.CustomHeight is { } ch)
         {
-            if (configInfo.ResolutionKey is not null &&
-                OcrResolutionProfiles.TryGet(configInfo.ResolutionKey, out _))
-            {
-                if (!string.Equals(_currentResolutionKey, resolutionKey, StringComparison.OrdinalIgnoreCase))
-                {
-                    logger.LogDebug(
-                        "Detected transitional PoE2 client resolution {DetectedResolution}; config resolution is {ConfigResolution}. Waiting for window to stabilize.",
-                        resolutionKey,
-                        configInfo.ResolutionKey);
-                    _currentResolutionKey = resolutionKey;
-                    _currentCaptureRegion = null;
-                    _currentResolutionProfile = null;
-                }
+            profile = new OcrResolutionProfile(cx, cy, cw, ch);
+            logger.LogDebug("Using custom setup region: X={X} Y={Y} W={W} H={H}", cx, cy, cw, ch);
+        }
+        else
+        {
+            profile = ResolveProfile(resolutionKey, width, height);
+        }
 
-                return;
-            }
-
+        if (profile is null)
+        {
             if (!string.Equals(_currentResolutionKey, resolutionKey, StringComparison.OrdinalIgnoreCase))
             {
-                logger.LogWarning("Detected PoE2 client resolution {Resolution}, but no OCR profile exists. OCR capture will remain disabled until a profile is added.", resolutionKey);
+                logger.LogWarning("Detected PoE2 client resolution {Resolution}, but no OCR profile could be determined.", resolutionKey);
                 _currentResolutionKey = resolutionKey;
                 _currentCaptureRegion = null;
                 _currentResolutionProfile = null;
-                ShowUnsupportedResolutionPopupIfNeeded(resolutionKey);
             }
-
             return;
         }
-
-        _unsupportedResolutionPopupShownForKey = null;
-        _untestedResolutionKeyShown = null;
 
         if (!TryCreateWindowRelativeRegion(topLeft, width, height, profile, out var region, out var validationError))
         {
@@ -197,15 +190,16 @@ public sealed class Poe2WindowResolutionService(
             return;
         }
 
-        ShowUntestedResolutionPopupIfNeeded(resolutionKey, profile);
-
         _currentResolutionKey = resolutionKey;
         _currentCaptureRegion = region;
         _currentResolutionProfile = profile;
 
+        var matchType = windowOpts.InitialSetupComplete ? "custom" :
+            OcrResolutionProfiles.TryGet(resolutionKey, out _) ? "exact" : "interpolated";
         logger.LogInformation(
-            "Detected PoE2 client resolution {Resolution}; window origin X={WindowX} Y={WindowY}; offsets X={OffsetX} Y={OffsetY}; OCR region X={X} Y={Y} W={W} H={H}.",
+            "Detected PoE2 client resolution {Resolution} ({MatchType}); window origin X={WindowX} Y={WindowY}; offsets X={OffsetX} Y={OffsetY}; OCR region X={X} Y={Y} W={W} H={H}.",
             resolutionKey,
+            matchType,
             topLeft.X,
             topLeft.Y,
             profile.CaptureOffsetX,
@@ -214,6 +208,13 @@ public sealed class Poe2WindowResolutionService(
             region.Y,
             region.Width,
             region.Height);
+    }
+
+    private static OcrResolutionProfile? ResolveProfile(string resolutionKey, int width, int height)
+    {
+        return OcrResolutionProfiles.TryGet(resolutionKey, out var exact)
+            ? exact
+            : OcrResolutionProfiles.Interpolate(width, height);
     }
 
     private void LogForegroundStateIfChanged(bool isForeground)
@@ -289,46 +290,6 @@ public sealed class Poe2WindowResolutionService(
             .ToList();
     }
 
-    private void ShowUnsupportedResolutionPopupIfNeeded(string detectedResolution)
-    {
-        if (string.Equals(_unsupportedResolutionPopupShownForKey, detectedResolution, StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
-
-        _unsupportedResolutionPopupShownForKey = detectedResolution;
-
-        var supported = OcrResolutionProfiles.SupportedResolutions
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(key => key, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-
-        var supportedList = supported.Length == 0
-            ? "(none configured)"
-            : string.Join(Environment.NewLine, supported);
-
-        var message =
-            $"Unsupported PoE2 resolution detected: {detectedResolution}{Environment.NewLine}{Environment.NewLine}" +
-            "OCR capture is disabled for this resolution." +
-            $"{Environment.NewLine}{Environment.NewLine}Supported resolutions:{Environment.NewLine}{supportedList}" +
-            $"{Environment.NewLine}{Environment.NewLine}You must run the game in borderless windowed.";
-
-        try
-        {
-            MessageBox.Show(
-                message,
-                "RuneshapePriceChecker - Unsupported Resolution",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Error,
-                MessageBoxDefaultButton.Button1,
-                MessageBoxOptions.DefaultDesktopOnly);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to display unsupported resolution popup.");
-        }
-    }
-
     private void ShowUiBrightnessWarningPopupIfNeeded(float? uiBrightness)
     {
         if (_uiBrightnessWarningShown || uiBrightness is null)
@@ -393,39 +354,6 @@ public sealed class Poe2WindowResolutionService(
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Failed to display fullscreen warning popup.");
-        }
-    }
-
-    private void ShowUntestedResolutionPopupIfNeeded(string resolutionKey, OcrResolutionProfile profile)
-    {
-        if (profile.Confirmed)
-            return;
-
-        if (string.Equals(_untestedResolutionKeyShown, resolutionKey, StringComparison.OrdinalIgnoreCase))
-            return;
-
-        _untestedResolutionKeyShown = resolutionKey;
-
-        var message =
-            $"This resolution ({resolutionKey}) hasn't been tested with RuneshapePriceChecker yet.{Environment.NewLine}{Environment.NewLine}" +
-            "OCR capture may not work correctly and the capture region might need a small manual tweak." +
-            $"{Environment.NewLine}{Environment.NewLine}" +
-            "If the tool isn't picking up text properly on your setup, there's a step-by-step guide you can follow to tune it:" +
-            $"{Environment.NewLine}See ADDING_A_RESOLUTION.md in the tool folder.";
-
-        try
-        {
-            MessageBox.Show(
-                message,
-                "RuneshapePriceChecker - Untested Resolution",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Warning,
-                MessageBoxDefaultButton.Button1,
-                MessageBoxOptions.DefaultDesktopOnly);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to display untested resolution popup.");
         }
     }
 
