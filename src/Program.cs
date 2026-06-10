@@ -115,6 +115,12 @@ var host = Host.CreateDefaultBuilder(args)
         {
             client.Timeout = TimeSpan.FromSeconds(10);
         });
+        services.AddHttpClient("GitHub", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(60);
+            client.DefaultRequestHeaders.UserAgent.Add(new System.Net.Http.Headers.ProductInfoHeaderValue("RuneshapePriceChecker", "1.0"));
+            client.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+        });
 
         services.AddSingleton<IPricingSource, PricingSourceRouter>();
 

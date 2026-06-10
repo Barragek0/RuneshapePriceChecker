@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.IO.Compression;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Reflection;
 using System.Text.Json;
@@ -18,14 +17,17 @@ internal sealed class UpdateChecker(
     IOptionsMonitor<AppOptions> appOptions,
     IHostApplicationLifetime lifetime,
     ILogger<UpdateChecker> logger,
-    DashboardService dashboard) : IHostedService
+    DashboardService dashboard,
+    IHttpClientFactory httpClientFactory) : IHostedService
 {
     private string? _downloadUrl;
     private string? _localZipPath;
     private string? _latestVersion;
+    private CancellationToken _stoppingToken;
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
+        _stoppingToken = cancellationToken;
         DashboardService.UpdateTrigger = progress => _ = ApplyUpdateAsync(progress);
 
         _ = Task.Run(async () =>
@@ -72,20 +74,10 @@ internal sealed class UpdateChecker(
         GitHubRelease? latest;
         try
         {
-            latest = await FetchLatestReleaseAsync(opts.GitHubRepoOwner, opts.GitHubRepoName, opts.IgnorePrereleases);
+            latest = await FetchLatestReleaseWithRetryAsync(opts.GitHubRepoOwner, opts.GitHubRepoName, opts.IgnorePrereleases);
         }
-        catch (Exception ex)
+        catch (OperationCanceledException)
         {
-            logger.LogInformation("GitHub API unreachable ({Reason}). Assuming up to date.", ex.Message);
-            if (forceUpdate)
-            {
-                _localZipPath = FindLocalReleaseZip();
-                if (_localZipPath is not null)
-                {
-                    _downloadUrl = "local";
-                    dashboard.ShowUpdateButton();
-                }
-            }
             return;
         }
 
@@ -128,7 +120,7 @@ internal sealed class UpdateChecker(
 
             if (latestVersion == currentVersion && zipAsset is not null)
             {
-                await RepairUpdaterIfNeededAsync(zipAsset, currentVersionText, installDir, logger);
+                await RepairUpdaterIfNeededAsync(zipAsset, currentVersionText, installDir);
             }
 
             return;
@@ -300,8 +292,8 @@ internal sealed class UpdateChecker(
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-    private static async Task RepairUpdaterIfNeededAsync(
-        GitHubAsset? zipAsset, string expectedVersionText, string installDir, ILogger logger)
+    private async Task RepairUpdaterIfNeededAsync(
+        GitHubAsset? zipAsset, string expectedVersionText, string installDir)
     {
         const string updaterExeName = "Update.exe";
         var updaterPath = Path.Combine(installDir, updaterExeName);
@@ -357,7 +349,7 @@ internal sealed class UpdateChecker(
         var tempZip = Path.Combine(Path.GetTempPath(), $"runeshape-selfrepair-{Guid.NewGuid():N}.zip");
         try
         {
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+            using var http = httpClientFactory.CreateClient("GitHub");
             await using var stream = await http.GetStreamAsync(zipAsset.BrowserDownloadUrl);
             await using var fileStream = File.Create(tempZip);
             await stream.CopyToAsync(fileStream);
@@ -399,11 +391,36 @@ internal sealed class UpdateChecker(
         }
     }
 
-    private static async Task<GitHubRelease?> FetchLatestReleaseAsync(string owner, string repo, bool ignorePrereleases)
+    private async Task<GitHubRelease?> FetchLatestReleaseWithRetryAsync(string owner, string repo, bool ignorePrereleases)
     {
-        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-        http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("RuneshapePriceChecker", "1.0"));
-        http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+        while (!_stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                return await FetchLatestReleaseAsync(owner, repo, ignorePrereleases).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError("GitHub API unreachable ({Reason}). Retrying in 10s...", ex.Message);
+                dashboard.SetStatus("GitHub API unreachable — retrying...", "red");
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(10), _stoppingToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+            }
+        }
+
+        _stoppingToken.ThrowIfCancellationRequested();
+        return null;
+    }
+
+    private async Task<GitHubRelease?> FetchLatestReleaseAsync(string owner, string repo, bool ignorePrereleases)
+    {
+        using var http = httpClientFactory.CreateClient("GitHub");
 
         var url = $"https://api.github.com/repos/{owner}/{repo}/releases?per_page=10";
 

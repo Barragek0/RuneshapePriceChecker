@@ -174,14 +174,19 @@ public sealed class Poe2WindowResolutionService(
             return;
         }
 
-        if (!TryCreateWindowRelativeRegion(topLeft, width, height, profile, out var region, out var validationError))
+        OcrCaptureRegion? region;
+        try
+        {
+            region = OcrCaptureRegionResolver.Resolve(topLeft.X, topLeft.Y, width, height, profile);
+        }
+        catch (InvalidOperationException ex)
         {
             if (!string.Equals(_currentResolutionKey, resolutionKey, StringComparison.OrdinalIgnoreCase) || _currentCaptureRegion is not null)
             {
                 logger.LogWarning(
                     "OCR profile for resolution {Resolution} is invalid ({Reason}). OCR capture will remain disabled until the profile is fixed.",
                     resolutionKey,
-                    validationError);
+                    ex.Message);
             }
 
             _currentResolutionKey = resolutionKey;
@@ -239,45 +244,6 @@ public sealed class Poe2WindowResolutionService(
         {
             logger.LogInformation("PoE2 is not foreground; OCR scanning is paused.");
         }
-    }
-
-    private static bool TryCreateWindowRelativeRegion(
-        NativeMethods.POINT topLeft,
-        int windowWidth,
-        int windowHeight,
-        OcrResolutionProfile profile,
-        out OcrCaptureRegion region,
-        out string validationError)
-    {
-        region = default!;
-
-        if (profile.CaptureWidth <= 0 || profile.CaptureHeight <= 0)
-        {
-            validationError = "capture size must be positive";
-            return false;
-        }
-
-        if (profile.CaptureOffsetX < 0 || profile.CaptureOffsetY < 0)
-        {
-            validationError = "offsets must be non-negative";
-            return false;
-        }
-
-        if (profile.CaptureOffsetX + profile.CaptureWidth > windowWidth ||
-            profile.CaptureOffsetY + profile.CaptureHeight > windowHeight)
-        {
-            validationError = "offset + size extends outside the PoE2 client area";
-            return false;
-        }
-
-        region = new OcrCaptureRegion(
-            topLeft.X + profile.CaptureOffsetX,
-            topLeft.Y + profile.CaptureOffsetY,
-            profile.CaptureWidth,
-            profile.CaptureHeight);
-
-        validationError = string.Empty;
-        return true;
     }
 
     private static List<Poe2WindowCandidate> FindPoe2WindowCandidates()
