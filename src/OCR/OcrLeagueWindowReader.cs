@@ -62,14 +62,14 @@ public sealed class OcrLeagueWindowReader(
                 return new LeagueWindowSnapshot(Array.Empty<string>(), capturedAt, InterfaceDetected: _lastInterfaceDetected, CaptureMethod: ResolveStatusLine());
             }
 
-            if (_appOptions.CurrentValue.DebugLogging && !_tesseractExecutionConfirmedLogged)
+            if (_appOptions.CurrentValue.LogLevel <= LogLevel.Debug && !_tesseractExecutionConfirmedLogged)
             {
                 _tesseractExecutionConfirmedLogged = true;
                 logger.LogDebug("OCR engine confirmed: tesseract executed successfully.");
             }
 
             var lines = ExtractLikelyItemNames(rawText);
-            if (_appOptions.CurrentValue.DebugLogging)
+            if (_appOptions.CurrentValue.LogLevel <= LogLevel.Debug)
             {
                 var yPositions = _lastRowYPositions;
                 var items = lines.Count == 0
@@ -118,7 +118,7 @@ public sealed class OcrLeagueWindowReader(
         if (!windowResolutionProvider.IsPoe2WindowForeground || !IsPoe2ForegroundNow())
         {
             _lastInterfaceDetected = false;
-            if (_appOptions.CurrentValue.DebugLogging && !_waitingForForegroundWindowLogged)
+            if (_appOptions.CurrentValue.LogLevel <= LogLevel.Debug && !_waitingForForegroundWindowLogged)
             {
                 _waitingForForegroundWindowLogged = true;
                 logger.LogDebug("OCR paused: waiting for Path of Exile 2 to be the active foreground window.");
@@ -132,7 +132,7 @@ public sealed class OcrLeagueWindowReader(
 
         if (options.UseWindowClientCapture && windowResolutionProvider.CurrentWindowCaptureContext is null)
         {
-            if (_appOptions.CurrentValue.DebugLogging && !_waitingForWindowContextLogged)
+            if (_appOptions.CurrentValue.LogLevel <= LogLevel.Debug && !_waitingForWindowContextLogged)
             {
                 _waitingForWindowContextLogged = true;
                 logger.LogDebug("OCR warm-up: waiting for PoE2 window capture context before first scan.");
@@ -147,7 +147,7 @@ public sealed class OcrLeagueWindowReader(
         ValidateRegion(region);
 
         using var capturedBitmap = CaptureBitmap(region, out var captureMethod, options);
-        if (_appOptions.CurrentValue.DebugLogging &&
+        if (_appOptions.CurrentValue.LogLevel <= LogLevel.Debug &&
             !string.Equals(_lastCaptureMethod, captureMethod, StringComparison.OrdinalIgnoreCase))
         {
             logger.LogDebug("OCR capture source active: {CaptureMethod}.", captureMethod);
@@ -157,7 +157,7 @@ public sealed class OcrLeagueWindowReader(
 
         bool panelOpen = _listDetector.Update(capturedBitmap, out var diag);
 
-        if (_appOptions.CurrentValue.DebugLogging)
+        if (_appOptions.CurrentValue.LogLevel <= LogLevel.Debug)
         {
             var pxFormat = capturedBitmap.PixelFormat.ToString();
             logger.LogDebug(
@@ -383,21 +383,6 @@ public sealed class OcrLeagueWindowReader(
         result.UnlockBits(dstData);
 
         return result;
-    }
-
-    private string ExecuteTesseractForBitmap(Bitmap bitmap, int psm, OcrOptions options)
-    {
-        var engine = GetOrCreateEngine(options);
-        engine.SetPageSegMode(psm);
-        return engine.Recognize(bitmap, out _, 1);
-    }
-
-    private string ExecuteTesseractForBitmap(Bitmap bitmap, int psm, OcrOptions options, IReadOnlyList<string>? extraConfigs)
-    {
-        _ = extraConfigs;
-        var engine = GetOrCreateEngine(options);
-        engine.SetPageSegMode(psm);
-        return engine.Recognize(bitmap, out _, 1);
     }
 
     private string? _engineLanguage;

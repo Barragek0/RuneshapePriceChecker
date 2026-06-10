@@ -17,10 +17,6 @@ public static class OcrResolutionProfiles
         return Profiles.TryGetValue(resolutionKey, out profile!);
     }
 
-    public static IReadOnlyCollection<string> SupportedResolutions => Profiles.Keys;
-
-    public static IEnumerable<KeyValuePair<string, OcrResolutionProfile>> All => Profiles;
-
     public static OcrResolutionProfile? Interpolate(int width, int height)
     {
         if (Profiles.Count == 0) return null;

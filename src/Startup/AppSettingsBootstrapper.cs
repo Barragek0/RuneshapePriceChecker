@@ -8,7 +8,7 @@ public static class AppSettingsBootstrapper
     private const string DefaultAppSettingsJson = """
 {
     "App": {
-        "DebugLogging": false
+        "LogLevel": "Information"
     },
     "Pricing": {
         "PricingSource": "poe2scout",
@@ -22,7 +22,9 @@ public static class AppSettingsBootstrapper
         "Language": "eng",
         "SaveDebugImages": false,
         "DebugOverlay": false,
-        "HideDebugOverlayWhenInterfaceNotDetected": false
+        "HideDebugOverlayWhenInterfaceNotDetected": false,
+        "ShowPricingOverlay": true,
+        "ShowBanner": true
     },
     "Update": {
         "AutoUpdate": true,
@@ -95,7 +97,18 @@ public static class AppSettingsBootstrapper
 
         if (existing["App"] is JsonNode app)
         {
-            if (RenameKey(app, "EnableDebugLogging", "DebugLogging")) renamed = true;
+            if (app["EnableDebugLogging"] is JsonValue enableVal)
+            {
+                app["LogLevel"] = enableVal.GetValueKind() == System.Text.Json.JsonValueKind.True ? "Debug" : "Information";
+                app.AsObject().Remove("EnableDebugLogging");
+                renamed = true;
+            }
+            if (app["DebugLogging"] is JsonValue debugVal)
+            {
+                app["LogLevel"] = debugVal.GetValueKind() == System.Text.Json.JsonValueKind.True ? "Debug" : "Information";
+                app.AsObject().Remove("DebugLogging");
+                renamed = true;
+            }
         }
 
         if (existing["OCR"] is JsonNode ocr)

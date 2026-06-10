@@ -227,7 +227,6 @@ public sealed class DebugOverlayService(
             overlayForm.SetupConfirmed += rect =>
             {
                 SaveCustomOffsets(rect);
-                MarkSetupComplete();
             };
             overlayForm.GoBackClicked += () => goBack = true;
             overlayForm.Disposed += (_, _) =>
@@ -268,6 +267,7 @@ public sealed class DebugOverlayService(
             windowNode["CustomOffsetY"] = relY;
             windowNode["CustomWidth"] = rect.Width;
             windowNode["CustomHeight"] = rect.Height;
+            windowNode["InitialSetupComplete"] = true;
             root["Window"] = windowNode;
 
             File.WriteAllText(configPath, root.ToJsonString(new() { WriteIndented = true }) + Environment.NewLine, Encoding.UTF8);
@@ -277,29 +277,6 @@ public sealed class DebugOverlayService(
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to save custom offsets.");
-        }
-    }
-
-    private void MarkSetupComplete()
-    {
-        try
-        {
-            var configPath = Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json");
-            if (!File.Exists(configPath)) return;
-
-            var json = File.ReadAllText(configPath, Encoding.UTF8);
-            var root = JsonNode.Parse(json);
-            if (root is null) return;
-
-            var windowNode = root["Window"] as JsonObject ?? new JsonObject();
-            windowNode["InitialSetupComplete"] = true;
-            root["Window"] = windowNode;
-
-            File.WriteAllText(configPath, root.ToJsonString(new() { WriteIndented = true }) + Environment.NewLine, Encoding.UTF8);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Failed to mark setup complete.");
         }
     }
 

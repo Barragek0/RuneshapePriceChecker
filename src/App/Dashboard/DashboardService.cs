@@ -2,23 +2,16 @@ using System.Windows.Threading;
 
 namespace RuneshapePriceChecker.App.Dashboard;
 
-public sealed class DashboardService : IDisposable
+public sealed class DashboardService(DashboardLogSink sink) : IDisposable
 {
     public static Action<IProgress<int>>? UpdateTrigger { get; set; }
 
-    private readonly DashboardLogSink _sink;
+    private readonly DashboardLogSink _sink = sink;
     private Thread? _wpfThread;
     private DashboardWindow? _window;
     private readonly ManualResetEventSlim _windowReady = new();
     private volatile Action? _onWindowClosed;
     private volatile Action? _onWindowLoaded;
-
-    public Func<IProgress<int>, Task>? OnUpdateRequested { get; set; }
-
-    public DashboardService(DashboardLogSink sink)
-    {
-        _sink = sink;
-    }
 
     public void SetOnWindowClosed(Action callback)
     {

@@ -6,17 +6,11 @@ using Microsoft.Extensions.Options;
 
 namespace RuneshapePriceChecker.App;
 
-public sealed class CompactConsoleFormatter : ConsoleFormatter
+public sealed class CompactConsoleFormatter(IOptionsMonitor<SimpleConsoleFormatterOptions> options) : ConsoleFormatter(FormatterName)
 {
     public const string FormatterName = "runeshapepricechecker-compact";
 
-    private readonly IOptionsMonitor<SimpleConsoleFormatterOptions> _options;
-
-    public CompactConsoleFormatter(IOptionsMonitor<SimpleConsoleFormatterOptions> options)
-        : base(FormatterName)
-    {
-        _options = options;
-    }
+    private readonly IOptionsMonitor<SimpleConsoleFormatterOptions> _options = options;
 
     public override void Write<TState>(in LogEntry<TState> logEntry, IExternalScopeProvider? scopeProvider, TextWriter textWriter)
     {

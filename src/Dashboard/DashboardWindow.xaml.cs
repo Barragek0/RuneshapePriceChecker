@@ -16,9 +16,8 @@ public sealed partial class DashboardWindow : Window
 {
     private readonly DashboardLogSink _sink;
     private readonly string _configPath;
-    private double _baseFontSize = 12;
     private double _baseWindowWidth = 520;
-    private double _baseWindowHeight = 620;
+    private double _baseWindowHeight = 685;
     private bool _loading;
     private string _currentLeague = "Runes of Aldur";
 
@@ -43,6 +42,7 @@ public sealed partial class DashboardWindow : Window
         _sink.OnLogEntry += OnLogEntry;
         PopulateLanguageCombo();
         PopulatePricingSourceCombo();
+        PopulateLogLevelCombo();
         LoadSettings();
         _ = LoadLeaguesAsync();
 
@@ -92,7 +92,6 @@ public sealed partial class DashboardWindow : Window
 
         Width = _baseWindowWidth * scale;
         Height = _baseWindowHeight * scale;
-        _baseFontSize = 12 * scale;
     }
 
     private void OnLogEntry(LogEntry entry)
@@ -103,6 +102,7 @@ public sealed partial class DashboardWindow : Window
             {
                 "red" => (Brush)FindResource("RedBrush"),
                 "yellow" => (Brush)FindResource("YellowBrush"),
+                "white" => (Brush)FindResource("TextPrimary"),
                 _ => (Brush)FindResource("GreenBrush")
             };
 
@@ -458,7 +458,18 @@ public sealed partial class DashboardWindow : Window
             if (root is null) { _loading = false; return; }
 
             if (root["App"] is JsonNode app)
-                DebugLoggingCheck.IsChecked = app["DebugLogging"]?.GetValue<bool>() ?? false;
+            {
+                var logLevelStr = app["LogLevel"]?.GetValue<string>() ?? "Information";
+                for (var i = 0; i < LogLevelCombo.Items.Count; i++)
+                {
+                    if (LogLevelCombo.Items[i] is ComboBoxItem item &&
+                        string.Equals(item.Tag as string, logLevelStr, StringComparison.OrdinalIgnoreCase))
+                    {
+                        LogLevelCombo.SelectedIndex = i;
+                        break;
+                    }
+                }
+            }
 
             if (root["Pricing"] is JsonNode pricing)
             {
@@ -476,9 +487,12 @@ public sealed partial class DashboardWindow : Window
                 var isExalt = string.Equals(currency, "exalt", StringComparison.OrdinalIgnoreCase);
                 CurrencyChaosCheck.IsChecked = !isExalt;
                 CurrencyExaltCheck.IsChecked = isExalt;
-                RedThresholdBox.Text = pricing["RedThreshold"]?.GetValue<decimal>().ToString() ?? "0.5";
-                OrangeThresholdBox.Text = pricing["OrangeThreshold"]?.GetValue<decimal>().ToString() ?? "1.0";
-                GreenThresholdBox.Text = pricing["GreenThreshold"]?.GetValue<decimal>().ToString() ?? "5.0";
+                var red = pricing["RedThreshold"]?.GetValue<decimal>();
+                var orange = pricing["OrangeThreshold"]?.GetValue<decimal>();
+                var green = pricing["GreenThreshold"]?.GetValue<decimal>();
+                RedThresholdBox.Text = red?.ToString() ?? "0.5";
+                OrangeThresholdBox.Text = orange?.ToString() ?? "1.0";
+                GreenThresholdBox.Text = green?.ToString() ?? "5.0";
             }
 
             if (root["OCR"] is JsonNode ocr)
@@ -502,7 +516,7 @@ public sealed partial class DashboardWindow : Window
             }
 
             if (root["Update"] is JsonNode update)
-                AutoUpdateCheck.IsChecked = update["AutoUpdate"]?.GetValue<bool>() ?? false;
+                AutoUpdateCheck.IsChecked = update["AutoUpdate"]?.GetValue<bool>() ?? true;
         }
         catch { }
         finally { _loading = false; }
@@ -555,7 +569,7 @@ public sealed partial class DashboardWindow : Window
             rootObj["Update"] ??= new JsonObject();
 
             if (rootObj["App"] is JsonObject app)
-                app["DebugLogging"] = DebugLoggingCheck.IsChecked == true;
+                app["LogLevel"] = (LogLevelCombo.SelectedItem as ComboBoxItem)?.Tag as string ?? "Information";
 
             if (rootObj["Pricing"] is JsonObject pricing)
             {
@@ -713,6 +727,15 @@ public sealed partial class DashboardWindow : Window
         PricingSourceCombo.Items.Add("poe2scout");
         PricingSourceCombo.Items.Add("poe.ninja");
         PricingSourceCombo.SelectedIndex = 0;
+    }
+
+    private void PopulateLogLevelCombo()
+    {
+        LogLevelCombo.Items.Clear();
+        LogLevelCombo.Items.Add(new ComboBoxItem { Content = "Trace", Tag = "Trace" });
+        LogLevelCombo.Items.Add(new ComboBoxItem { Content = "Debug", Tag = "Debug" });
+        LogLevelCombo.Items.Add(new ComboBoxItem { Content = "Information", Tag = "Information" });
+        LogLevelCombo.SelectedIndex = 2; // Information
     }
 
     private void SaveWindowPosition()

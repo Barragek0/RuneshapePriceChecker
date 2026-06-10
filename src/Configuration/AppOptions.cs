@@ -1,9 +1,10 @@
+using Microsoft.Extensions.Logging;
+
 namespace RuneshapePriceChecker.Configuration;
 
 public sealed class AppOptions
 {
-    public bool DebugLogging { get; set; } = false;
-    public string? ForceWindowSize { get; set; }
+    public LogLevel LogLevel { get; set; } = LogLevel.Information;
     public bool ForceUpdateAvailable { get; set; } = false;
     public bool AutoApplyUpdate { get; set; } = false;
 }

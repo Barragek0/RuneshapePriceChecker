@@ -8,9 +8,9 @@
         Title="RuneshapePriceChecker"
         SourceInitialized="Window_SourceInitialized"
         MinWidth="444"
-        MinHeight="652"
+        MinHeight="685"
         Width="444"
-        Height="652"
+        Height="685"
         WindowStartupLocation="Manual"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True"
@@ -51,6 +51,8 @@
                          Color="#2A2E38"/>
         <SolidColorBrush x:Key="DarkGreenBgBrush"
                          Color="#0D3320"/>
+        <SolidColorBrush x:Key="GreenBtnBrush"
+                         Color="#118C5C"/>
 
         <Style TargetType="ToolTip">
             <Setter Property="ToolTipService.InitialShowDelay"
@@ -161,7 +163,11 @@
                                     CornerRadius="4"/>
                             <Border x:Name="HoverCircle"
                                     Background="Transparent"
-                                    CornerRadius="100"/>
+                                    CornerRadius="4"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Width="28"
+                                    Height="28"/>
                             <ContentPresenter HorizontalAlignment="Center"
                                               VerticalAlignment="Center"/>
                         </Grid>
@@ -223,6 +229,37 @@
                                 <Setter TargetName="CheckBorder"
                                         Property="BorderBrush"
                                         Value="{StaticResource AccentBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="ToggleButton">
+            <Setter Property="OverridesDefaultStyle"
+                    Value="True"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Border"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver"
+                                     Value="True">
+                                <Setter TargetName="Border"
+                                        Property="Background"
+                                        Value="{StaticResource SurfaceAltHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked"
+                                     Value="True">
+                                <Setter TargetName="Border"
+                                        Property="Background"
+                                        Value="{StaticResource SurfaceAltHoverBrush}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -310,7 +347,7 @@
                                      Value="True">
                                 <Setter TargetName="Border"
                                         Property="Background"
-                                        Value="{StaticResource ScrollThumbBrush}"/>
+                                        Value="{StaticResource SurfaceAltHoverBrush}"/>
                                 <Setter Property="Foreground"
                                         Value="{StaticResource TextPrimary}"/>
                             </Trigger>
@@ -333,6 +370,34 @@
                     Value="12"/>
             <Setter Property="CaretBrush"
                     Value="{StaticResource TextPrimary}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border x:Name="Border"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="3">
+                            <ScrollViewer x:Name="PART_ContentHost"
+                                          Margin="{TemplateBinding Padding}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsFocused"
+                                     Value="True">
+                                <Setter TargetName="Border"
+                                        Property="BorderBrush"
+                                        Value="#1C1F26"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver"
+                                     Value="True">
+                                <Setter TargetName="Border"
+                                        Property="BorderBrush"
+                                        Value="#1C1F26"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style x:Key="SectionHeader"
@@ -544,19 +609,19 @@
                             </ItemsControl>
                         </ScrollViewer>
                         <Button x:Name="CopyLogButton"
-                                Width="24"
-                                Height="24"
+                                Width="35"
+                                Height="35"
                                 Style="{StaticResource IconButtonStyle}"
                                 HorizontalAlignment="Right"
                                 VerticalAlignment="Top"
                                 Background="Transparent"
                                 BorderThickness="0"
-                                Margin="0,5,18,0"
+                                Margin="0,-1,10,0"
                                 Click="CopyLog_Click"
                                 ToolTip="Copy log to clipboard">
                             <TextBlock Text="&#x2398;"
                                        Foreground="{StaticResource TextSecondary}"
-                                       FontSize="13"
+                                       FontSize="19"
                                        HorizontalAlignment="Center"
                                        VerticalAlignment="Center"/>
                         </Button>
@@ -582,7 +647,7 @@
                             <Button x:Name="SetupContinueButton"
                                     Width="160"
                                     Height="36"
-                                    Background="#34D399"
+                                    Background="{StaticResource GreenBtnBrush}"
                                     Foreground="White"
                                     FontSize="14"
                                     FontWeight="Bold"
@@ -611,14 +676,29 @@
                                 <TextBlock Style="{StaticResource SectionHeader}"
                                            Text="App"/>
                                 <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="*"/>
                                     </Grid.ColumnDefinitions>
-                                    <CheckBox x:Name="DebugLoggingCheck"
-                                              Grid.Column="0">Debug logging</CheckBox>
                                     <CheckBox x:Name="AutoUpdateCheck"
-                                              Grid.Column="1">Check for updates</CheckBox>
+                                              Grid.Row="0"
+                                              Grid.Column="0"
+                                              VerticalAlignment="Center">Check for updates</CheckBox>
+                                    <StackPanel Grid.Row="0"
+                                                Grid.RowSpan="2"
+                                                Grid.Column="1">
+                                        <TextBlock Style="{StaticResource FieldLabel}"
+                                                   Text="Log Level"/>
+                                        <ComboBox x:Name="LogLevelCombo"
+                                                  Width="130"
+                                                  HorizontalAlignment="Left"
+                                                  Margin="14,0,0,0"
+                                                  IsEditable="False"/>
+                                    </StackPanel>
                                 </Grid>
 
                                 <!-- spacer -->
@@ -657,11 +737,10 @@
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="*"/>
                                     </Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="0"
-                                                Margin="14,0,0,0">
+                                    <StackPanel Grid.Column="0">
                                         <TextBlock Style="{StaticResource FieldLabel}"
                                                    Text="Display Currency"
-                                                   Margin="0,0,0,4"/>
+                                                   Margin="14,0,0,4"/>
                                         <StackPanel Orientation="Horizontal">
                                             <CheckBox x:Name="CurrencyChaosCheck"
                                                       Content="Chaos"
@@ -782,7 +861,7 @@
                                 <Button x:Name="SaveBtn"
                                         Width="80"
                                         Height="32"
-                                        Background="{StaticResource GreenBrush}"
+                                        Background="{StaticResource GreenBtnBrush}"
                                         Foreground="White"
                                         BorderThickness="0"
                                         FontSize="12"

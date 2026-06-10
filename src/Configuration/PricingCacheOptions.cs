@@ -8,8 +8,6 @@ public sealed class PricingCacheOptions
     public string ExchangeOverviewPath { get; set; } = "/poe2/api/economy/exchange/current/overview";
     public string StashItemOverviewPath { get; set; } = "/poe2/api/economy/stash/current/item/overview";
 
-    public string Poe2ScoutBaseUrl { get; set; } = "https://api.poe2scout.com/poe2";
-
     public string League { get; set; } = "Runes of Aldur";
 
     public string[] IncludedTypes { get; set; } =

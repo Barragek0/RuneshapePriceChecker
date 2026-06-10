@@ -96,14 +96,14 @@ public sealed class Poe2ScoutClient(HttpClient httpClient, IOptionsMonitor<AppOp
                     if (string.Equals(name, "Exalted Orb", StringComparison.OrdinalIgnoreCase) && exaltValue == 0)
                         exaltValue = chaos;
                 }
-                if (appOptions.CurrentValue.DebugLogging)
+                if (appOptions.CurrentValue.LogLevel <= LogLevel.Debug)
                 {
                     var sampleNames = items.Take(5).Select(i => GetString(i, "Text") ?? "?").ToList();
                     var sampleValues = items.Take(5).Select(i => GetDecimal(i, "CurrentPrice")).ToList();
                     var firstKeys = items.Count > 0
                         ? string.Join(", ", items[0].EnumerateObject().Select(p => p.Name))
                         : "-";
-                    logger.LogInformation("Fetched {Count} price rows from POE2Scout type {Category}. Sample: {Samples} Values: {Values} Keys: {Keys}", items.Count, cat, string.Join(", ", sampleNames), string.Join(", ", sampleValues), firstKeys);
+                    logger.LogDebug("Fetched {Count} price rows from POE2Scout type {Category}. Sample: {Samples} Values: {Values} | Keys: {Keys}", items.Count, cat, string.Join(", ", sampleNames), string.Join(", ", sampleValues), firstKeys);
                 }
                 else
                 {
@@ -137,13 +137,13 @@ public sealed class Poe2ScoutClient(HttpClient httpClient, IOptionsMonitor<AppOp
                     if (!string.IsNullOrWhiteSpace(normName))
                         uniqueCategoryRanges[normName] = (chaos, chaos);
                 }
-                if (appOptions.CurrentValue.DebugLogging)
+                if (appOptions.CurrentValue.LogLevel <= LogLevel.Debug)
                 {
                     var sampleNames = items.Take(5).Select(i => GetString(i, "Text") ?? "?").ToList();
                     var firstKeys = items.Count > 0
                         ? string.Join(", ", items[0].EnumerateObject().Select(p => p.Name))
                         : "-";
-                    logger.LogInformation("Fetched {Count} price rows from POE2Scout type Unique/{Category}. Sample: {Samples} Keys: {Keys}", items.Count, cat, string.Join(", ", sampleNames), firstKeys);
+                    logger.LogDebug("Fetched {Count} price rows from POE2Scout type Unique/{Category}. Sample: {Samples} | Keys: {Keys}", items.Count, cat, string.Join(", ", sampleNames), firstKeys);
                 }
                 else
                 {

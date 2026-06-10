@@ -8,6 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <AssemblyName>RuneshapePriceChecker</AssemblyName>
     <ApplicationIcon>img\rune.ico</ApplicationIcon>
   </PropertyGroup>

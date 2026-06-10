@@ -65,7 +65,7 @@ public sealed class LeaguePricingWorker(
                     {
                         try
                         {
-                            logger.LogDebug("Worker: OCR task completed, reading snapshot");
+                            logger.LogTrace("Worker: OCR task completed, reading snapshot");
                             latestSnapshot = await inFlightSnapshotTask.ConfigureAwait(false);
                             hasCompletedSnapshot = true;
                             logger.LogTrace("Worker: snapshot has {Count} items, interfaceDetected={Detected}", latestSnapshot.ItemNames.Count, latestSnapshot.InterfaceDetected);
@@ -80,8 +80,13 @@ public sealed class LeaguePricingWorker(
                     else
                     {
                         logger.LogTrace("Worker: OCR task timed out, waiting for completion");
-                        try { await inFlightSnapshotTask.ConfigureAwait(false); }
-                        catch (Exception ex) { logger.LogDebug(ex, "OCR task threw after timeout."); }
+                        try
+                        {
+                            latestSnapshot = await inFlightSnapshotTask.ConfigureAwait(false);
+                            hasCompletedSnapshot = true;
+                            logger.LogTrace("Worker: late snapshot has {Count} items", latestSnapshot.ItemNames.Count);
+                        }
+                        catch (Exception ex) { logger.LogTrace(ex, "OCR task threw after timeout."); }
                         inFlightSnapshotTask = null;
                     }
                 }
@@ -135,12 +140,12 @@ public sealed class LeaguePricingWorker(
 
                 var unpricedBanner = BuildUnpriceableBanner(snapshot.ItemNames);
 
-                if (appOptions.CurrentValue.DebugLogging)
+                if (appOptions.CurrentValue.LogLevel <= LogLevel.Debug)
                 {
                     LogVerboseSnapshot(snapshot, prices, logger);
                 }
 
-                logger.LogDebug("Worker: calling SetBannerMessage");
+                logger.LogTrace("Worker: calling SetBannerMessage");
                 debugOverlay.SetBannerMessage(unpricedBanner);
                 logger.LogTrace("Worker: calling SetDebugText");
                 debugOverlay.SetDebugText(snapshot.ItemNames, snapshot.RowYPositions, snapshot.InterfaceDetected, statusLine: snapshot.CaptureMethod);
@@ -249,6 +254,6 @@ public sealed class LeaguePricingWorker(
             return $"{itemName}={display}{matchDetail}";
         });
 
-        logger.LogDebug("Detected {Count} items with prices: {Entries}", snapshot.ItemNames.Count, string.Join(" | ", entries));
+        logger.LogTrace("Detected {Count} items with prices: {Entries}", snapshot.ItemNames.Count, string.Join(" | ", entries));
     }
 }

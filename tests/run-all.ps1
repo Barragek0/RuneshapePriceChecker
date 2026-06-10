@@ -10,7 +10,6 @@ Write-Host "======================================" -ForegroundColor Cyan
 # Setup: build the simulator once
 # ----------------------------------------------------------------
 $simulator = "$PSScriptRoot\OcrPricingSimulator\OcrPricingSimulator.csproj"
-$simDll = "$PSScriptRoot\OcrPricingSimulator\bin\Release\net8.0-windows\OcrPricingSimulator.dll"
 $mock = "$root\tests\mocks\pricing-mock.json"
 Write-Host ""
 Write-Host "--- Build simulator ---" -ForegroundColor DarkGray
@@ -48,7 +47,7 @@ if ($LASTEXITCODE -ne 0) { throw "Simulator failed (exit $LASTEXITCODE)" }
 $pass = 0; $fail = 0
 foreach ($line in ($raw | Where-Object { $_ -match '->' })) {
     if ($line -match '^(.+?)\s*->\s*(.+?)\s*\[(\S+)\]') {
-        $quote = $Matches[2].Trim(); $kind = $Matches[3].Trim()
+        $quote = $Matches[2].Trim()
         if ($quote -eq 'N/A' -or $quote -eq '...' -or $quote -eq '') { $fail++ }
         else { $pass++ }
     }

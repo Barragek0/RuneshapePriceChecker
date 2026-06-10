@@ -20,12 +20,9 @@ internal sealed class UpdateChecker(
     ILogger<UpdateChecker> logger,
     DashboardService dashboard) : IHostedService
 {
-    private volatile bool _updateAvailable;
     private string? _downloadUrl;
     private string? _localZipPath;
     private string? _latestVersion;
-
-    public bool IsUpdateAvailable => _updateAvailable;
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -86,7 +83,6 @@ internal sealed class UpdateChecker(
                 if (_localZipPath is not null)
                 {
                     _downloadUrl = "local";
-                    _updateAvailable = true;
                     dashboard.ShowUpdateButton();
                 }
             }
@@ -102,7 +98,6 @@ internal sealed class UpdateChecker(
                 if (_localZipPath is not null)
                 {
                     _downloadUrl = "local";
-                    _updateAvailable = true;
                     dashboard.ShowUpdateButton();
                 }
             }
@@ -157,7 +152,6 @@ internal sealed class UpdateChecker(
             _downloadUrl = zipAsset.BrowserDownloadUrl;
         }
 
-        _updateAvailable = true;
         _latestVersion = latestVersionText;
         dashboard.ShowUpdateButton();
 

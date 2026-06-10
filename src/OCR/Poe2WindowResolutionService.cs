@@ -46,6 +46,7 @@ public sealed class Poe2WindowResolutionService(
     private bool? _lastForegroundState;
     private bool _fullscreenWarningShown;
     private bool _uiBrightnessWarningShown;
+    private string _lastCustomRegionKey = string.Empty;
 
     public OcrCaptureRegion? CurrentCaptureRegion => _currentCaptureRegion;
 
@@ -149,7 +150,12 @@ public sealed class Poe2WindowResolutionService(
             windowOpts.CustomWidth is { } cw && windowOpts.CustomHeight is { } ch)
         {
             profile = new OcrResolutionProfile(cx, cy, cw, ch);
-            logger.LogDebug("Using custom setup region: X={X} Y={Y} W={W} H={H}", cx, cy, cw, ch);
+            var regionKey = $"{cx},{cy},{cw},{ch}";
+            if (!string.Equals(_lastCustomRegionKey, regionKey, StringComparison.Ordinal))
+            {
+                _lastCustomRegionKey = regionKey;
+                logger.LogDebug("Using custom setup region: X={X} Y={Y} W={W} H={H}", cx, cy, cw, ch);
+            }
         }
         else
         {
