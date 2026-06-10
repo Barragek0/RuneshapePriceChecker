@@ -25,7 +25,6 @@ public sealed class OcrLeagueWindowReader(
     private static readonly Regex MultiWhitespace = new("\\s+", RegexOptions.Compiled);
     private static readonly Regex NonNameChars = new("[^-A-Za-z0-9'� ]+", RegexOptions.Compiled);
     private bool _tesseractUnavailable;
-    private DateTime _tesseractUnavailableSince;
     private bool _windowCaptureUnavailableLogged;
     private bool _waitingForWindowContextLogged;
     private bool _waitingForForegroundWindowLogged;
@@ -52,9 +51,7 @@ public sealed class OcrLeagueWindowReader(
 
         if (_tesseractUnavailable)
         {
-            if (DateTime.UtcNow - _tesseractUnavailableSince < TimeSpan.FromSeconds(30))
-                return new LeagueWindowSnapshot(Array.Empty<string>(), capturedAt, InterfaceDetected: _lastInterfaceDetected, CaptureMethod: ResolveStatusLine());
-            _tesseractUnavailable = false;
+            return new LeagueWindowSnapshot(Array.Empty<string>(), capturedAt, InterfaceDetected: _lastInterfaceDetected, CaptureMethod: ResolveStatusLine());
         }
 
         try
@@ -90,7 +87,6 @@ public sealed class OcrLeagueWindowReader(
         catch (FileNotFoundException ex)
         {
             _tesseractUnavailable = true;
-            _tesseractUnavailableSince = DateTime.UtcNow;
             logger.LogWarning(
                 "OCR disabled: {Reason} Install Tesseract from https://github.com/UB-Mannheim/tesseract/wiki then restart RuneshapePriceChecker.",
                 ex.Message);
@@ -99,7 +95,6 @@ public sealed class OcrLeagueWindowReader(
         catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 2)
         {
             _tesseractUnavailable = true;
-            _tesseractUnavailableSince = DateTime.UtcNow;
             logger.LogWarning(
                 "OCR disabled: Tesseract not found. Install from https://github.com/UB-Mannheim/tesseract/wiki then restart RuneshapePriceChecker.");
             return new LeagueWindowSnapshot(Array.Empty<string>(), capturedAt, InterfaceDetected: _lastInterfaceDetected);
@@ -414,23 +409,31 @@ public sealed class OcrLeagueWindowReader(
             : "eng";
 
         if (_tesseractEngine is not null && string.Equals(_engineLanguage, language, StringComparison.OrdinalIgnoreCase))
+        {
+            logger.LogTrace("Tesseract: reusing existing engine for '{Lang}'", language);
             return _tesseractEngine;
+        }
 
+        logger.LogTrace("Tesseract: acquiring engine lock for '{Lang}'", language);
         lock (_engineLock)
         {
+            logger.LogTrace("Tesseract: inside engine lock");
             if (_tesseractEngine is not null && string.Equals(_engineLanguage, language, StringComparison.OrdinalIgnoreCase))
                 return _tesseractEngine;
 
             if (_tesseractEngine is not null)
             {
+                logger.LogTrace("Tesseract: disposing old engine");
                 _tesseractEngine.Dispose();
                 _tesseractEngine = null;
             }
 
             if (!TesseractBootstrapper.IsLanguageDataAvailable(language))
             {
+                logger.LogTrace("Tesseract: language data not available, downloading");
                 TesseractBootstrapper.EnsureLanguageDataAvailableAsync(language, CancellationToken.None)
                     .GetAwaiter().GetResult();
+                logger.LogTrace("Tesseract: language data download complete");
             }
 
             var tessDataPath = !string.IsNullOrWhiteSpace(options.TesseractDataPath)
@@ -440,8 +443,10 @@ public sealed class OcrLeagueWindowReader(
             if (string.IsNullOrWhiteSpace(tessDataPath))
                 throw new FileNotFoundException("Tesseract traineddata directory not found.");
 
+            logger.LogTrace("Tesseract: creating engine with path={Path} lang={Lang}", tessDataPath, language);
             _tesseractEngine = new NativeTesseractEngine(tessDataPath, language);
             _engineLanguage = language;
+            logger.LogTrace("Tesseract: engine created successfully");
             return _tesseractEngine;
         }
     }

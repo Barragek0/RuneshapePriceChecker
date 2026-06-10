@@ -146,6 +146,7 @@ public sealed class DebugOverlayService(
     private bool _wasHidden;
     private volatile bool _forceHidden;
     private volatile bool _setupInProgress;
+    private volatile bool _setupAttempted;
     public bool IsSetupInProgress => _setupInProgress;
     private Thread? _bannerThread;
     private BannerForm? _bannerForm;
@@ -162,12 +163,13 @@ public sealed class DebugOverlayService(
 
     public bool NeedsInitialSetup()
     {
-        return !_windowOptions.CurrentValue.InitialSetupComplete;
+        return !_windowOptions.CurrentValue.InitialSetupComplete && !_setupAttempted;
     }
 
     public void RunInitialSetup()
     {
         if (_setupInProgress) return;
+        _setupAttempted = true;
         var region = windowResolutionProvider.CurrentCaptureRegion;
         if (region is null) return;
 
@@ -210,6 +212,12 @@ public sealed class DebugOverlayService(
             dashboard.ShowSetupPrompt();
 
             continueClicked.Wait(TimeSpan.FromMinutes(5));
+
+            if (!continueClicked.IsSet)
+            {
+                dashboard.HideSetupPrompt();
+                break;
+            }
 
             dashboard.HideSetupPrompt();
 

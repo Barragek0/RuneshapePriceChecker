@@ -88,7 +88,7 @@ public sealed partial class DashboardWindow : Window
     private void InitializeScale()
     {
         var h = SystemParameters.PrimaryScreenHeight;
-        var scale = Math.Clamp(h / 1080.0, 0.85, 1.5);
+        var scale = Math.Clamp(h / 1080.0, 1, 1.5);
 
         Width = _baseWindowWidth * scale;
         Height = _baseWindowHeight * scale;

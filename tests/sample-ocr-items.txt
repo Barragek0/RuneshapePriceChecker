@@ -1,0 +1,41 @@
+# Exact matches
+1x Chaos Orb
+3x Divine Orb
+2x Exalted Orb
+1x Mirror of Kalandra
+1x Gemcutter's Prism
+1x Lesser Ward Rune
+
+# Uncut gem range checks (base family only, no level)
+Uncut Support Gem
+Uncut Skill Gem
+Uncut Spirit Gem
+
+# Uncut gem range checks (with level)
+Uncut Support Gem Level 1
+Uncut Skill Gem Level 10
+Uncut Spirit Gem Level 20
+
+# Unique item range checks
+Unique Accessory
+Unique Ring
+Unique Amulet
+Unique Belt
+Unique Jewellery
+Unique Weapon
+
+# Random Currency
+Random Currency
+
+# OCR variants
+1x orb of alchemy
+3x DIVINE ORB
+2x Exalted 0rb
+1x GEMCUTTERS PRISM
+
+# Tier fallback (with level suffix)
+Uncut Support Gem (Level 5)
+
+# Verisium/expedition items
+1x Celestial Alloy
+1x Carved Majesty

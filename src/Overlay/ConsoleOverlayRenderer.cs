@@ -31,6 +31,7 @@ public sealed class ConsoleOverlayRenderer(
             var overlay = GetOverlayForm();
             if (overlay is null)
             {
+                logger.LogDebug("PriceOverlay: form not available, skipping render");
                 return;
             }
 
@@ -287,17 +288,22 @@ public sealed class ConsoleOverlayRenderer(
                 return;
             }
 
+            logger.LogDebug("PriceOverlay: starting overlay thread");
             _overlayThread = new Thread(() =>
             {
+                logger.LogDebug("PriceOverlay: thread entered, creating form");
                 using var form = new PriceOverlayForm();
                 var _ = form.Handle;
+                logger.LogDebug("PriceOverlay: form handle created, pulsing");
                 lock (_sync)
                 {
                     _overlayForm = form;
                     Monitor.PulseAll(_sync);
                 }
 
+                logger.LogDebug("PriceOverlay: entering Application.Run");
                 Application.Run(form);
+                logger.LogDebug("PriceOverlay: Application.Run returned");
 
                 lock (_sync)
                 {
@@ -312,10 +318,16 @@ public sealed class ConsoleOverlayRenderer(
             _overlayThread.SetApartmentState(ApartmentState.STA);
             _overlayThread.Start();
 
+            logger.LogDebug("PriceOverlay: waiting for form creation");
             while (_overlayForm is null)
             {
-                Monitor.Wait(_sync);
+                if (!Monitor.Wait(_sync, TimeSpan.FromSeconds(5)))
+                {
+                    logger.LogWarning("Price overlay form creation timed out; overlay will be unavailable.");
+                    return;
+                }
             }
+            logger.LogDebug("PriceOverlay: form created, thread ready");
         }
     }
 

@@ -1,10 +1,12 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using RuneshapePriceChecker.Configuration;
 using RuneshapePriceChecker.Contracts;
 
 namespace RuneshapePriceChecker.Pricing;
 
-public sealed class Poe2ScoutClient(HttpClient httpClient, ILogger<Poe2ScoutClient> logger) : IPricingSource
+public sealed class Poe2ScoutClient(HttpClient httpClient, IOptionsMonitor<AppOptions> appOptions, ILogger<Poe2ScoutClient> logger) : IPricingSource
 {
     private const string BaseUrl = "https://api.poe2scout.com/poe2";
 
@@ -94,12 +96,19 @@ public sealed class Poe2ScoutClient(HttpClient httpClient, ILogger<Poe2ScoutClie
                     if (string.Equals(name, "Exalted Orb", StringComparison.OrdinalIgnoreCase) && exaltValue == 0)
                         exaltValue = chaos;
                 }
-                var sampleNames = items.Take(5).Select(i => GetString(i, "Text") ?? "?").ToList();
-                var sampleValues = items.Take(5).Select(i => GetDecimal(i, "CurrentPrice")).ToList();
-                var firstKeys = items.Count > 0
-                    ? string.Join(", ", items[0].EnumerateObject().Select(p => p.Name))
-                    : "-";
-                logger.LogInformation("Fetched {Count} price rows from POE2Scout type {Category}. Sample: {Samples} Values: {Values} Keys: {Keys}", items.Count, cat, string.Join(", ", sampleNames), string.Join(", ", sampleValues), firstKeys);
+                if (appOptions.CurrentValue.DebugLogging)
+                {
+                    var sampleNames = items.Take(5).Select(i => GetString(i, "Text") ?? "?").ToList();
+                    var sampleValues = items.Take(5).Select(i => GetDecimal(i, "CurrentPrice")).ToList();
+                    var firstKeys = items.Count > 0
+                        ? string.Join(", ", items[0].EnumerateObject().Select(p => p.Name))
+                        : "-";
+                    logger.LogInformation("Fetched {Count} price rows from POE2Scout type {Category}. Sample: {Samples} Values: {Values} Keys: {Keys}", items.Count, cat, string.Join(", ", sampleNames), string.Join(", ", sampleValues), firstKeys);
+                }
+                else
+                {
+                    logger.LogInformation("Fetched {Count} price rows from POE2Scout type {Category}.", items.Count, cat);
+                }
             }
             catch (HttpRequestException ex)
             {
@@ -128,11 +137,18 @@ public sealed class Poe2ScoutClient(HttpClient httpClient, ILogger<Poe2ScoutClie
                     if (!string.IsNullOrWhiteSpace(normName))
                         uniqueCategoryRanges[normName] = (chaos, chaos);
                 }
-                var sampleNames = items.Take(5).Select(i => GetString(i, "Text") ?? "?").ToList();
-                var firstKeys = items.Count > 0
-                    ? string.Join(", ", items[0].EnumerateObject().Select(p => p.Name))
-                    : "-";
-                logger.LogInformation("Fetched {Count} price rows from POE2Scout type Unique/{Category}. Sample: {Samples} Keys: {Keys}", items.Count, cat, string.Join(", ", sampleNames), firstKeys);
+                if (appOptions.CurrentValue.DebugLogging)
+                {
+                    var sampleNames = items.Take(5).Select(i => GetString(i, "Text") ?? "?").ToList();
+                    var firstKeys = items.Count > 0
+                        ? string.Join(", ", items[0].EnumerateObject().Select(p => p.Name))
+                        : "-";
+                    logger.LogInformation("Fetched {Count} price rows from POE2Scout type Unique/{Category}. Sample: {Samples} Keys: {Keys}", items.Count, cat, string.Join(", ", sampleNames), firstKeys);
+                }
+                else
+                {
+                    logger.LogInformation("Fetched {Count} price rows from POE2Scout type Unique/{Category}.", items.Count, cat);
+                }
             }
             catch (HttpRequestException ex)
             {

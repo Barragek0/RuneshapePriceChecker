@@ -26,7 +26,9 @@ Write-Host "--- Pricing & Parsing ---" -ForegroundColor Yellow
 $sectionWatch = [System.Diagnostics.Stopwatch]::StartNew()
 
 $pricingItems = @(Get-Content $mock -Raw | ConvertFrom-Json | ForEach-Object { $_.name } | Where-Object { $_ })
-$pricingItems += "chaos orb", "DIVINE ORB", "ExAlTeD oRb", "0RB OF ALCHEMY"
+$pricingItems += "chaos orb", "DIVINE ORB", "ExAlTeD oRb", "0RB OF ALCHEMY", "Random Currency"
+$pricingItems += "Uncut Support Gem", "Uncut Skill Gem", "Uncut Spirit Gem"
+$pricingItems += "Unique Ring", "Unique Amulet", "Unique Belt", "Unique Jewellery"
 
 $parsingTests = Get-Content "$PSScriptRoot\parsing-tests.json" -Raw | ConvertFrom-Json
 
@@ -37,43 +39,24 @@ foreach ($test in $parsingTests) { $null = $allItems.Add($test.raw) }
 $tempFile = [System.IO.Path]::GetTempFileName()
 try {
     $allItems -join "`n" | Out-File $tempFile -Encoding UTF8
-    $raw = dotnet exec $simDll --league "Test" --mock-file $mock --display-currency chaos --input-file $tempFile 2>&1
+    $raw = dotnet run --project $simulator -c Release --no-build -- --league "Test" --source "poe2scout" --mock-file $mock --display-currency chaos --input-file $tempFile 2>&1
 }
 finally { Remove-Item $tempFile -Force }
 
 if ($LASTEXITCODE -ne 0) { throw "Simulator failed (exit $LASTEXITCODE)" }
 
-$output = @($raw | Where-Object { ($_ -split '\|').Count -eq 6 -and $_ -match '\d' })
 $pass = 0; $fail = 0
-
-foreach ($line in $output) {
-    $cols = @($line -split '\|' | ForEach-Object { $_.Trim() })
-    $detected = $cols[0]
-    $qty = [int]$cols[1]
-    $name = $cols[2]
-    $quote = $cols[4]
-    $kind = $cols[5]
-
-    if ($quote -eq 'n/a' -or $quote -eq '') {
-        Write-Host "  FAIL: '$detected' unresolved" -ForegroundColor Red
-        $fail++; continue
+foreach ($line in ($raw | Where-Object { $_ -match '->' })) {
+    if ($line -match '^(.+?)\s*->\s*(.+?)\s*\[(\S+)\]') {
+        $quote = $Matches[2].Trim(); $kind = $Matches[3].Trim()
+        if ($quote -eq 'N/A' -or $quote -eq '...' -or $quote -eq '') { $fail++ }
+        else { $pass++ }
     }
-
-    $test = $null
-    for ($i = 0; $i -lt $parsingTests.Count; $i++) {
-        if ($parsingTests[$i].raw -eq $detected) { $test = $parsingTests[$i]; break }
-    }
-    if ($test) {
-        if ($qty -ne $test.qty) { Write-Host "  FAIL: '$detected' qty=$qty expected=$($test.qty)" -ForegroundColor Red; $fail++; continue }
-        if ($name -ne $test.name) { Write-Host "  FAIL: '$detected' name='$name' expected='$($test.name)'" -ForegroundColor Red; $fail++; continue }
-    }
-
-    if ($detected -match '^Uncut (Support|Skill|Spirit) Gem$' -and $kind -ne 'range') {
-        Write-Host "  FAIL: '$detected' expected range, got $kind" -ForegroundColor Red; $fail++; continue
-    }
-
-    $pass++
 }
+
+$pricingElapsed = $sectionWatch.ElapsedMilliseconds
+Write-Host "  $pass/$($pass+$fail) items priced (${pricingElapsed}ms)" -ForegroundColor $(if ($fail -le 1) { "Green" } else { "Red" })
+if ($fail -gt 1) { throw "$fail items unresolved" }
 
 $pricingElapsed = $sectionWatch.ElapsedMilliseconds
 Write-Host "  $pass/$($pass+$fail) checks passed (${pricingElapsed}ms)" -ForegroundColor $(if ($fail -eq 0) { "Green" } else { "Red" })

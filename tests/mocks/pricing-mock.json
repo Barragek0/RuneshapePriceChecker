@@ -100,23 +100,83 @@
         "price": 0.5
     },
     {
-        "name": "Uncut Skill Gem (Level 2)",
-        "price": 1.1
+        "name": "Uncut Skill Gem (Level 10)",
+        "price": 4.0
     },
     {
-        "name": "Uncut Skill Gem (Level 3)",
-        "price": 40.0
+        "name": "Uncut Skill Gem (Level 18)",
+        "price": 18.0
     },
     {
-        "name": "Uncut Spirit Gem (Level 1)",
-        "price": 3.0
+        "name": "Uncut Spirit Gem (Level 5)",
+        "price": 1.5
     },
     {
-        "name": "Uncut Spirit Gem (Level 2)",
-        "price": 4.5
+        "name": "Uncut Spirit Gem (Level 20)",
+        "price": 60.0
     },
     {
-        "name": "Uncut Spirit Gem (Level 3)",
-        "price": 66.2
+        "name": "Lesser Ward Rune",
+        "price": 1.5
+    },
+    {
+        "name": "Lesser Rebirth Rune",
+        "price": 1.8
+    },
+    {
+        "name": "Greater Ward Rune",
+        "price": 4.2
+    },
+    {
+        "name": "Perfect Stone Rune",
+        "price": 25.0
+    },
+    {
+        "name": "Celestial Alloy",
+        "price": 115.0
+    },
+    {
+        "name": "Carved Majesty",
+        "price": 358.0
+    },
+    {
+        "name": "Mageblood Utility Belt",
+        "price": 1250.0,
+        "category": "accessory"
+    },
+    {
+        "name": "Headhunter Heavy Belt",
+        "price": 980.0,
+        "category": "accessory"
+    },
+    {
+        "name": "Kalandra's Touch Ring",
+        "price": 340.0,
+        "category": "accessory"
+    },
+    {
+        "name": "Safrin's Resolve Ring",
+        "price": 28.0,
+        "category": "accessory"
+    },
+    {
+        "name": "The Gnashing Sash Wide Belt",
+        "price": 45.0,
+        "category": "accessory"
+    },
+    {
+        "name": "Astramentis Stellar Amulet",
+        "price": 210.0,
+        "category": "accessory"
+    },
+    {
+        "name": "Temporalis Silk Robe",
+        "price": 850.0,
+        "category": "armour"
+    },
+    {
+        "name": "Winter's Bite Glass Shank",
+        "price": 12.0,
+        "category": "weapon"
     }
 ]

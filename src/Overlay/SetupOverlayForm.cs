@@ -1,4 +1,5 @@
 using System.Drawing.Drawing2D;
+using System.Linq;
 using System.Runtime.InteropServices;
 
 namespace RuneshapePriceChecker.Overlay;
@@ -184,12 +185,18 @@ public sealed class SetupOverlayForm : Form
 
         try
         {
-            var imgPath = Path.Combine(AppContext.BaseDirectory, "img", "example.png");
-            if (File.Exists(imgPath))
+            var asm = typeof(SetupOverlayForm).Assembly;
+            var resourceName = asm.GetManifestResourceNames()
+                .FirstOrDefault(n => n.EndsWith("example.png", StringComparison.OrdinalIgnoreCase));
+            if (resourceName is not null)
             {
-                exampleImage = Image.FromFile(imgPath);
-                exampleW = exampleImage.Width;
-                exampleH = exampleImage.Height;
+                using var stream = asm.GetManifestResourceStream(resourceName);
+                if (stream is not null)
+                {
+                    exampleImage = Image.FromStream(stream);
+                    exampleW = exampleImage.Width;
+                    exampleH = exampleImage.Height;
+                }
             }
         }
         catch { exampleImage?.Dispose(); exampleImage = null; }

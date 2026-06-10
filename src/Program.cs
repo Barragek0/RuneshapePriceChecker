@@ -136,7 +136,8 @@ var host = Host.CreateDefaultBuilder(args)
     {
         logging.ClearProviders();
         logging.AddProvider(dashboardLoggerProvider);
-        logging.SetMinimumLevel(LogLevel.Debug);
+        logging.AddProvider(new FileLogProvider());
+        logging.SetMinimumLevel(LogLevel.Trace);
         logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
         logging.AddFilter("Microsoft.Extensions.Http.DefaultHttpClientFactory", LogLevel.Warning);
         logging.AddConsole(options =>
