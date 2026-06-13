@@ -605,7 +605,7 @@ public sealed partial class DashboardWindow : Window
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
                 FileName = "cmd",
-                Arguments = $"/c \"timeout /t 1 /nobreak >nul && start \"\" \"{exePath}\"\"",
+                Arguments = $"/c \"timeout /t 1 /nobreak >nul && start \"\" \"{exePath}\" --App:SuppressAlreadyRunningWarning=true\"",
                 UseShellExecute = false,
                 CreateNoWindow = true
             });
