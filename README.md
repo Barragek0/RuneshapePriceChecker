@@ -154,4 +154,4 @@ If your PoE2 resolution is unsupported, OCR and overlay pricing are disabled and
 Untested resolutions will show a warning popup on startup.
 
 ## Disclaimer
-While the vast majority of code in this project was written by a person (I'd estimate 95%), AI has been used to update documentation, fix bugs that I could not find a solution for myself and help target the best areas that are in need of refactoring for readability and maintainability.
+While the vast majority of code in this project was written by a person (I'd estimate 95%, if not including the test suite), AI has been used to update documentation, fix bugs that I could not find a solution for myself, help target the best areas that are in need of refactoring for readability and maintainability and create the test suite. The reason AI was used to create the entire test suite is because it would have taken me weeks to create a test suite of this size myself, with AI, it only took a couple of days.
