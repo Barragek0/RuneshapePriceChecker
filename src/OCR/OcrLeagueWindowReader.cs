@@ -1,4 +1,3 @@
-using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using RuneshapePriceChecker.App.Dashboard;
 using RuneshapePriceChecker.Configuration;
@@ -9,20 +8,36 @@ using Microsoft.Extensions.Options;
 
 namespace RuneshapePriceChecker.OCR;
 
-public sealed class OcrLeagueWindowReader(
-    IOptionsMonitor<OcrOptions> options,
-    IOptionsMonitor<AppOptions> appOptions,
-    IPoe2WindowResolutionProvider windowResolutionProvider,
-    ILogger<OcrLeagueWindowReader> logger,
-    ILoggerFactory loggerFactory,
-    DashboardService dashboard) : ILeagueWindowReader
+public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
 {
     private sealed record DebugCaptureContext(string DirectoryPath);
 
-    private readonly IOptionsMonitor<OcrOptions> _options = options;
-    private readonly IOptionsMonitor<AppOptions> _appOptions = appOptions;
-    private readonly OcrCaptureStrategy _captureStrategy = new(loggerFactory.CreateLogger<OcrCaptureStrategy>());
-    private readonly TesseractEngineManager _engineManager = new(loggerFactory.CreateLogger<TesseractEngineManager>());
+    private readonly IOptionsMonitor<OcrOptions> _options;
+    private readonly IOptionsMonitor<AppOptions> _appOptions;
+    private readonly IPoe2WindowResolutionProvider _windowResolutionProvider;
+    private readonly ILogger<OcrLeagueWindowReader> _logger;
+    private readonly DashboardService _dashboard;
+    private readonly OcrCaptureStrategy _captureStrategy;
+    private readonly TesseractEngineManager _engineManager;
+
+    public OcrLeagueWindowReader(
+        IOptionsMonitor<OcrOptions> options,
+        IOptionsMonitor<AppOptions> appOptions,
+        IPoe2WindowResolutionProvider windowResolutionProvider,
+        ILogger<OcrLeagueWindowReader> logger,
+        ILoggerFactory loggerFactory,
+        DashboardService dashboard)
+    {
+        _options = options;
+        _appOptions = appOptions;
+        _windowResolutionProvider = windowResolutionProvider;
+        _logger = logger;
+        _dashboard = dashboard;
+        _captureStrategy = new OcrCaptureStrategy(loggerFactory.CreateLogger<OcrCaptureStrategy>());
+        _engineManager = new TesseractEngineManager(loggerFactory.CreateLogger<TesseractEngineManager>());
+
+        _options.OnChange((updated, _) => { _engineManager.GetEngine(updated); });
+    }
 
     [Flags]
     private enum OcrLogState
@@ -42,6 +57,11 @@ public sealed class OcrLeagueWindowReader(
     private bool _lastInterfaceDetected = true;
     private DateTimeOffset _lastDebugImageSavedAtUtc = DateTimeOffset.MinValue;
     private readonly ListDetector _listDetector = new();
+
+    public void Warmup()
+    {
+        _ = _engineManager.GetEngine(_options.CurrentValue);
+    }
 
     private string ResolveStatusLine()
     {
@@ -75,7 +95,7 @@ public sealed class OcrLeagueWindowReader(
             if (_appOptions.CurrentValue.LogLevel <= LogLevel.Debug && !_logState.HasFlag(OcrLogState.TesseractExecutionConfirmed))
             {
                 _logState |= OcrLogState.TesseractExecutionConfirmed;
-                logger.LogDebug("OCR engine confirmed: tesseract executed successfully.");
+                _logger.LogDebug("OCR engine confirmed: tesseract executed successfully.");
             }
 
             var lines = OcrTextPostProcessor.ExtractLikelyItemNames(rawText);
@@ -88,16 +108,16 @@ public sealed class OcrLeagueWindowReader(
                         i < yPositions.Length
                             ? $"{line} @Y={yPositions[i]}"
                             : line));
-                logger.LogDebug("OCR detected {Count} items: {Items}", lines.Count, items);
+                _logger.LogDebug("OCR detected {Count} items: {Items}", lines.Count, items);
             }
 
-            dashboard.SetStatus("Scanning league panel", "green");
+            _dashboard.SetStatus("Scanning league panel", "green");
             return new LeagueWindowSnapshot(lines, capturedAt, _runContext.RowYPositions, InterfaceDetected: true, CaptureMethod: ResolveStatusLine());
         }
         catch (FileNotFoundException ex)
         {
             _logState |= OcrLogState.TesseractUnavailable;
-            logger.LogWarning(
+            _logger.LogWarning(
                 "OCR disabled: {Reason} Install Tesseract from https://github.com/UB-Mannheim/tesseract/wiki then restart RuneshapePriceChecker.",
                 ex.Message);
             return new LeagueWindowSnapshot(Array.Empty<string>(), capturedAt, InterfaceDetected: _lastInterfaceDetected);
@@ -105,13 +125,13 @@ public sealed class OcrLeagueWindowReader(
         catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 2)
         {
             _logState |= OcrLogState.TesseractUnavailable;
-            logger.LogWarning(
+            _logger.LogWarning(
                 "OCR disabled: Tesseract not found. Install from https://github.com/UB-Mannheim/tesseract/wiki then restart RuneshapePriceChecker.");
             return new LeagueWindowSnapshot(Array.Empty<string>(), capturedAt, InterfaceDetected: _lastInterfaceDetected);
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "OCR capture/recognition failed.");
+            _logger.LogError(ex, "OCR capture/recognition failed.");
             return new LeagueWindowSnapshot(Array.Empty<string>(), capturedAt, InterfaceDetected: _lastInterfaceDetected);
         }
     }
@@ -125,27 +145,31 @@ public sealed class OcrLeagueWindowReader(
             EnsureDebugImageDirectoryExists(options);
         }
 
-        if (!windowResolutionProvider.IsPoe2WindowForeground || !IsPoe2ForegroundNow())
+        if (!_windowResolutionProvider.IsPoe2WindowForeground || !IsPoe2ForegroundNow())
         {
             _lastInterfaceDetected = false;
-            if (_appOptions.CurrentValue.LogLevel <= LogLevel.Debug && !_logState.HasFlag(OcrLogState.ForegroundWindowLogged))
+            if (!_logState.HasFlag(OcrLogState.ForegroundWindowLogged))
             {
                 _logState |= OcrLogState.ForegroundWindowLogged;
-                logger.LogDebug("OCR paused: waiting for Path of Exile 2 to be the active foreground window.");
+                _logger.LogInformation("OCR paused: waiting for Path of Exile 2 to be the active foreground window.");
             }
 
-            dashboard.SetStatus("Waiting for PoE2 window", "amber");
+            _dashboard.SetStatus("Waiting for PoE2 window", "amber");
             return string.Empty;
         }
 
-        _logState &= ~OcrLogState.ForegroundWindowLogged;
+        if (_logState.HasFlag(OcrLogState.ForegroundWindowLogged))
+        {
+            _logState &= ~OcrLogState.ForegroundWindowLogged;
+            _logger.LogInformation("PoE2 foreground confirmed; OCR scanning is active.");
+        }
 
-        if (options.UseWindowClientCapture && windowResolutionProvider.CurrentWindowCaptureContext is null)
+        if (options.UseWindowClientCapture && _windowResolutionProvider.CurrentWindowCaptureContext is null)
         {
             if (_appOptions.CurrentValue.LogLevel <= LogLevel.Debug && !_logState.HasFlag(OcrLogState.WindowContextLogged))
             {
                 _logState |= OcrLogState.WindowContextLogged;
-                logger.LogDebug("OCR warm-up: waiting for PoE2 window capture context before first scan.");
+                _logger.LogDebug("OCR warm-up: waiting for PoE2 window capture context before first scan.");
             }
 
             return string.Empty;
@@ -156,14 +180,13 @@ public sealed class OcrLeagueWindowReader(
         var region = ResolveCaptureRegion();
         ValidateRegion(region);
 
-        var captureResult = _captureStrategy.Capture(region, windowResolutionProvider.CurrentWindowCaptureContext, options);
+        var captureResult = _captureStrategy.Capture(region, _windowResolutionProvider.CurrentWindowCaptureContext, options);
         using var capturedBitmap = captureResult.Bitmap;
         var captureMethod = captureResult.Method;
 
-        if (_appOptions.CurrentValue.LogLevel <= LogLevel.Debug &&
-            !string.Equals(_runContext.CaptureMethod, captureMethod, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(_runContext.CaptureMethod, captureMethod, StringComparison.OrdinalIgnoreCase))
         {
-            logger.LogDebug("OCR capture source active: {CaptureMethod}.", captureMethod);
+            _logger.LogInformation("OCR capture source active: {CaptureMethod}.", captureMethod);
         }
 
         _runContext = _runContext with { CaptureMethod = captureMethod };
@@ -186,7 +209,7 @@ public sealed class OcrLeagueWindowReader(
 
     private bool IsPoe2ForegroundNow()
     {
-        var context = windowResolutionProvider.CurrentWindowCaptureContext;
+        var context = _windowResolutionProvider.CurrentWindowCaptureContext;
         if (context is null)
         {
             return false;
@@ -206,23 +229,17 @@ public sealed class OcrLeagueWindowReader(
     {
         bool panelOpen = _listDetector.Update(capturedBitmap, out var diag);
 
-        if (_appOptions.CurrentValue.LogLevel <= LogLevel.Debug)
-        {
-            var pxFormat = capturedBitmap.PixelFormat.ToString();
-            logger.LogDebug(
-                "Panel check: region=({RegX},{RegY} {RegW}x{RegH}) scanX={ScanX0}-{ScanX1} scanY={ScanY} fmt={Fmt} open={Open}",
-                region.X, region.Y, region.Width, region.Height,
-                region.X + (int)(region.Width * ListDetector.LeftFraction),
-                region.X + (int)(region.Width * ListDetector.RightFraction),
-                region.Y + (int)(region.Height * ListDetector.TopRowFraction),
-                pxFormat, diag.PanelOpen);
-            if (_appOptions.CurrentValue.LogLevel <= LogLevel.Trace)
-            {
-                logger.LogTrace(
-                    "Panel check diagnostics: bri={Brightness} black={Black}/{Total} minSum={MinSum}",
-                    diag.AvgBrightness, diag.BlackCount, diag.TotalCount, diag.MinSum);
-            }
-        }
+        var pxFormat = capturedBitmap.PixelFormat.ToString();
+        _logger.LogDebug(
+            "Panel check: region=({RegX},{RegY} {RegW}x{RegH}) scanX={ScanX0}-{ScanX1} scanY={ScanY} fmt={Fmt} open={Open}",
+            region.X, region.Y, region.Width, region.Height,
+            region.X + (int)(region.Width * ListDetector.LeftFraction),
+            region.X + (int)(region.Width * ListDetector.RightFraction),
+            region.Y + (int)(region.Height * ListDetector.TopRowFraction),
+            pxFormat, diag.PanelOpen);
+        _logger.LogTrace(
+            "Panel check diagnostics: bri={Brightness} black={Black}/{Total} minSum={MinSum}",
+            diag.AvgBrightness, diag.BlackCount, diag.TotalCount, diag.MinSum);
 
         if (!panelOpen)
         {
@@ -239,11 +256,11 @@ public sealed class OcrLeagueWindowReader(
             }
 
             _lastInterfaceDetected = false;
-            dashboard.SetStatus("Waiting for league panel", "amber");
+            _dashboard.SetStatus("Waiting for league panel", "amber");
             return false;
         }
 
-        dashboard.SetStatus("Scanning league panel", "green");
+        _dashboard.SetStatus("Scanning league panel", "green");
         _lastInterfaceDetected = true;
         return true;
     }
@@ -268,14 +285,14 @@ public sealed class OcrLeagueWindowReader(
             if (!_logState.HasFlag(OcrLogState.DebugDirectoryLogged))
             {
                 _logState |= OcrLogState.DebugDirectoryLogged;
-                logger.LogInformation("OCR debug image output enabled. Directory: {Path}", Path.GetFullPath(directory));
+                _logger.LogInformation("OCR debug image output enabled. Directory: {Path}", Path.GetFullPath(directory));
             }
 
             var rawPath = Path.Combine(directory, "raw.png");
 
             OcrCaptureStrategy.SaveBitmapWithOverwrite(rawImage, rawPath);
 
-            logger.LogInformation(
+            _logger.LogInformation(
                 "Saved OCR debug images. Method={Method} Region=X={X} Y={Y} W={W} H={H} Raw={RawPath}. Row images overwrite as N.png and backup-guard probes overwrite as Nbg.png.",
                 captureMethod,
                 region.X,
@@ -288,12 +305,12 @@ public sealed class OcrLeagueWindowReader(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to save OCR debug image.");
+            _logger.LogError(ex, "Failed to save OCR debug image.");
             return null;
         }
     }
 
-    private string ResolveDebugImageDirectory(OcrOptions options)
+    private static string ResolveDebugImageDirectory(OcrOptions options)
     {
         if (string.IsNullOrWhiteSpace(options.DebugImageDirectory))
         {
@@ -314,18 +331,18 @@ public sealed class OcrLeagueWindowReader(
             if (!_logState.HasFlag(OcrLogState.DebugDirectoryLogged))
             {
                 _logState |= OcrLogState.DebugDirectoryLogged;
-                logger.LogInformation("OCR debug image output enabled. Directory: {Path}", Path.GetFullPath(directory));
+                _logger.LogInformation("OCR debug image output enabled. Directory: {Path}", Path.GetFullPath(directory));
             }
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to create OCR debug image directory: {Path}", directory);
+            _logger.LogError(ex, "Failed to create OCR debug image directory: {Path}", directory);
         }
     }
 
     private OcrCaptureRegion ResolveCaptureRegion()
     {
-        var region = windowResolutionProvider.CurrentCaptureRegion;
+        var region = _windowResolutionProvider.CurrentCaptureRegion;
         if (region is null)
         {
             throw new InvalidOperationException("No OCR capture region is available. Add/update the current resolution in OcrResolutionProfiles.");
@@ -340,6 +357,11 @@ public sealed class OcrLeagueWindowReader(
         {
             throw new InvalidOperationException("OCR capture region must have positive width and height.");
         }
+    }
+
+    public void Dispose()
+    {
+        _engineManager.Dispose();
     }
 
     private static class NativeMethods

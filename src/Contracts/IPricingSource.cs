@@ -3,6 +3,7 @@ namespace RuneshapePriceChecker.Contracts;
 public interface IPricingSource
 {
     Task<IReadOnlyList<string>> FetchLeaguesAsync(CancellationToken cancellationToken);
+
     Task<PricingSnapshot> FetchPricesAsync(string league, CancellationToken cancellationToken);
 }
 
@@ -12,4 +13,5 @@ public sealed record PricingSnapshot(
     decimal DivineOrbChaosValue,
     decimal ExaltedOrbChaosValue,
     decimal CurrencyMinChaos = 0m,
-    decimal CurrencyMaxChaos = 0m);
+    decimal CurrencyMaxChaos = 0m,
+    IReadOnlyDictionary<string, string>? UniqueItemBaseTypes = null);

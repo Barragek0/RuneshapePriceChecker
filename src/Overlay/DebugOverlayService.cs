@@ -529,10 +529,6 @@ public sealed class DebugOverlayService(
                 Invalidate();
         }
 
-        public void SetAnchorRegions(int leftX, int rightX, int y, int radiusX, int radiusY)
-        {
-        }
-
         public void SetStatusLine(string? status)
         {
             _statusLine = status;

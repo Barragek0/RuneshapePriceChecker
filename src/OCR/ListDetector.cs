@@ -16,8 +16,8 @@ public sealed class ListDetector
     public const double RightFraction = 0.98;
     public const double TopRowFraction = 0.26;
 
-    private const int BrightnessThreshold = 120;
-    private const int BlackPixelMaxSum = 100;
+    private const int BrightnessThreshold = 130;
+    private const int BlackPixelMaxSum = 20;
     private const int MinBlackPixels = 100;
 
     private int _brightStreak;
@@ -35,7 +35,7 @@ public sealed class ListDetector
         if (rawBright) { _brightStreak++; _darkStreak = 0; }
         else { _darkStreak++; _brightStreak = 0; }
 
-        if (!IsOpen && _brightStreak >= 2) IsOpen = true;
+        if (!IsOpen && _brightStreak >= 3) IsOpen = true;
         else if (IsOpen && _darkStreak >= 3) IsOpen = false;
 
         return IsOpen;

@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging;
+
 namespace RuneshapePriceChecker.App.Dashboard;
 
 public sealed class DashboardLogSink : IDisposable
@@ -5,7 +7,7 @@ public sealed class DashboardLogSink : IDisposable
     private const int MaxEntries = 1000;
     private const int FlushIntervalMs = 50;
     private readonly LinkedList<LogEntry> _recent = new();
-    private readonly List<LogEntry> _pending = new();
+    private readonly List<LogEntry> _pending = [];
     private readonly object _pendingLock = new();
     private readonly Timer _flushTimer;
 
@@ -16,7 +18,7 @@ public sealed class DashboardLogSink : IDisposable
         _flushTimer = new Timer(_ => Flush(), null, Timeout.Infinite, Timeout.Infinite);
     }
 
-    public void Emit(string message, string color = "default")
+    public void Emit(string message, string color = "default", LogLevel logLevel = LogLevel.Information)
     {
         var now = DateTime.Now;
 
@@ -35,7 +37,7 @@ public sealed class DashboardLogSink : IDisposable
                 }
             }
 
-            var entry = new LogEntry(now, message, color, 1);
+            var entry = new LogEntry(now, message, color, 1, logLevel);
             _recent.AddFirst(entry);
             while (_recent.Count > MaxEntries)
                 _recent.RemoveLast();
@@ -51,7 +53,7 @@ public sealed class DashboardLogSink : IDisposable
         lock (_pendingLock)
         {
             if (_pending.Count == 0) return;
-            batch = _pending.ToArray();
+            batch = [.. _pending];
             _pending.Clear();
         }
 
@@ -76,7 +78,7 @@ public sealed class DashboardLogSink : IDisposable
     }
 }
 
-public sealed record LogEntry(DateTime Timestamp, string Message, string Color, int Count)
+public sealed record LogEntry(DateTime Timestamp, string Message, string Color, int Count, LogLevel LogLevel)
 {
     public string DisplayText => Count > 1
         ? $"{Timestamp:HH:mm:ss}  {Message}  (x{Count})"

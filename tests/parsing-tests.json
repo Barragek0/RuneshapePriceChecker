@@ -68,5 +68,95 @@
         "raw": "Uncut Skill Cem Level 19",
         "qty": 1,
         "name": "Uncut Skill Cem Level 19"
+    },
+    {
+        "raw": "1 Orb of Alchemy",
+        "qty": 1,
+        "name": "Orb of Alchemy"
+    },
+    {
+        "raw": "0RB OF ALCHEMY",
+        "qty": 2,
+        "name": "Orb of Alchemy"
+    },
+    {
+        "raw": "5Exalted Orb",
+        "qty": 5,
+        "name": "Exalted Orb"
+    },
+    {
+        "raw": "5x Exalted Orb",
+        "qty": 5,
+        "name": "Exalted Orb"
+    },
+    {
+        "raw": "Ix Regal Orb",
+        "qty": 1,
+        "name": "Regal Orb"
+    },
+    {
+        "raw": "lx Chaos Orb",
+        "qty": 1,
+        "name": "Chaos Orb"
+    },
+    {
+        "raw": "1 Exalted Orb",
+        "qty": 1,
+        "name": "Exalted Orb"
+    },
+    {
+        "raw": "3 x Divine Orb",
+        "qty": 3,
+        "name": "Divine Orb"
+    },
+    {
+        "raw": "10x Orb of Alchemy",
+        "qty": 10,
+        "name": "Orb of Alchemy"
+    },
+    {
+        "raw": "1x Orb of Transmutation",
+        "qty": 1,
+        "name": "Orb of Transmutation"
+    },
+    {
+        "raw": "1x Orb of Augmentation",
+        "qty": 1,
+        "name": "Orb of Augmentation"
+    },
+    {
+        "raw": "1x Artificer's Orb",
+        "qty": 1,
+        "name": "Artificer's Orb"
+    },
+    {
+        "raw": "1x Armourer's Scrap",
+        "qty": 1,
+        "name": "Armourer's Scrap"
+    },
+    {
+        "raw": "1x Mirror of Kalandra",
+        "qty": 1,
+        "name": "Mirror of Kalandra"
+    },
+    {
+        "raw": "UNIQUE RING",
+        "qty": 1,
+        "name": "Unique Ring"
+    },
+    {
+        "raw": "Unique Amulet",
+        "qty": 1,
+        "name": "Unique Amulet"
+    },
+    {
+        "raw": "Unique Belt",
+        "qty": 1,
+        "name": "Unique Belt"
+    },
+    {
+        "raw": "unique jewellery",
+        "qty": 1,
+        "name": "Unique Jewellery"
     }
 ]

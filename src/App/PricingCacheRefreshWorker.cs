@@ -3,13 +3,15 @@ using RuneshapePriceChecker.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using RuneshapePriceChecker.App.Dashboard;
 
 namespace RuneshapePriceChecker.App;
 
 public sealed class PricingCacheRefreshWorker(
     IPricingCache cache,
     IOptionsMonitor<PricingCacheOptions> options,
-    ILogger<PricingCacheRefreshWorker> logger) : BackgroundService
+    ILogger<PricingCacheRefreshWorker> logger,
+    DashboardService dashboard) : BackgroundService
 {
     private readonly IOptionsMonitor<PricingCacheOptions> _options = options;
     private string? _lastPricingSource;
@@ -49,6 +51,7 @@ public sealed class PricingCacheRefreshWorker(
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "Pricing cache refresh failed — retrying in 5s.");
+                dashboard.SetStatus("Failed to fetch prices", "red");
                 delay = TimeSpan.FromSeconds(5);
             }
 
@@ -67,4 +70,6 @@ public sealed class PricingCacheRefreshWorker(
 
         refreshCts.Dispose();
     }
+
+
 }

@@ -37,76 +37,95 @@ public sealed class PoeNinjaClient(HttpClient httpClient, IOptionsMonitor<Pricin
             var endpoint = GetEndpointForType(type, pricingOptions);
             var encodedType = Uri.EscapeDataString(type);
             var requestPath = $"/{endpoint}?league={encodedLeague}&type={encodedType}";
-            var requestUri = new Uri(baseUri, requestPath);
-
-            using var response = await httpClient.GetAsync(requestUri, cancellationToken).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
-
-            await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            using var document = await JsonDocument.ParseAsync(contentStream, cancellationToken: cancellationToken).ConfigureAwait(false);
-            var primaryToChaosMultiplier = ResolvePrimaryToChaosMultiplier(document.RootElement);
-
-            var parsedCount = 0;
-            if (!document.RootElement.TryGetProperty("lines", out var lines) || lines.ValueKind != JsonValueKind.Array)
+            for (var attempt = 0; attempt < 3; attempt++)
             {
-                logger.LogWarning("Poe.ninja returned no 'lines' array for type {Type}.", type);
-                continue;
-            }
+                if (attempt > 0)
+                    await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
 
-            foreach (var line in lines.EnumerateArray())
-            {
-                if (!TryExtractPrice(line, primaryToChaosMultiplier, out var chaosPrice))
+                try
                 {
-                    continue;
-                }
+                    var requestUri = new Uri(baseUri, requestPath);
 
-                var keys = ExtractCandidateKeys(line);
-                var addedAny = false;
-                foreach (var key in keys)
-                {
-                    var normalized = InMemoryPricingCache.Normalize(key);
-                    if (string.IsNullOrWhiteSpace(normalized))
+                    using var response = await httpClient.GetAsync(requestUri, cancellationToken).ConfigureAwait(false);
+                    response.EnsureSuccessStatusCode();
+
+                    await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+                    using var document = await JsonDocument.ParseAsync(contentStream, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    var primaryToChaosMultiplier = ResolvePrimaryToChaosMultiplier(document.RootElement);
+
+                    var parsedCount = 0;
+                    if (!document.RootElement.TryGetProperty("lines", out var lines) || lines.ValueKind != JsonValueKind.Array)
                     {
+                        logger.LogWarning("Poe.ninja returned no 'lines' array for type {Type}.", type);
                         continue;
                     }
 
-                    exactPrices[normalized] = chaosPrice;
-                    addedAny = true;
-                }
-
-                if (type.StartsWith("Unique", StringComparison.OrdinalIgnoreCase) &&
-                    TryGetString(line, "category", out var category))
-                {
-                    var categoryKey = InMemoryPricingCache.Normalize($"Unique {category}");
-                    if (!string.IsNullOrWhiteSpace(categoryKey))
+                    foreach (var line in lines.EnumerateArray())
                     {
-                        if (uniqueCategoryRanges.TryGetValue(categoryKey, out var existingRange))
+                        if (!TryExtractPrice(line, primaryToChaosMultiplier, out var chaosPrice))
                         {
-                            uniqueCategoryRanges[categoryKey] =
-                                (Math.Min(existingRange.MinChaos, chaosPrice), Math.Max(existingRange.MaxChaos, chaosPrice));
+                            continue;
                         }
-                        else
+
+                        var keys = ExtractCandidateKeys(line);
+                        var addedAny = false;
+                        foreach (var key in keys)
                         {
-                            uniqueCategoryRanges[categoryKey] = (chaosPrice, chaosPrice);
+                            var normalized = InMemoryPricingCache.Normalize(key);
+                            if (string.IsNullOrWhiteSpace(normalized))
+                            {
+                                continue;
+                            }
+
+                            exactPrices[normalized] = chaosPrice;
+                            addedAny = true;
+                        }
+
+                        if (type.StartsWith("Unique", StringComparison.OrdinalIgnoreCase) &&
+                            TryGetString(line, "category", out var category))
+                        {
+                            var categoryKey = InMemoryPricingCache.Normalize($"Unique {category}");
+                            if (!string.IsNullOrWhiteSpace(categoryKey))
+                            {
+                                if (uniqueCategoryRanges.TryGetValue(categoryKey, out var existingRange))
+                                {
+                                    uniqueCategoryRanges[categoryKey] =
+                                        (Math.Min(existingRange.MinChaos, chaosPrice), Math.Max(existingRange.MaxChaos, chaosPrice));
+                                }
+                                else
+                                {
+                                    uniqueCategoryRanges[categoryKey] = (chaosPrice, chaosPrice);
+                                }
+                            }
+                        }
+
+                        if (addedAny)
+                        {
+                            parsedCount++;
+                        }
+
+                        if (type.Equals("Currency", StringComparison.OrdinalIgnoreCase) && chaosPrice > 0m)
+                        {
+                            if (currencyMinChaos == 0m || chaosPrice < currencyMinChaos)
+                                currencyMinChaos = chaosPrice;
+                            if (chaosPrice > currencyMaxChaos)
+                                currencyMaxChaos = chaosPrice;
                         }
                     }
-                }
 
-                if (addedAny)
-                {
-                    parsedCount++;
+                    logger.LogInformation("Poe.ninja: fetched {Count} prices for type {Type}.", parsedCount, type);
+                    break;
                 }
-
-                if (type.Equals("Currency", StringComparison.OrdinalIgnoreCase) && chaosPrice > 0m)
+                catch (HttpRequestException ex)
                 {
-                    if (currencyMinChaos == 0m || chaosPrice < currencyMinChaos)
-                        currencyMinChaos = chaosPrice;
-                    if (chaosPrice > currencyMaxChaos)
-                        currencyMaxChaos = chaosPrice;
+                    logger.LogWarning("PoeNinja: HTTP {Status} fetching {Type} (league={League}), attempt {Attempt}/3", (int?)ex.StatusCode, type, pricingOptions.League, attempt + 1);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "PoeNinja: failed to parse {Type}, attempt {Attempt}/3", type, attempt + 1);
+                    break;
                 }
             }
-
-            logger.LogInformation("Fetched {Count} price rows from poe.ninja type {Type}.", parsedCount, type);
         }
 
         var divineOrbChaosValue = exactPrices.TryGetValue(DivineOrbKey, out var divineValue) && divineValue > 0m
@@ -282,4 +301,6 @@ public sealed class PoeNinjaClient(HttpClient httpClient, IOptionsMonitor<Pricin
     {
         return Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
     }
+
+
 }

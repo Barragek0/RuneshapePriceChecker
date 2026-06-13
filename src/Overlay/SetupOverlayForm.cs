@@ -1,18 +1,14 @@
 using System.Drawing.Drawing2D;
-using System.Linq;
-using System.Runtime.InteropServices;
 
 namespace RuneshapePriceChecker.Overlay;
 
-public sealed class SetupOverlayForm : Form
+internal sealed class SetupOverlayForm : OverlayFormBase
 {
-    private static readonly Color ChromaKey = Color.FromArgb(1, 2, 3);
-    private const int HandleSize = 12;
     private const int TopBarHeight = 80;
 
     private Rectangle _captureRect;
-    private int _formOriginX;
-    private int _formOriginY;
+    private readonly int _formOriginX;
+    private readonly int _formOriginY;
     private Rectangle _screenBounds;
     private Rectangle _gameBounds;
     private bool _dragging;
@@ -34,13 +30,6 @@ public sealed class SetupOverlayForm : Form
     {
         _captureRect = initialRect;
         _gameBounds = gameBounds;
-        FormBorderStyle = FormBorderStyle.None;
-        ShowInTaskbar = false;
-        StartPosition = FormStartPosition.Manual;
-        TopMost = true;
-        BackColor = ChromaKey;
-        TransparencyKey = ChromaKey;
-        DoubleBuffered = true;
 
         var screen = Screen.FromPoint(new Point(initialRect.X, initialRect.Y));
         _formOriginX = screen.Bounds.X;
@@ -57,28 +46,6 @@ public sealed class SetupOverlayForm : Form
     {
         base.OnHandleCreated(e);
         PinTopMost();
-    }
-
-    protected override bool ShowWithoutActivation => true;
-
-    private void PinTopMost()
-    {
-        if (!IsHandleCreated) return;
-        NativeMethods.SetWindowPos(
-            Handle,
-            NativeMethods.HWND_TOPMOST,
-            Left, Top, Width, Height,
-            NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_NOOWNERZORDER | NativeMethods.SWP_NOSENDCHANGING);
-    }
-
-    protected override CreateParams CreateParams
-    {
-        get
-        {
-            var cp = base.CreateParams;
-            cp.ExStyle |= 0x00000080 | 0x00080000 | 0x08000000;
-            return cp;
-        }
     }
 
     protected override void WndProc(ref Message m)
@@ -103,11 +70,11 @@ public sealed class SetupOverlayForm : Form
 
             if (inBox || inControls)
             {
-                m.Result = (IntPtr)HTCLIENT;
+                m.Result = HTCLIENT;
                 return;
             }
 
-            m.Result = (IntPtr)HTTRANSPARENT;
+            m.Result = HTTRANSPARENT;
             return;
         }
 
@@ -366,17 +333,17 @@ public sealed class SetupOverlayForm : Form
         var x = Math.Max(20, _captureRect.X - _formOriginX);
         var y = Math.Max(20, _captureRect.Y - _formOriginY - TopBarHeight - 20);
 
-        if (_titleLabel is not null) _titleLabel.Location = new Point(x, y);
-        if (_hintLabel is not null) _hintLabel.Location = new Point(x, y + 24);
-        if (_confirmBtn is not null) _confirmBtn.Location = new Point(x, y + 50);
-        if (_backBtn is not null) _backBtn.Location = new Point(x + 190, y + 50);
+        _titleLabel?.Location = new Point(x, y);
+        _hintLabel?.Location = new Point(x, y + 24);
+        _confirmBtn?.Location = new Point(x, y + 50);
+        _backBtn?.Location = new Point(x + 190, y + 50);
 
         var exampleX = Math.Max(
             (_captureRect.X - _formOriginX) + _captureRect.Width + 80,
             (int)(_screenBounds.Width * 0.375));
 
-        if (_exampleLabel is not null) _exampleLabel.Location = new Point(exampleX, y);
-        if (_exampleBox is not null) _exampleBox.Location = new Point(exampleX, y + 20);
+        _exampleLabel?.Location = new Point(exampleX, y);
+        _exampleBox?.Location = new Point(exampleX, y + 20);
     }
 
     private Rectangle GetBoxRect() => new(
@@ -394,24 +361,5 @@ public sealed class SetupOverlayForm : Form
         if (pt.Y >= rect.Top - edge && pt.Y <= rect.Top + edge) result |= 4;
         if (pt.Y >= rect.Bottom - edge && pt.Y <= rect.Bottom + edge) result |= 8;
         return result;
-    }
-
-    private static class NativeMethods
-    {
-        public static readonly IntPtr HWND_TOPMOST = new(-1);
-        public const uint SWP_NOACTIVATE = 0x0010;
-        public const uint SWP_NOOWNERZORDER = 0x0200;
-        public const uint SWP_NOSENDCHANGING = 0x0400;
-
-        [DllImport("user32.dll", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool SetWindowPos(
-            IntPtr hWnd,
-            IntPtr hWndInsertAfter,
-            int x,
-            int y,
-            int cx,
-            int cy,
-            uint uFlags);
     }
 }

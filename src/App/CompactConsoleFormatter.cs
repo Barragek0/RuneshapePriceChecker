@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -31,15 +32,11 @@ public sealed class CompactConsoleFormatter(IOptionsMonitor<SimpleConsoleFormatt
 
         if (!string.IsNullOrEmpty(options.TimestampFormat))
         {
-            builder.Append(DateTimeOffset.Now.ToString(options.TimestampFormat));
+            builder.Append(DateTimeOffset.Now.ToString(options.TimestampFormat, CultureInfo.InvariantCulture));
         }
 
         builder.Append(GetLogLevelText(logEntry.LogLevel));
-        builder.Append(": ");
-        builder.Append(ShortenCategory(logEntry.Category));
-        builder.Append('[');
-        builder.Append(logEntry.EventId.Id);
-        builder.Append("] ");
+        builder.Append(" | ");
         builder.AppendLine(message);
 
         if (logEntry.Exception is not null)

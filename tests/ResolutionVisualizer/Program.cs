@@ -1,5 +1,4 @@
 using System.Drawing.Drawing2D;
-using System.Drawing.Imaging;
 using RuneshapePriceChecker.OCR;
 
 namespace ResolutionVisualizer;
@@ -17,7 +16,7 @@ internal static class Program
 internal sealed class VisualizerForm : Form
 {
     private readonly Dictionary<string, OcrResolutionProfile> _profiles = new(StringComparer.OrdinalIgnoreCase);
-    private string[] _profileKeys = [];
+    private readonly string[] _profileKeys = [];
     private int _currentIndex;
     private float _userScale = 1f;
     private Bitmap? _screenshot;
@@ -186,7 +185,7 @@ internal sealed class VisualizerForm : Form
         g.TranslateTransform(offsetX, offsetY);
         g.ScaleTransform(_userScale, _userScale);
 
-        DrawOverlayElements(g, profile, gameW, gameH);
+        DrawOverlayElements(g, profile);
         DrawInfoBar(g, key, profile, gameH);
     }
 
@@ -233,7 +232,7 @@ internal sealed class VisualizerForm : Form
         }
     }
 
-    private void DrawOverlayElements(Graphics g, OcrResolutionProfile profile, int gameW, int gameH)
+    private void DrawOverlayElements(Graphics g, OcrResolutionProfile profile)
     {
         var cx = profile.CaptureOffsetX;
         var cy = profile.CaptureOffsetY;
@@ -252,8 +251,8 @@ internal sealed class VisualizerForm : Form
         if (_showDebugOverlay)
         {
             var panelWidth = cx - 20;
-            DrawDebugPanelBackground(g, cx, cy, cw, ch, panelWidth);
-            DrawDebugText(g, cx, cy, cw, ch, panelWidth);
+            DrawDebugPanelBackground(g, cy, ch, panelWidth);
+            DrawDebugText(g, cx, cy, ch, panelWidth);
         }
 
         using var boxPen = new Pen(Color.Red, 3);
@@ -286,13 +285,13 @@ internal sealed class VisualizerForm : Form
         g.FillEllipse(dotBrush, scanRight - 3, scanY - 3, 7, 7);
     }
 
-    private static void DrawDebugPanelBackground(Graphics g, int boxX, int boxY, int boxW, int boxH, int panelWidth)
+    private static void DrawDebugPanelBackground(Graphics g, int boxY, int boxH, int panelWidth)
     {
         using var dimBrush = new SolidBrush(Color.FromArgb(120, 0, 0, 0));
         g.FillRectangle(dimBrush, 0, boxY, panelWidth, boxH);
     }
 
-    private static void DrawDebugText(Graphics g, int boxX, int boxY, int boxW, int boxH, int panelWidth)
+    private static void DrawDebugText(Graphics g, int boxX, int boxY, int boxH, int panelWidth)
     {
         const float fontSizePx = 18f;
         const float minSizePx = 10f;
@@ -364,7 +363,7 @@ internal sealed class VisualizerForm : Form
             if (string.IsNullOrEmpty(text)) continue;
 
             var y = boxY + (i * rowH) + ((rowH - (int)font.GetHeight(g)) / 2);
-            var brush = text.StartsWith("N/A") ? grayBrush : greenBrush;
+            var brush = text.StartsWith("N/A", StringComparison.Ordinal) ? grayBrush : greenBrush;
 
             using var path = new GraphicsPath();
             path.AddString(text, font.FontFamily, (int)font.Style, emSize, new PointF(px + 2, y), StringFormat.GenericTypographic);
@@ -456,7 +455,7 @@ internal sealed class VisualizerForm : Form
             g.FillEllipse(handleBrush, h);
     }
 
-    private void DrawInfoBar(Graphics g, string key, OcrResolutionProfile profile, int gameH)
+    private static void DrawInfoBar(Graphics g, string key, OcrResolutionProfile profile, int gameH)
     {
         var y = gameH + 12;
         using var font = new Font("Consolas", 11f, FontStyle.Regular, GraphicsUnit.Pixel);

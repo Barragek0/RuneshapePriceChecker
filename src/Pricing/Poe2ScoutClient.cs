@@ -75,7 +75,7 @@ public sealed class Poe2ScoutClient(HttpClient httpClient, IOptionsMonitor<AppOp
         {
             try
             {
-                var url = $"{BaseUrl}/Leagues/{shortLeague}/Currencies/ByCategory?Category={cat}&ReferenceCurrency=chaos";
+                var url = $"{BaseUrl}/Leagues/{shortLeague}/Currencies/ByCategory?Category={cat}&ReferenceCurrency=chaos&SmoothingDays={PricingConstants.Poe2ScoutSmoothingDays}";
                 var items = await FetchAllPagesAsync(url, cancellationToken).ConfigureAwait(false);
                 foreach (var item in items)
                 {
@@ -121,46 +121,59 @@ public sealed class Poe2ScoutClient(HttpClient httpClient, IOptionsMonitor<AppOp
         }
 
         var uniqueCategories = new[] { "weapon", "armour", "accessory" };
+        var uniqueItemBaseTypes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var cat in uniqueCategories)
         {
-            try
+            for (var attempt = 0; attempt < 3; attempt++)
             {
-                var url = $"{BaseUrl}/Leagues/{shortLeague}/Uniques/ByCategory?Category={cat}&ReferenceCurrency=chaos";
-                var items = await FetchAllPagesAsync(url, cancellationToken).ConfigureAwait(false);
-                foreach (var item in items)
+                if (attempt > 0)
+                    await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
+                try
                 {
-                    var name = GetString(item, "Text");
-                    var chaos = GetDecimal(item, "CurrentPrice");
-                    if (string.IsNullOrWhiteSpace(name) || chaos <= 0) continue;
+                    var url = $"{BaseUrl}/Leagues/{shortLeague}/Uniques/ByCategory?Category={cat}&ReferenceCurrency=chaos&SmoothingDays={PricingConstants.Poe2ScoutSmoothingDays}";
+                    var items = await FetchAllPagesAsync(url, cancellationToken).ConfigureAwait(false);
+                    foreach (var item in items)
+                    {
+                        var name = GetString(item, "Text");
+                        var chaos = GetDecimal(item, "CurrentPrice");
+                        if (string.IsNullOrWhiteSpace(name) || chaos <= 0) continue;
 
-                    var normName = InMemoryPricingCache.Normalize(name);
-                    if (!string.IsNullOrWhiteSpace(normName))
-                        uniqueCategoryRanges[normName] = (chaos, chaos);
+                        var normName = InMemoryPricingCache.Normalize(name);
+                        if (!string.IsNullOrWhiteSpace(normName))
+                        {
+                            uniqueCategoryRanges[normName] = (chaos, chaos);
+                            var baseType = GetString(item, "Type");
+                            if (!string.IsNullOrWhiteSpace(baseType))
+                                uniqueItemBaseTypes[normName] = baseType;
+                        }
+                    }
+                    if (appOptions.CurrentValue.LogLevel <= LogLevel.Debug)
+                    {
+                        var sampleNames = items.Take(5).Select(i => GetString(i, "Text") ?? "?").ToList();
+                        var firstKeys = items.Count > 0
+                            ? string.Join(", ", items[0].EnumerateObject().Select(p => p.Name))
+                            : "-";
+                        logger.LogDebug("Fetched {Count} price rows from POE2Scout type Unique/{Category}. Sample: {Samples} | Keys: {Keys}", items.Count, cat, string.Join(", ", sampleNames), firstKeys);
+                    }
+                    else
+                    {
+                        logger.LogInformation("Fetched {Count} price rows from POE2Scout type Unique/{Category}.", items.Count, cat);
+                    }
+                    break;
                 }
-                if (appOptions.CurrentValue.LogLevel <= LogLevel.Debug)
+                catch (HttpRequestException ex)
                 {
-                    var sampleNames = items.Take(5).Select(i => GetString(i, "Text") ?? "?").ToList();
-                    var firstKeys = items.Count > 0
-                        ? string.Join(", ", items[0].EnumerateObject().Select(p => p.Name))
-                        : "-";
-                    logger.LogDebug("Fetched {Count} price rows from POE2Scout type Unique/{Category}. Sample: {Samples} | Keys: {Keys}", items.Count, cat, string.Join(", ", sampleNames), firstKeys);
+                    logger.LogWarning("POE2Scout: HTTP {Status} fetching Unique/{Category} (league={League}), attempt {Attempt}/3", (int?)ex.StatusCode, cat, shortLeague, attempt + 1);
                 }
-                else
+                catch (Exception ex)
                 {
-                    logger.LogInformation("Fetched {Count} price rows from POE2Scout type Unique/{Category}.", items.Count, cat);
+                    logger.LogWarning(ex, "POE2Scout: failed to parse Unique/{Category}, attempt {Attempt}/3", cat, attempt + 1);
+                    break;
                 }
-            }
-            catch (HttpRequestException ex)
-            {
-                logger.LogWarning("POE2Scout: HTTP {Status} fetching Unique/{Category} (league={League})", (int?)ex.StatusCode, cat, shortLeague);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "POE2Scout: failed to parse Unique/{Category}", cat);
             }
         }
 
-        return new PricingSnapshot(exactPrices, uniqueCategoryRanges, divineValue, exaltValue, currencyMinChaos, currencyMaxChaos);
+        return new PricingSnapshot(exactPrices, uniqueCategoryRanges, divineValue, exaltValue, currencyMinChaos, currencyMaxChaos, uniqueItemBaseTypes);
     }
 
     private static string NormalizeLeagueName(string fullName)

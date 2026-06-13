@@ -14,9 +14,9 @@ public sealed class PricingSourceRouter(
             ? serviceProvider.GetRequiredService<Poe2ScoutClient>()
             : serviceProvider.GetRequiredService<PoeNinjaClient>();
 
-    public Task<IReadOnlyList<string>> FetchLeaguesAsync(CancellationToken ct)
-        => Current.FetchLeaguesAsync(ct);
+    public Task<IReadOnlyList<string>> FetchLeaguesAsync(CancellationToken cancellationToken)
+        => Current.FetchLeaguesAsync(cancellationToken);
 
-    public Task<PricingSnapshot> FetchPricesAsync(string league, CancellationToken ct)
-        => Current.FetchPricesAsync(league, ct);
+    public Task<PricingSnapshot> FetchPricesAsync(string league, CancellationToken cancellationToken)
+        => Current.FetchPricesAsync(league, cancellationToken);
 }

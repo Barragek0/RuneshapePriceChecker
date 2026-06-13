@@ -22,15 +22,10 @@ internal sealed class DashboardLogger(DashboardLogSink sink, string configPath) 
 
     public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
-    public bool IsEnabled(LogLevel logLevel)
-    {
-        return logLevel >= ReadLogLevel();
-    }
+    public bool IsEnabled(LogLevel logLevel) => true;
 
     public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
     {
-        if (!IsEnabled(logLevel)) return;
-
         var message = formatter(state, exception);
         var color = logLevel switch
         {
@@ -40,7 +35,7 @@ internal sealed class DashboardLogger(DashboardLogSink sink, string configPath) 
             _ => "green"
         };
 
-        _sink.Emit(message, color);
+        _sink.Emit(message, color, logLevel);
     }
 
     private LogLevel ReadLogLevel()
@@ -50,7 +45,7 @@ internal sealed class DashboardLogger(DashboardLogSink sink, string configPath) 
             if (!File.Exists(_configPath)) return LogLevel.Information;
             var json = File.ReadAllText(_configPath, Encoding.UTF8);
             var root = JsonNode.Parse(json);
-            var levelStr = root?["App"]?["LogLevel"]?.GetValue<string>();
+            var levelStr = root?["App"]?.Str("LogLevel");
             if (levelStr is not null && Enum.TryParse<LogLevel>(levelStr, ignoreCase: true, out var level))
                 return level;
             return LogLevel.Information;

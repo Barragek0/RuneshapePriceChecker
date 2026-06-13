@@ -14,7 +14,7 @@ public sealed class SettingsController(
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        RefreshConfiguration("startup");
+        RefreshConfiguration();
 
         var settingsPath = ResolveSettingsPath();
         if (settingsPath is not null && File.Exists(settingsPath))
@@ -33,7 +33,7 @@ public sealed class SettingsController(
                     _ignoreNextChange = false;
                     return;
                 }
-                try { RefreshConfiguration("file-changed"); }
+                try { RefreshConfiguration(); }
                 catch (Exception ex) { logger.LogError(ex, "Failed to reload settings."); }
             };
         }
@@ -46,7 +46,7 @@ public sealed class SettingsController(
         return Task.CompletedTask;
     }
 
-    private void RefreshConfiguration(string reason)
+    private void RefreshConfiguration()
     {
         if (configuration is not IConfigurationRoot root)
         {
@@ -55,7 +55,7 @@ public sealed class SettingsController(
         }
 
         root.Reload();
-        logger.LogInformation("Settings reloaded from {SettingsFile} ({Reason}).", SettingsFileName, reason);
+        logger.LogInformation("Settings reloaded successfully.");
     }
 
     public override void Dispose()

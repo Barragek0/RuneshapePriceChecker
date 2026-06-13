@@ -8,11 +8,14 @@ public sealed class LeagueListService
 {
     private static readonly string[] FallbackLeagues = ["Runes of Aldur", "Standard"];
 
-    public async Task<IReadOnlyList<string>> FetchLeaguesAsync(CancellationToken ct = default)
+    public static Task<IReadOnlyList<string>> FetchLeaguesAsync(CancellationToken ct = default)
+        => FetchLeaguesAsync(null, ct);
+
+    internal static async Task<IReadOnlyList<string>> FetchLeaguesAsync(HttpMessageHandler? handler, CancellationToken ct = default)
     {
         try
         {
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            using var http = handler is not null ? new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) } : new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
             http.DefaultRequestHeaders.UserAgent.ParseAdd("RuneshapePriceChecker/1.0");
 
             var response = await http.GetAsync(

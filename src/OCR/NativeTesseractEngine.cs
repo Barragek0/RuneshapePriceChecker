@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 
 namespace RuneshapePriceChecker.OCR;
 
-internal sealed class NativeTesseractEngine : IDisposable
+internal sealed partial class NativeTesseractEngine : IDisposable
 {
     private IntPtr _handle;
 
@@ -17,8 +17,8 @@ internal sealed class NativeTesseractEngine : IDisposable
         if (result != 0)
             throw new InvalidOperationException($"Tesseract init failed (code {result}). datapath='{tesseractDataPath}' language='{language}'");
 
-        NativeMethods.TessBaseAPISetVariable(_handle, "preserve_interword_spaces", "1");
-        NativeMethods.TessBaseAPISetVariable(_handle, "debug_file", "nul");
+        _ = NativeMethods.TessBaseAPISetVariable(_handle, "preserve_interword_spaces", "1");
+        _ = NativeMethods.TessBaseAPISetVariable(_handle, "debug_file", "nul");
     }
 
     public void SetPageSegMode(int mode)
@@ -33,7 +33,7 @@ internal sealed class NativeTesseractEngine : IDisposable
         {
             pix = CreatePixFromBitmap(bitmap);
             NativeMethods.TessBaseAPISetImage2(_handle, pix);
-            NativeMethods.TessBaseAPIRecognize(_handle, IntPtr.Zero);
+            _ = NativeMethods.TessBaseAPIRecognize(_handle, IntPtr.Zero);
 
             var textPtr = NativeMethods.TessBaseAPIGetUTF8Text(_handle);
             var text = textPtr != IntPtr.Zero ? Marshal.PtrToStringAnsi(textPtr) ?? string.Empty : string.Empty;
@@ -55,7 +55,7 @@ internal sealed class NativeTesseractEngine : IDisposable
         var positions = new List<int>();
         var tsvPtr = NativeMethods.TessBaseAPIGetTSVText(_handle, 0);
         if (tsvPtr == IntPtr.Zero)
-            return positions.ToArray();
+            return [.. positions];
 
         var tsv = Marshal.PtrToStringAnsi(tsvPtr) ?? string.Empty;
         NativeMethods.TessDeleteText(tsvPtr);
@@ -66,11 +66,11 @@ internal sealed class NativeTesseractEngine : IDisposable
             var cols = lines[i].Split('\t');
             if (cols.Length < 12 || cols[0] != "4")
                 continue;
-            if (int.TryParse(cols[7], out var top) && int.TryParse(cols[9], out var h))
+            if (int.TryParse(cols[7], out var top) && int.TryParse(cols[9], out _))
                 positions.Add((top - 12) / upscaleFactor);
         }
 
-        return positions.ToArray();
+        return [.. positions];
     }
 
     private static IntPtr CreatePixFromBitmap(Bitmap bitmap)
@@ -103,10 +103,10 @@ internal sealed class NativeTesseractEngine : IDisposable
         public static extern IntPtr TessBaseAPICreate();
 
         [DllImport("tesseract50", CallingConvention = CallingConvention.Cdecl)]
-        public static extern int TessBaseAPIInit3(IntPtr handle, string datapath, string language);
+        public static extern int TessBaseAPIInit3(IntPtr handle, [MarshalAs(UnmanagedType.LPStr)] string datapath, [MarshalAs(UnmanagedType.LPStr)] string language);
 
         [DllImport("tesseract50", CallingConvention = CallingConvention.Cdecl)]
-        public static extern int TessBaseAPISetVariable(IntPtr handle, string name, string value);
+        public static extern int TessBaseAPISetVariable(IntPtr handle, [MarshalAs(UnmanagedType.LPStr)] string name, [MarshalAs(UnmanagedType.LPStr)] string value);
 
         [DllImport("tesseract50", CallingConvention = CallingConvention.Cdecl)]
         public static extern void TessBaseAPISetPageSegMode(IntPtr handle, int mode);

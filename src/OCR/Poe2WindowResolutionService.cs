@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
-using System.Text;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -267,11 +266,9 @@ public sealed class Poe2WindowResolutionService(
         if (_uiBrightnessWarningShown || uiBrightness is null)
             return;
 
-        /** 
-          * In-game slider for this value works in a weird way. 
-          * It gets saved between 0.2 (-5.0 ingame) and 5 (+5.0 ingame) in the config.
-          * Slider has a -0.0 and +0.0 ingame value on the slider, which means 0.98 - 1 in the config.
-        **/
+        // In-game slider for this value works in a weird way.
+        // It gets saved between 0.2 (-5.0 ingame) and 5 (+5.0 ingame) in the config.
+        // Slider has a -0.0 and +0.0 ingame value on the slider, which means 0.98 - 1 in the config.
         if (uiBrightness.Value >= 0.98f)
             return;
 
@@ -425,7 +422,7 @@ public sealed class Poe2WindowResolutionService(
         private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-        private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+        private static extern int GetWindowText(IntPtr hWnd, [Out] char[] lpString, int nMaxCount);
 
         [DllImport("user32.dll")]
         private static extern IntPtr GetAncestor(IntPtr hWnd, uint gaFlags);
@@ -456,9 +453,9 @@ public sealed class Poe2WindowResolutionService(
                 return string.Empty;
             }
 
-            var builder = new StringBuilder(512);
-            _ = GetWindowText(windowHandle, builder, builder.Capacity);
-            return builder.ToString();
+            var buffer = new char[512];
+            _ = GetWindowText(windowHandle, buffer, buffer.Length);
+            return new string(buffer, 0, Array.IndexOf(buffer, '\0'));
         }
 
         public static bool AreWindowFamilyRelated(IntPtr candidateWindowHandle, IntPtr foregroundWindowHandle)

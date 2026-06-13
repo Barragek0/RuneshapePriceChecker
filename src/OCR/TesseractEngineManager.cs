@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Logging;
-using RuneshapePriceChecker.Configuration;
 using RuneshapePriceChecker.Startup;
 
 namespace RuneshapePriceChecker.OCR;
@@ -28,26 +27,39 @@ internal sealed class TesseractEngineManager : IDisposable
             return _engine;
         }
 
-        _logger.LogTrace("Tesseract: acquiring engine lock for '{Lang}'", language);
+        if (!TesseractBootstrapper.IsLanguageDataAvailable(language))
+        {
+            _logger.LogInformation("Tesseract: downloading {Lang} language data...", language);
+            TesseractBootstrapper.EnsureLanguageDataAvailableAsync(language, CancellationToken.None)
+                .GetAwaiter().GetResult();
+
+            if (!TesseractBootstrapper.IsLanguageDataAvailable(language))
+            {
+                _logger.LogWarning(
+                    "Tesseract: failed to download {Lang} language data, falling back to English", language);
+                if (string.Equals(language, "eng", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException(
+                        "Tesseract English language data is not available and could not be downloaded.");
+                return GetEngine(new OcrOptions
+                {
+                    Language = "eng",
+                    TesseractDataPath = options.TesseractDataPath
+                });
+            }
+
+            _logger.LogInformation("Tesseract: {Lang} language data download complete", language);
+        }
+
         lock (_engineLock)
         {
-            _logger.LogTrace("Tesseract: inside engine lock");
             if (_engine is not null && string.Equals(_engineLanguage, language, StringComparison.OrdinalIgnoreCase))
                 return _engine;
 
             if (_engine is not null)
             {
-                _logger.LogTrace("Tesseract: disposing old engine");
+                _logger.LogInformation("Tesseract: switching language from {OldLang} to {NewLang}", _engineLanguage, language);
                 _engine.Dispose();
                 _engine = null;
-            }
-
-            if (!TesseractBootstrapper.IsLanguageDataAvailable(language))
-            {
-                _logger.LogTrace("Tesseract: language data not available, downloading");
-                TesseractBootstrapper.EnsureLanguageDataAvailableAsync(language, CancellationToken.None)
-                    .GetAwaiter().GetResult();
-                _logger.LogTrace("Tesseract: language data download complete");
             }
 
             var tessDataPath = !string.IsNullOrWhiteSpace(options.TesseractDataPath)
@@ -57,10 +69,10 @@ internal sealed class TesseractEngineManager : IDisposable
             if (string.IsNullOrWhiteSpace(tessDataPath))
                 throw new FileNotFoundException("Tesseract traineddata directory not found.");
 
-            _logger.LogTrace("Tesseract: creating engine with path={Path} lang={Lang}", tessDataPath, language);
+            _logger.LogInformation("Tesseract: creating engine for {Lang}...", language);
             _engine = new NativeTesseractEngine(tessDataPath, language);
             _engineLanguage = language;
-            _logger.LogTrace("Tesseract: engine created successfully");
+            _logger.LogInformation("Tesseract: engine created successfully for {Lang}", language);
             return _engine;
         }
     }
@@ -73,4 +85,5 @@ internal sealed class TesseractEngineManager : IDisposable
             _engine = null;
         }
     }
+
 }

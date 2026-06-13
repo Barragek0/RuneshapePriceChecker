@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.IO.Compression;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -215,9 +216,9 @@ static bool TryParseVersion(string text, out Version version)
     if (!match.Success) return false;
 
     version = new Version(
-        int.Parse(match.Groups[1].Value),
-        int.Parse(match.Groups[2].Value),
-        int.Parse(match.Groups[3].Value));
+        int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture),
+        int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture),
+        int.Parse(match.Groups[3].Value, CultureInfo.InvariantCulture));
     return true;
 }
 
@@ -370,6 +371,6 @@ static extern bool AllocConsole();
 [return: MarshalAs(UnmanagedType.Bool)]
 static extern bool AttachConsole(uint dwProcessId = uint.MaxValue);
 
-record UpdaterArgs(string? DownloadUrl, string? NewVersion, string RepoOwner, string RepoName);
-record GitHubRelease(string TagName, List<GitHubAsset>? Assets);
-record GitHubAsset(string? Name, string? BrowserDownloadUrl);
+sealed record UpdaterArgs(string? DownloadUrl, string? NewVersion, string RepoOwner, string RepoName);
+sealed record GitHubRelease(string TagName, List<GitHubAsset>? Assets);
+sealed record GitHubAsset(string? Name, string? BrowserDownloadUrl);

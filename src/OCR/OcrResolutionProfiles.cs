@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace RuneshapePriceChecker.OCR;
 
 public static class OcrResolutionProfiles
@@ -11,6 +13,29 @@ public static class OcrResolutionProfiles
             ["3440x1440"] = new(69, 205, 663, 715),
             ["3840x2160"] = new(104, 308, 994, 1072),
         };
+
+    public static IReadOnlyDictionary<string, OcrResolutionProfile> All => Profiles;
+
+    public static IReadOnlyList<string> ValidateAll()
+    {
+        var warnings = new List<string>();
+        foreach (var (key, profile) in Profiles)
+        {
+            if (profile.CaptureWidth <= 0 || profile.CaptureHeight <= 0)
+                warnings.Add($"Resolution '{key}': Capture size must be positive (W={profile.CaptureWidth}, H={profile.CaptureHeight}).");
+            if (profile.CaptureOffsetX < 0 || profile.CaptureOffsetY < 0)
+                warnings.Add($"Resolution '{key}': Offsets should be non-negative (X={profile.CaptureOffsetX}, Y={profile.CaptureOffsetY}).");
+            var keyParts = key.Split('x');
+            if (keyParts.Length == 2 && int.TryParse(keyParts[0], out var sw) && int.TryParse(keyParts[1], out var sh))
+            {
+                if (profile.CaptureOffsetX + profile.CaptureWidth > sw)
+                    warnings.Add($"Resolution '{key}': Capture region extends beyond screen width (X={profile.CaptureOffsetX}+W={profile.CaptureWidth} > {sw}).");
+                if (profile.CaptureOffsetY + profile.CaptureHeight > sh)
+                    warnings.Add($"Resolution '{key}': Capture region extends beyond screen height (Y={profile.CaptureOffsetY}+H={profile.CaptureHeight} > {sh}).");
+            }
+        }
+        return warnings;
+    }
 
     public static bool TryGet(string resolutionKey, out OcrResolutionProfile profile)
     {
@@ -32,9 +57,9 @@ public static class OcrResolutionProfiles
             {
                 kvp.Key,
                 kvp.Value,
-                w = int.Parse(kvp.Key.Split('x')[0]),
-                h = int.Parse(kvp.Key.Split('x')[1]),
-                pixels = (long)int.Parse(kvp.Key.Split('x')[0]) * int.Parse(kvp.Key.Split('x')[1])
+                w = int.Parse(kvp.Key.Split('x')[0], CultureInfo.InvariantCulture),
+                h = int.Parse(kvp.Key.Split('x')[1], CultureInfo.InvariantCulture),
+                pixels = (long)int.Parse(kvp.Key.Split('x')[0], CultureInfo.InvariantCulture) * int.Parse(kvp.Key.Split('x')[1], CultureInfo.InvariantCulture)
             })
             .OrderBy(p => p.pixels)
             .ToList();

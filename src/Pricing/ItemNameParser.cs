@@ -203,12 +203,12 @@ public static class ItemNameParser
         {
             $"UNIQUE {categoryTail}",
             $"UNIQUE {singularTail}",
+            // Spelling normalizations only — same category, different orthography
             $"UNIQUE {categoryTail.Replace("ARMOR", "ARMOUR", StringComparison.OrdinalIgnoreCase)}",
-            $"UNIQUE {categoryTail.Replace("ARMOUR", "ARMOR", StringComparison.OrdinalIgnoreCase)}"
+            $"UNIQUE {categoryTail.Replace("ARMOUR", "ARMOR", StringComparison.OrdinalIgnoreCase)}",
+            $"UNIQUE {categoryTail.Replace("JEWELRY", "JEWELLERY", StringComparison.OrdinalIgnoreCase)}",
+            $"UNIQUE {categoryTail.Replace("JEWELLERY", "JEWELRY", StringComparison.OrdinalIgnoreCase)}",
         };
-
-        AddAccessoryFamilyVariants(candidateSet, categoryTail);
-        AddAccessoryFamilyVariants(candidateSet, singularTail);
 
         foreach (var candidate in candidateSet)
         {
@@ -304,6 +304,42 @@ public static class ItemNameParser
         candidateSet.Add($"UNIQUE {toAccessoriesPlural}");
         candidateSet.Add($"UNIQUE {toAccessoriesSingular}");
         candidateSet.Add($"UNIQUE {toJewellery}");
+    }
+
+    internal static readonly string[] UniqueCategoryKeywords =
+    [
+        "Two Hand Mace", "One Hand Mace", "Quarterstaff", "Crossbow",
+        "Body Armour", "Talisman", "Sceptre", "Quiver", "Shield",
+        "Helmet", "Gloves", "Boots", "Jewellery", "Jewelry",
+        "Amulet", "Spear", "Staff", "Focus", "Ring", "Belt",
+        "Wand", "Bow",
+    ];
+
+    internal static readonly HashSet<string> WeaponCategories = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "WAND", "TWO HAND MACE", "ONE HAND MACE", "QUARTERSTAFF", "CROSSBOW",
+        "TALISMAN", "SCEPTRE", "QUIVER", "SHIELD", "SPEAR", "STAFF", "FOCUS", "BOW",
+    };
+
+    internal static readonly HashSet<string> ArmourCategories = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "BODY ARMOUR", "HELMET", "GLOVES", "BOOTS",
+    };
+
+    internal static readonly HashSet<string> AccessoryCategories = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "RING", "AMULET", "BELT", "JEWELLERY", "JEWELRY",
+    };
+
+    internal static string? TryGetUniqueCategory(string itemName)
+    {
+        foreach (var keyword in UniqueCategoryKeywords)
+        {
+            if (itemName.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                return keyword;
+        }
+
+        return UniqueItemTypeLookup.TryGetCategory(itemName);
     }
 }
 

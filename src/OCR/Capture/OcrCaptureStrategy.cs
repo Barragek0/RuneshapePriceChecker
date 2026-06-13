@@ -1,6 +1,5 @@
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
-using RuneshapePriceChecker.Configuration;
 using RuneshapePriceChecker.Startup;
 using Microsoft.Extensions.Logging;
 
@@ -8,7 +7,7 @@ namespace RuneshapePriceChecker.OCR;
 
 public sealed record CaptureResult(Bitmap Bitmap, string Method);
 
-internal sealed class OcrCaptureStrategy
+internal sealed partial class OcrCaptureStrategy
 {
     private readonly ILogger<OcrCaptureStrategy> _logger;
     private bool _windowCaptureUnavailableLogged;
@@ -27,7 +26,7 @@ internal sealed class OcrCaptureStrategy
 
         if (options.UseWindowClientCapture && context is not null)
         {
-            var result = TryWindowCapture(context, region, options);
+            var result = TryWindowCapture(context, region);
             if (result is not null)
                 return result;
         }
@@ -35,7 +34,7 @@ internal sealed class OcrCaptureStrategy
         return TryDesktopOnly(region);
     }
 
-    private CaptureResult? TryWindowCapture(WindowCaptureContext context, OcrCaptureRegion region, OcrOptions options)
+    private CaptureResult? TryWindowCapture(WindowCaptureContext context, OcrCaptureRegion region)
     {
         if (TryBitBlt(context, region, out var bmp))
             return new CaptureResult(bmp, "window-bitblt");
@@ -46,7 +45,7 @@ internal sealed class OcrCaptureStrategy
         if (!_windowCaptureUnavailableLogged)
         {
             _windowCaptureUnavailableLogged = true;
-            _logger.LogWarning("Window-client capture unavailable (BitBlt/PrintWindow). Falling back to desktop capture; overlapping windows can pollute OCR.");
+            LogWindowCaptureUnavailable();
         }
 
         return null;
@@ -207,7 +206,7 @@ internal sealed class OcrCaptureStrategy
         finally
         {
             graphics.ReleaseHdc(destinationDc);
-            NativeMethods.ReleaseDC(context.WindowHandle, sourceDc);
+            _ = NativeMethods.ReleaseDC(context.WindowHandle, sourceDc);
         }
     }
 
@@ -289,4 +288,7 @@ internal sealed class OcrCaptureStrategy
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint nFlags);
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Window-client capture unavailable (BitBlt/PrintWindow). Falling back to desktop capture; overlapping windows can pollute OCR.")]
+    private partial void LogWindowCaptureUnavailable();
 }

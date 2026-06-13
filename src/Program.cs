@@ -11,10 +11,11 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Console;
+
+var suppressWarning = args.Any(a => a.StartsWith("--App:SuppressAlreadyRunningWarning=", StringComparison.OrdinalIgnoreCase));
 
 var mutex = new Mutex(true, @"Global\RuneshapePriceChecker_SingleInstance", out var createdNew);
-if (!createdNew)
+if (!createdNew && !suppressWarning)
 {
     var result = MessageBox.Show(
         "RuneshapePriceChecker is already running.\n\nYes = close the old instance and start a new one\nNo = do nothing",
@@ -72,7 +73,7 @@ var host = Host.CreateDefaultBuilder(args)
     .ConfigureAppConfiguration(config =>
     {
         config.SetBasePath(AppContext.BaseDirectory);
-        config.AddJsonFile("config/appsettings.json", optional: false, reloadOnChange: false);
+        config.AddJsonFile("config/appsettings.json", optional: false, reloadOnChange: true);
         config.AddCommandLine(args);
     })
     .ConfigureServices((context, services) =>
@@ -138,28 +139,37 @@ var host = Host.CreateDefaultBuilder(args)
         services.AddHostedService<PricingCacheRefreshWorker>();
         services.AddHostedService<LeaguePricingWorker>();
     })
-    .ConfigureLogging(logging =>
+    .ConfigureLogging((context, logging) =>
     {
+        var logLevelStr = context.Configuration["App:LogLevel"] ?? "Information";
+        var minLevel = Enum.TryParse<LogLevel>(logLevelStr, ignoreCase: true, out var parsed)
+            ? parsed : LogLevel.Information;
+
         logging.ClearProviders();
         logging.AddProvider(dashboardLoggerProvider);
         logging.AddProvider(new FileLogProvider());
-        logging.SetMinimumLevel(LogLevel.Trace);
+        logging.AddSimpleConsole(options =>
+        {
+            options.TimestampFormat = "HH:mm:ss ";
+            options.SingleLine = true;
+        });
+        logging.SetMinimumLevel(minLevel);
         logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
         logging.AddFilter("Microsoft.Extensions.Http.DefaultHttpClientFactory", LogLevel.Warning);
-        logging.AddConsole(options =>
-        {
-            options.FormatterName = CompactConsoleFormatter.FormatterName;
-        });
-        logging.AddConsoleFormatter<CompactConsoleFormatter, SimpleConsoleFormatterOptions>(options =>
-        {
-            options.SingleLine = true;
-            options.TimestampFormat = "HH:mm:ss ";
-        });
+        logging.AddFilter("Microsoft.Hosting.Lifetime", LogLevel.Error);
     })
     .Build();
 
 var debugOverlay = host.Services.GetRequiredService<DebugOverlayService>();
 dashboardService.SetReRunSetupTrigger(debugOverlay.RunInitialSetup);
+
+var ocrReader = host.Services.GetRequiredService<ILeagueWindowReader>();
+_ = Task.Run(() =>
+{
+    try { ocrReader.Warmup(); }
+    catch (Exception ex) { dashboardService.SetStatus($"Tesseract warmup failed: {ex.Message}", "amber"); }
+});
+
 dashboardService.SetOnWindowLoaded(() =>
 {
     if (debugOverlay.NeedsInitialSetup())

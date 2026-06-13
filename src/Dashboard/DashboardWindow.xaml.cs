@@ -1,32 +1,38 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.IO;
+using System.Net.Http;
 using System.Reflection;
-using System.Text;
-using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace RuneshapePriceChecker.App.Dashboard;
 
 public sealed partial class DashboardWindow : Window
 {
     private readonly DashboardLogSink _sink;
-    private readonly string _configPath;
-    private double _baseWindowWidth = 520;
-    private double _baseWindowHeight = 685;
+    private readonly DashboardViewModel _vm;
+    private readonly double _baseWindowWidth = 520;
+    private readonly double _baseWindowHeight = 691;
     private bool _loading;
-    private string _currentLeague = "Runes of Aldur";
+    private bool _changelogVisible;
+    private bool _setupPending;
+    private bool _settingsVisible;
+    private System.Windows.Threading.DispatcherTimer? _moveResizeTimer;
+    private DateTime _statusLockedUntil = DateTime.MinValue;
 
-    public ObservableCollection<LogEntryViewModel> LogEntries { get; } = new();
+    public ObservableCollection<LogEntryViewModel> LogEntries => _vm.LogEntries;
 
     public DashboardWindow(DashboardLogSink sink)
     {
         _sink = sink;
-        _configPath = Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json");
+        var configPath = Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json");
+        _vm = new DashboardViewModel(configPath);
         DataContext = this;
         InitializeComponent();
         InitializeScale();
@@ -39,44 +45,45 @@ public sealed partial class DashboardWindow : Window
         if (plusIdx >= 0) version = version[..plusIdx];
         VersionRun.Text = $"v{version}";
 
-        _sink.OnLogEntry += OnLogEntry;
+        _sink.OnLogEntry += entry => Dispatcher.Invoke(() => _vm.OnLogEntry(entry));
+
+        foreach (var entry in _sink.Snapshot().Reverse())
+            _vm.OnLogEntry(entry);
+
         PopulateLanguageCombo();
         PopulatePricingSourceCombo();
         PopulateLogLevelCombo();
-        LoadSettings();
+        _vm.LoadSettings();
+        SyncUiFromViewModel();
         _ = LoadLeaguesAsync();
 
-        if (HasCommandLineArg("--App:ForceUpdateAvailable=true") ||
-            ConfigHasFlag("App", "ForceUpdateAvailable"))
+        CheckPendingChangelog();
+
+        if (HasCommandLineArg("--ShowChangelog"))
+        {
+            Loaded += (_, _) => ShowChangelogPreview();
+        }
+
+        if (HasCommandLineArg("--App:ForceUpdateAvailable=true") || _vm.ConfigHasFlag("App", "ForceUpdateAvailable"))
             ShowUpdateButton();
 
-        if (HasCommandLineArg("--App:AutoApplyUpdate=true") ||
-            ConfigHasFlag("App", "AutoApplyUpdate"))
+        if (HasCommandLineArg("--App:AutoApplyUpdate=true") || _vm.ConfigHasFlag("App", "AutoApplyUpdate"))
         {
             ShowUpdateButton();
             Loaded += async (_, _) =>
             {
                 for (var i = 0; i < 30; i++)
                 {
-                    if (_onUpdateTriggered is not null) break;
+                    if (_vm.OnUpdateTriggered is not null) break;
                     await Task.Delay(500);
                 }
-                if (_onUpdateTriggered is not null)
+                if (_vm.OnUpdateTriggered is not null)
                     Dispatcher.Invoke(() => Update_Click(this, new RoutedEventArgs()));
             };
         }
-    }
 
-    private bool ConfigHasFlag(string section, string key)
-    {
-        try
-        {
-            if (!File.Exists(_configPath)) return false;
-            var json = File.ReadAllText(_configPath, Encoding.UTF8);
-            var root = JsonNode.Parse(json);
-            return root?[section]?[key]?.GetValue<bool>() == true;
-        }
-        catch { return false; }
+        if (HasCommandLineArg("--App:TestMode=true"))
+            TestModeIndicator.Visibility = Visibility.Visible;
     }
 
     private static bool HasCommandLineArg(string arg)
@@ -85,59 +92,116 @@ public sealed partial class DashboardWindow : Window
             .Any(a => string.Equals(a, arg, StringComparison.OrdinalIgnoreCase));
     }
 
+    private void CheckPendingChangelog()
+    {
+        var pending = _vm.TryGetPendingChangelog();
+        if (pending is not { Body: not null } p) return;
+
+        _vm.MarkChangelogShown();
+        ShowChangelog(p.Version ?? "", p.Body);
+    }
+
+    private void ShowChangelogPreview()
+    {
+        var changelogPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "tests", "changelog-v0.2.0.md"));
+        if (!File.Exists(changelogPath))
+        {
+            changelogPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "tests", "changelog-v0.2.0.md"));
+        }
+        if (!File.Exists(changelogPath))
+        {
+            SetStatus("Changelog preview file not found", "red");
+            return;
+        }
+
+        var body = File.ReadAllText(changelogPath);
+        ShowChangelog("0.2.0", body);
+    }
+
+    private void ShowChangelog(string version, string body)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            _changelogVisible = true;
+            var title = $"## v{version} Changelog\n\n";
+            ChangelogViewer.Document = MarkdownRenderer.Render(title + body);
+            RefreshContentArea();
+        });
+    }
+
+    private void ChangelogClose_Click(object sender, RoutedEventArgs e)
+    {
+        _changelogVisible = false;
+        RefreshContentArea();
+    }
+
+    private void SyncUiFromViewModel()
+    {
+        _loading = true;
+        for (var i = 0; i < LogLevelCombo.Items.Count; i++)
+        {
+            if (LogLevelCombo.Items[i] is ComboBoxItem item &&
+                string.Equals(item.Tag as string, _vm.LogLevel, StringComparison.OrdinalIgnoreCase))
+            { LogLevelCombo.SelectedIndex = i; break; }
+        }
+        for (var i = 0; i < PricingSourceCombo.Items.Count; i++)
+        {
+            if (string.Equals(PricingSourceCombo.Items[i] as string, _vm.PricingSource, StringComparison.OrdinalIgnoreCase))
+            { PricingSourceCombo.SelectedIndex = i; break; }
+        }
+        var isExalt = string.Equals(_vm.DisplayCurrency, "exalt", StringComparison.OrdinalIgnoreCase);
+        CurrencyChaosCheck.IsChecked = !isExalt;
+        CurrencyExaltCheck.IsChecked = isExalt;
+        RedThresholdBox.Text = _vm.RedThreshold.ToString(CultureInfo.InvariantCulture);
+        OrangeThresholdBox.Text = _vm.OrangeThreshold.ToString(CultureInfo.InvariantCulture);
+        GreenThresholdBox.Text = _vm.GreenThreshold.ToString(CultureInfo.InvariantCulture);
+        DebugOverlayCheck.IsChecked = _vm.DebugOverlay;
+        HideDebugOverlayCheck.IsChecked = _vm.HideDebugOverlayWhenInterfaceNotDetected;
+        SaveDebugImagesCheck.IsChecked = _vm.SaveDebugImages;
+        ShowPricingOverlayCheck.IsChecked = _vm.ShowPricingOverlay;
+        ShowBannerCheck.IsChecked = _vm.ShowBanner;
+        AutoUpdateCheck.IsChecked = _vm.AutoUpdate;
+        for (var i = 0; i < LanguageCombo.Items.Count; i++)
+        {
+            if (LanguageCombo.Items[i] is ComboBoxItem item &&
+                string.Equals(item.Tag as string, _vm.OcrLanguage, StringComparison.OrdinalIgnoreCase))
+            { LanguageCombo.SelectedIndex = i; break; }
+        }
+        _loading = false;
+        ValidateThresholds();
+    }
+
+    private void SyncViewModelFromUi()
+    {
+        _vm.LogLevel = (LogLevelCombo.SelectedItem as ComboBoxItem)?.Tag as string ?? "Information";
+        _vm.PricingSource = PricingSourceCombo.SelectedItem as string ?? "poe2scout";
+        _vm.CurrentLeague = LeagueCombo.SelectedItem as string ?? "";
+        _vm.DisplayCurrency = CurrencyExaltCheck.IsChecked == true ? "exalt" : "chaos";
+        _ = decimal.TryParse(RedThresholdBox.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var red); _vm.RedThreshold = red;
+        _ = decimal.TryParse(OrangeThresholdBox.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var orange); _vm.OrangeThreshold = orange;
+        _ = decimal.TryParse(GreenThresholdBox.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var green); _vm.GreenThreshold = green;
+        _vm.DebugOverlay = DebugOverlayCheck.IsChecked == true;
+        _vm.HideDebugOverlayWhenInterfaceNotDetected = HideDebugOverlayCheck.IsChecked == true;
+        _vm.SaveDebugImages = SaveDebugImagesCheck.IsChecked == true;
+        _vm.ShowPricingOverlay = ShowPricingOverlayCheck.IsChecked == true;
+        _vm.ShowBanner = ShowBannerCheck.IsChecked == true;
+        _vm.OcrLanguage = (LanguageCombo.SelectedItem as ComboBoxItem)?.Tag as string ?? "eng";
+        _vm.AutoUpdate = AutoUpdateCheck.IsChecked == true;
+    }
+
     private void InitializeScale()
     {
         var h = SystemParameters.PrimaryScreenHeight;
         var scale = Math.Clamp(h / 1080.0, 1, 1.5);
-
         Width = _baseWindowWidth * scale;
         Height = _baseWindowHeight * scale;
     }
 
-    private void OnLogEntry(LogEntry entry)
-    {
-        Dispatcher.Invoke(() =>
-        {
-            var brush = entry.Color switch
-            {
-                "red" => (Brush)FindResource("RedBrush"),
-                "yellow" => (Brush)FindResource("YellowBrush"),
-                "white" => (Brush)FindResource("TextPrimary"),
-                _ => (Brush)FindResource("GreenBrush")
-            };
-
-            for (int i = 0; i < LogEntries.Count; i++)
-            {
-                if (string.Equals(LogEntries[i].RawMessage, entry.Message, StringComparison.Ordinal))
-                {
-                    var existing = LogEntries[i];
-                    existing.Count = entry.Count;
-                    existing.Timestamp = entry.Timestamp;
-                    existing.UpdateDisplayText();
-                    if (i != 0)
-                        LogEntries.Move(i, 0);
-                    return;
-                }
-            }
-
-            var vm = new LogEntryViewModel
-            {
-                RawMessage = entry.Message,
-                Timestamp = entry.Timestamp,
-                Count = entry.Count,
-                ForegroundBrush = brush
-            };
-            vm.SetInitialText();
-
-            LogEntries.Insert(0, vm);
-
-            while (LogEntries.Count > 1000)
-                LogEntries.RemoveAt(LogEntries.Count - 1);
-        });
-    }
-
     public void SetStatus(string text, string color = "green")
     {
+        if (color != "red" && DateTime.UtcNow < _statusLockedUntil)
+            return;
+
         Dispatcher.Invoke(() =>
         {
             StatusLabel.Text = $"● {text}";
@@ -148,38 +212,52 @@ public sealed partial class DashboardWindow : Window
                 _ => (Brush)FindResource("GreenBrush")
             };
         });
+
+        if (color == "red")
+            _statusLockedUntil = DateTime.UtcNow.AddSeconds(3);
     }
 
-    private Action? _onSetupContinue;
-
-    public void SetOnSetupContinue(Action callback)
-    {
-        _onSetupContinue = callback;
-    }
+    public void SetOnSetupContinue(Action callback) => _vm.OnSetupContinue = callback;
 
     public void ShowSetupPrompt()
     {
-        Dispatcher.Invoke(() =>
-        {
-            LogSection.Visibility = Visibility.Collapsed;
-            SettingsSection.Visibility = Visibility.Collapsed;
-            SetupPromptSection.Visibility = Visibility.Visible;
-        });
+        Dispatcher.Invoke(() => { _setupPending = true; RefreshContentArea(); });
     }
 
     public void HideSetupPrompt()
     {
-        Dispatcher.Invoke(() =>
-        {
-            SetupPromptSection.Visibility = Visibility.Collapsed;
-            LogSection.Visibility = Visibility.Visible;
-        });
+        Dispatcher.Invoke(() => { _setupPending = false; RefreshContentArea(); });
     }
 
-    private void SetupContinue_Click(object sender, RoutedEventArgs e)
+    private void RefreshContentArea()
     {
-        _onSetupContinue?.Invoke();
+        ChangelogSection.Visibility = Visibility.Collapsed;
+        SetupPromptSection.Visibility = Visibility.Collapsed;
+        SettingsSection.Visibility = Visibility.Collapsed;
+        LogSection.Visibility = Visibility.Collapsed;
+
+        if (_changelogVisible)
+        {
+            ChangelogSection.Visibility = Visibility.Visible;
+            return;
+        }
+
+        if (_setupPending)
+        {
+            SetupPromptSection.Visibility = Visibility.Visible;
+            return;
+        }
+
+        if (_settingsVisible)
+        {
+            SettingsSection.Visibility = Visibility.Visible;
+            return;
+        }
+
+        LogSection.Visibility = Visibility.Visible;
     }
+
+    private void SetupContinue_Click(object sender, RoutedEventArgs e) => _vm.OnSetupContinue?.Invoke();
 
     private void Window_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
@@ -219,7 +297,7 @@ public sealed partial class DashboardWindow : Window
         if (msg == WM_NCACTIVATE)
         {
             handled = true;
-            return (IntPtr)1;
+            return 1;
         }
 
         if (msg == WM_NCCALCSIZE)
@@ -239,7 +317,7 @@ public sealed partial class DashboardWindow : Window
             if (Width <= 0 || Height <= 0)
             {
                 handled = true;
-                return (nint)HTCLIENT;
+                return HTCLIENT;
             }
 
             const int border = 6;
@@ -257,17 +335,17 @@ public sealed partial class DashboardWindow : Window
             var atLeft = point.X <= border;
             var atRight = point.X >= Width - border;
 
-            if (atTop && atLeft) { handled = true; return (nint)HTTOPLEFT; }
-            if (atTop && atRight) { handled = true; return (nint)HTTOPRIGHT; }
-            if (atBottom && atLeft) { handled = true; return (nint)HTBOTTOMLEFT; }
-            if (atBottom && atRight) { handled = true; return (nint)HTBOTTOMRIGHT; }
-            if (atTop) { handled = true; return (nint)HTTOP; }
-            if (atBottom) { handled = true; return (nint)HTBOTTOM; }
-            if (atLeft) { handled = true; return (nint)HTLEFT; }
-            if (atRight) { handled = true; return (nint)HTRIGHT; }
+            if (atTop && atLeft) { handled = true; return HTTOPLEFT; }
+            if (atTop && atRight) { handled = true; return HTTOPRIGHT; }
+            if (atBottom && atLeft) { handled = true; return HTBOTTOMLEFT; }
+            if (atBottom && atRight) { handled = true; return HTBOTTOMRIGHT; }
+            if (atTop) { handled = true; return HTTOP; }
+            if (atBottom) { handled = true; return HTBOTTOM; }
+            if (atLeft) { handled = true; return HTLEFT; }
+            if (atRight) { handled = true; return HTRIGHT; }
 
             handled = true;
-            return (nint)HTCLIENT;
+            return HTCLIENT;
         }
 
         return IntPtr.Zero;
@@ -278,13 +356,85 @@ public sealed partial class DashboardWindow : Window
         ToggleSettings();
     }
 
+    private async void ViewChangelog_Click(object sender, RoutedEventArgs e)
+    {
+        StartChangelogSpinner();
+        try
+        {
+            var version = Assembly.GetExecutingAssembly()
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                ?.InformationalVersion ?? "";
+            var plusIdx = version.IndexOf('+');
+            if (plusIdx >= 0) version = version[..plusIdx];
+            if (string.IsNullOrWhiteSpace(version))
+            {
+                SetStatus("Cannot determine current version.", "red");
+                return;
+            }
+
+            var cached = _vm.GetCachedChangelog();
+            if (cached is { Body: not null } c && string.Equals(c.Version, version, StringComparison.OrdinalIgnoreCase))
+            {
+                ShowChangelog(version, c.Body);
+                return;
+            }
+
+            var configPath = Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json");
+            var owner = "Barragek0";
+            var repo = "RuneshapePriceChecker";
+            var apiBase = "https://api.github.com";
+            if (File.Exists(configPath))
+            {
+                var json = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(configPath));
+                owner = json?["Update"]?["GitHubRepoOwner"]?.GetValue<string>() ?? owner;
+                repo = json?["Update"]?["GitHubRepoName"]?.GetValue<string>() ?? repo;
+                apiBase = json?["Update"]?["GitHubApiBaseUrl"]?.GetValue<string>() ?? apiBase;
+            }
+
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+            http.DefaultRequestHeaders.UserAgent.Add(new System.Net.Http.Headers.ProductInfoHeaderValue("RuneshapePriceChecker", "1.0"));
+            http.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+
+            var body = await FetchReleaseBodyAsync(http, $"{apiBase.TrimEnd('/')}/repos/{owner}/{repo}/releases/tags/v{version}");
+            body ??= await FetchReleaseBodyAsync(http, $"{apiBase.TrimEnd('/')}/repos/{owner}/{repo}/releases/tags/{version}");
+
+            if (body is not null)
+            {
+                ShowChangelog(version, body);
+            }
+            else
+            {
+                SetStatus($"Error fetching changelog for v{version}", "red");
+            }
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Error fetching changelog: {ex.Message}", "red");
+        }
+        finally
+        {
+            StopChangelogSpinner();
+        }
+    }
+
+    private static async Task<string?> FetchReleaseBodyAsync(HttpClient http, string url)
+    {
+        var response = await http.GetAsync(url).ConfigureAwait(true);
+        if (!response.IsSuccessStatusCode) return null;
+        var json = await response.Content.ReadAsStringAsync().ConfigureAwait(true);
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        return root.TryGetProperty("body", out var bodyProp) && bodyProp.ValueKind == System.Text.Json.JsonValueKind.String
+            ? bodyProp.GetString()
+            : null;
+    }
+
     private void Update_Click(object sender, RoutedEventArgs e)
     {
-        if (_onUpdateTriggered is null) return;
+        if (_vm.OnUpdateTriggered is null) return;
         ShowUpdateOverlay();
         SetUpdateProgress(0);
-        var progress = new Progress<int>(SetUpdateProgress);
-        _onUpdateTriggered(progress);
+        _vm.OnUpdateTriggered(new Progress<int>(SetUpdateProgress));
     }
 
     private static readonly SolidColorBrush UpdateBadgeHoverBg = new(Color.FromRgb(0x14, 0x4A, 0x30));
@@ -299,22 +449,10 @@ public sealed partial class DashboardWindow : Window
         UpdateBadge.Background = (Brush)FindResource("DarkGreenBgBrush");
     }
 
-    private Action<IProgress<int>>? _onUpdateTriggered;
-
-    public void SetUpdateTrigger(Action<IProgress<int>> trigger)
-    {
-        _onUpdateTriggered = trigger;
-    }
-
-    public void ShowUpdateButton()
-    {
-        Dispatcher.Invoke(() => UpdateBadge.Visibility = Visibility.Visible);
-    }
-
-    public void HideUpdateButton()
-    {
-        Dispatcher.Invoke(() => UpdateBadge.Visibility = Visibility.Collapsed);
-    }
+    public void SetUpdateTrigger(Action<IProgress<int>> trigger) => _vm.OnUpdateTriggered = trigger;
+    public void ShowUpdateButton() => Dispatcher.Invoke(() => UpdateBadge.Visibility = Visibility.Visible);
+    public void HideUpdateButton() => Dispatcher.Invoke(() => UpdateBadge.Visibility = Visibility.Collapsed);
+    public void SetReRunSetupTrigger(Action trigger) => _vm.OnReRunSetup = trigger;
 
     public void ShowUpdateOverlay()
     {
@@ -360,11 +498,29 @@ public sealed partial class DashboardWindow : Window
         SpinnerRotate.Angle = 0;
     }
 
+    private void StartChangelogSpinner()
+    {
+        ChangelogSpinner.Visibility = Visibility.Visible;
+        var animation = new System.Windows.Media.Animation.DoubleAnimation(0, 360,
+            new Duration(TimeSpan.FromSeconds(1)))
+        {
+            RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever
+        };
+        ChangelogSpinnerRotate.BeginAnimation(RotateTransform.AngleProperty, animation);
+    }
+
+    private void StopChangelogSpinner()
+    {
+        ChangelogSpinner.Visibility = Visibility.Collapsed;
+        ChangelogSpinnerRotate.BeginAnimation(RotateTransform.AngleProperty, null);
+        ChangelogSpinnerRotate.Angle = 0;
+    }
+
     private void ToggleSettings()
     {
-        var showingSettings = SettingsSection.Visibility == Visibility.Visible;
-        SettingsSection.Visibility = showingSettings ? Visibility.Collapsed : Visibility.Visible;
-        LogSection.Visibility = showingSettings ? Visibility.Visible : Visibility.Collapsed;
+        if (!_settingsVisible) _changelogVisible = false;
+        _settingsVisible = !_settingsVisible;
+        RefreshContentArea();
     }
 
     private void Close_Click(object sender, RoutedEventArgs e)
@@ -372,18 +528,7 @@ public sealed partial class DashboardWindow : Window
         Close();
     }
 
-    private void ReRunSetup_Click(object sender, RoutedEventArgs e)
-    {
-        ToggleSettings();
-        _onReRunSetup?.Invoke();
-    }
-
-    private Action? _onReRunSetup;
-
-    public void SetReRunSetupTrigger(Action trigger)
-    {
-        _onReRunSetup = trigger;
-    }
+    private void ReRunSetup_Click(object sender, RoutedEventArgs e) { ToggleSettings(); _vm.OnReRunSetup?.Invoke(); }
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
@@ -405,17 +550,42 @@ public sealed partial class DashboardWindow : Window
 
     private void CopyLog_Click(object sender, RoutedEventArgs e)
     {
-        var text = string.Join(Environment.NewLine,
-            LogEntries.Reverse().Select(e => $"{e.TimestampText}  {e.MessageText}"));
-        Clipboard.SetText(text);
+        var now = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+        var header = $"=== RuneshapePriceChecker {VersionRun.Text} — copied at {now} ==={Environment.NewLine}{Environment.NewLine}";
+        var body = string.Join(Environment.NewLine,
+            LogEntries.Reverse().Select(entry =>
+            {
+                var count = string.IsNullOrEmpty(entry.CountText) ? "" : $" {entry.CountText}";
+                return $"{entry.TimestampText}  {entry.MessageText}{count}";
+            }));
+        Clipboard.SetText(header + body);
+    }
+
+    private static void RestartApp()
+    {
+        var exePath = Environment.ProcessPath;
+        if (exePath is null) return;
+
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "cmd",
+                Arguments = $"/c \"timeout /t 2 /nobreak >nul && start \"\" \"{exePath}\"\"",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
+        }
+        catch { }
+
+        Application.Current.Dispatcher.BeginInvoke(() => Application.Current.Shutdown());
     }
 
     private async Task LoadLeaguesAsync()
     {
         try
         {
-            var service = new LeagueListService();
-            var leagues = await service.FetchLeaguesAsync();
+            var leagues = await LeagueListService.FetchLeaguesAsync();
 
             await Dispatcher.InvokeAsync(() =>
             {
@@ -425,14 +595,14 @@ public sealed partial class DashboardWindow : Window
 
                 for (var i = 0; i < LeagueCombo.Items.Count; i++)
                 {
-                    if (string.Equals(LeagueCombo.Items[i] as string, _currentLeague, StringComparison.OrdinalIgnoreCase))
+                    if (string.Equals(LeagueCombo.Items[i] as string, _vm.CurrentLeague, StringComparison.OrdinalIgnoreCase))
                     {
                         LeagueCombo.SelectedIndex = i;
                         return;
                     }
                 }
 
-                LeagueCombo.Items.Add(_currentLeague);
+                LeagueCombo.Items.Add(_vm.CurrentLeague);
                 LeagueCombo.SelectedIndex = LeagueCombo.Items.Count - 1;
             });
         }
@@ -440,253 +610,183 @@ public sealed partial class DashboardWindow : Window
         {
             await Dispatcher.InvokeAsync(() =>
             {
-                LeagueCombo.Items.Add(_currentLeague);
+                LeagueCombo.Items.Add(_vm.CurrentLeague);
                 LeagueCombo.SelectedIndex = 0;
             });
         }
     }
 
-    private void LoadSettings()
-    {
-        _loading = true;
-        if (!File.Exists(_configPath)) { _loading = false; return; }
-
-        try
-        {
-            var json = File.ReadAllText(_configPath, Encoding.UTF8);
-            var root = JsonNode.Parse(json);
-            if (root is null) { _loading = false; return; }
-
-            if (root["App"] is JsonNode app)
-            {
-                var logLevelStr = app["LogLevel"]?.GetValue<string>() ?? "Information";
-                for (var i = 0; i < LogLevelCombo.Items.Count; i++)
-                {
-                    if (LogLevelCombo.Items[i] is ComboBoxItem item &&
-                        string.Equals(item.Tag as string, logLevelStr, StringComparison.OrdinalIgnoreCase))
-                    {
-                        LogLevelCombo.SelectedIndex = i;
-                        break;
-                    }
-                }
-            }
-
-            if (root["Pricing"] is JsonNode pricing)
-            {
-                _currentLeague = pricing["League"]?.GetValue<string>() ?? "Runes of Aldur";
-                var source = pricing["PricingSource"]?.GetValue<string>() ?? "poe2scout";
-                for (var i = 0; i < PricingSourceCombo.Items.Count; i++)
-                {
-                    if (string.Equals(PricingSourceCombo.Items[i] as string, source, StringComparison.OrdinalIgnoreCase))
-                    {
-                        PricingSourceCombo.SelectedIndex = i;
-                        break;
-                    }
-                }
-                var currency = pricing["DisplayCurrency"]?.GetValue<string>() ?? "chaos";
-                var isExalt = string.Equals(currency, "exalt", StringComparison.OrdinalIgnoreCase);
-                CurrencyChaosCheck.IsChecked = !isExalt;
-                CurrencyExaltCheck.IsChecked = isExalt;
-                var red = pricing["RedThreshold"]?.GetValue<decimal>();
-                var orange = pricing["OrangeThreshold"]?.GetValue<decimal>();
-                var green = pricing["GreenThreshold"]?.GetValue<decimal>();
-                RedThresholdBox.Text = red?.ToString() ?? "0.5";
-                OrangeThresholdBox.Text = orange?.ToString() ?? "1.0";
-                GreenThresholdBox.Text = green?.ToString() ?? "5.0";
-            }
-
-            if (root["OCR"] is JsonNode ocr)
-            {
-                DebugOverlayCheck.IsChecked = ocr["DebugOverlay"]?.GetValue<bool>() ?? false;
-                HideDebugOverlayCheck.IsChecked = ocr["HideDebugOverlayWhenInterfaceNotDetected"]?.GetValue<bool>() ?? false;
-                SaveDebugImagesCheck.IsChecked = ocr["SaveDebugImages"]?.GetValue<bool>() ?? false;
-                ShowPricingOverlayCheck.IsChecked = ocr["ShowPricingOverlay"]?.GetValue<bool>() ?? true;
-                ShowBannerCheck.IsChecked = ocr["ShowBanner"]?.GetValue<bool>() ?? true;
-
-                var currentLang = ocr["Language"]?.GetValue<string>() ?? "eng";
-                for (var i = 0; i < LanguageCombo.Items.Count; i++)
-                {
-                    if (LanguageCombo.Items[i] is ComboBoxItem item &&
-                        string.Equals(item.Tag as string, currentLang, StringComparison.OrdinalIgnoreCase))
-                    {
-                        LanguageCombo.SelectedIndex = i;
-                        break;
-                    }
-                }
-            }
-
-            if (root["Update"] is JsonNode update)
-                AutoUpdateCheck.IsChecked = update["AutoUpdate"]?.GetValue<bool>() ?? true;
-        }
-        catch { }
-        finally { _loading = false; }
-    }
-
     private void SettingsSave_Click(object sender, RoutedEventArgs e)
     {
+        ClearValidation();
         ValidationError.Text = "";
+        SyncViewModelFromUi();
+        var error = _vm.SaveSettings();
+        if (error is not null) { ShowValidation(error, RedThresholdBox); return; }
+        ToggleSettings();
 
-        var league = LeagueCombo.SelectedItem as string;
-        if (string.IsNullOrWhiteSpace(league))
+        if (_vm.LogLevelChanged)
         {
-            ShowValidation("Select a league.", LeagueCombo);
+            RestartApp();
             return;
         }
-        if (!decimal.TryParse(RedThresholdBox.Text, out var red))
+    }
+
+    private void ThresholdBox_PreviewTextInput(object sender, TextCompositionEventArgs e)
+    {
+        var box = (TextBox)sender;
+        var proposed = box.Text.Insert(box.SelectionStart, e.Text);
+        if (proposed.Length > box.MaxLength) { e.Handled = true; return; }
+        e.Handled = !decimal.TryParse(proposed, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out _);
+    }
+
+    private void ThresholdBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_loading) return;
+        ValidateThresholds();
+    }
+
+    private void ValidateThresholds()
+    {
+        ClearValidation();
+        var valid = true;
+        string? error = null;
+
+        var redOk = decimal.TryParse(RedThresholdBox.Text, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var red)
+                    && red >= 0.1m && red <= 999m;
+        var orangeOk = decimal.TryParse(OrangeThresholdBox.Text, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var orange)
+                       && orange >= 0.1m && orange <= 999m;
+        var greenOk = decimal.TryParse(GreenThresholdBox.Text, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var green)
+                      && green >= 0.1m && green <= 999m;
+
+        if (!redOk && RedThresholdBox.Text.Length > 0) { valid = false; MarkInvalid(RedThresholdBox); }
+        if (!orangeOk && OrangeThresholdBox.Text.Length > 0) { valid = false; MarkInvalid(OrangeThresholdBox); }
+        if (!greenOk && GreenThresholdBox.Text.Length > 0) { valid = false; MarkInvalid(GreenThresholdBox); }
+
+        if (redOk && orangeOk && !(red < orange))
         {
-            ShowValidation("Red threshold must be a number.", RedThresholdBox);
-            return;
+            valid = false;
+            error = "Red should be less than orange";
+            MarkInvalid(RedThresholdBox);
         }
-        if (!decimal.TryParse(OrangeThresholdBox.Text, out var orange))
+        else if (orangeOk && greenOk && !(orange < green))
         {
-            ShowValidation("Orange threshold must be a number.", OrangeThresholdBox);
-            return;
-        }
-        if (!decimal.TryParse(GreenThresholdBox.Text, out var green))
-        {
-            ShowValidation("Green threshold must be a number.", GreenThresholdBox);
-            return;
-        }
-        if (!(red < orange && orange < green))
-        {
-            ShowValidation("Thresholds must be: Red < Orange < Green.", RedThresholdBox);
-            return;
+            valid = false;
+            error = "Orange should be less than green";
+            MarkInvalid(OrangeThresholdBox);
         }
 
-        try
+        if (error is not null)
+            SetStatus(error, "red");
+        else if (!valid)
+            SetStatus("Invalid threshold values", "red");
+        else
+            ClearValidationStatus();
+
+        SaveBtn.IsEnabled = valid;
+        SaveBtn.Opacity = valid ? 1.0 : 0.4;
+    }
+
+    private static void MarkInvalid(Control target)
+    {
+        target.Tag = "invalid";
+        target.BorderBrush = new SolidColorBrush(Color.FromRgb(0xF8, 0x71, 0x71));
+        target.BorderThickness = new Thickness(1);
+    }
+
+    private void ClearValidationStatus()
+    {
+        if (StatusLabel.Foreground is SolidColorBrush b && b.Color.R == 0xF8)
         {
-            var configDir = Path.GetDirectoryName(_configPath);
-            if (configDir is null) return;
-            Directory.CreateDirectory(configDir);
+            StatusLabel.Text = "\u25cf Ready";
+            StatusLabel.Foreground = (Brush)FindResource("GreenBrush");
+            _statusLockedUntil = DateTime.MinValue;
+        }
+    }
 
-            var existingJson = File.Exists(_configPath) ? File.ReadAllText(_configPath, Encoding.UTF8) : "{}";
-            var root = JsonNode.Parse(existingJson) ?? new JsonObject();
-            if (root is not JsonObject rootObj) return;
+    private void Window_LocationChanged(object sender, EventArgs e)
+    {
+        ScheduleMoveResizeSave();
+    }
 
-            rootObj["App"] ??= new JsonObject();
-            rootObj["Pricing"] ??= new JsonObject();
-            rootObj["OCR"] ??= new JsonObject();
-            rootObj["Update"] ??= new JsonObject();
+    private void Window_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        ScheduleMoveResizeSave();
+    }
 
-            if (rootObj["App"] is JsonObject app)
-                app["LogLevel"] = (LogLevelCombo.SelectedItem as ComboBoxItem)?.Tag as string ?? "Information";
-
-            if (rootObj["Pricing"] is JsonObject pricing)
+    private void ScheduleMoveResizeSave()
+    {
+        _moveResizeTimer?.Stop();
+        _moveResizeTimer ??= new System.Windows.Threading.DispatcherTimer(
+            TimeSpan.FromMilliseconds(600),
+            System.Windows.Threading.DispatcherPriority.Background,
+            (_, _) =>
             {
-                pricing["PricingSource"] = PricingSourceCombo.SelectedItem as string ?? "poe2scout";
-                pricing["League"] = league;
-                pricing["DisplayCurrency"] = CurrencyExaltCheck.IsChecked == true ? "exalt" : "chaos";
-                pricing["RedThreshold"] = red;
-                pricing["OrangeThreshold"] = orange;
-                pricing["GreenThreshold"] = green;
-            }
-
-            if (rootObj["OCR"] is JsonObject ocr)
-            {
-                ocr["DebugOverlay"] = DebugOverlayCheck.IsChecked == true;
-                ocr["HideDebugOverlayWhenInterfaceNotDetected"] = HideDebugOverlayCheck.IsChecked == true;
-                ocr["SaveDebugImages"] = SaveDebugImagesCheck.IsChecked == true;
-                ocr["ShowPricingOverlay"] = ShowPricingOverlayCheck.IsChecked == true;
-                ocr["ShowBanner"] = ShowBannerCheck.IsChecked == true;
-
-                var newLang = (LanguageCombo.SelectedItem as ComboBoxItem)?.Tag as string;
-                if (!string.IsNullOrWhiteSpace(newLang) &&
-                    !string.Equals(newLang, ocr["Language"]?.GetValue<string>(), StringComparison.OrdinalIgnoreCase))
-                {
-                    ocr["Language"] = newLang;
-                }
-            }
-
-            if (rootObj["Update"] is JsonObject update)
-                update["AutoUpdate"] = AutoUpdateCheck.IsChecked == true;
-
-            var jsonResult = rootObj.ToJsonString(new() { WriteIndented = true });
-            File.WriteAllText(_configPath, jsonResult + Environment.NewLine, Encoding.UTF8);
-            ToggleSettings();
-        }
-        catch (Exception ex)
-        {
-            ValidationError.Text = $"Save failed: {ex.Message}";
-        }
+                _moveResizeTimer?.Stop();
+                SaveWindowPosition();
+            },
+            Dispatcher);
+        _moveResizeTimer.Start();
     }
 
     private void SettingsCancel_Click(object sender, RoutedEventArgs e)
     {
-        LoadSettings();
+        ClearValidationStatus();
+        ClearValidation();
+        _vm.LoadSettings();
+        SyncUiFromViewModel();
         ToggleSettings();
     }
 
     private void ShowValidation(string message, Control target)
     {
         ValidationError.Text = message;
+        target.Tag = "invalid";
         target.BorderBrush = new SolidColorBrush(Color.FromRgb(0xF8, 0x71, 0x71));
         target.BorderThickness = new Thickness(1);
         target.Focus();
     }
 
-    private void CurrencyChaos_Checked(object sender, RoutedEventArgs e)
+    private void ClearValidation()
     {
-        if (_loading) return;
-        CurrencyExaltCheck.IsChecked = false;
+        ClearValidationFor(RedThresholdBox);
+        ClearValidationFor(OrangeThresholdBox);
+        ClearValidationFor(GreenThresholdBox);
     }
 
-    private void CurrencyChaos_Unchecked(object sender, RoutedEventArgs e)
+    private static void ClearValidationFor(Control target)
     {
-        if (_loading) return;
-        if (CurrencyExaltCheck.IsChecked != true)
-            CurrencyChaosCheck.IsChecked = true;
+        target.Tag = null;
+        target.ClearValue(Control.BorderBrushProperty);
+        target.ClearValue(Control.BorderThicknessProperty);
     }
 
-    private void CurrencyExalt_Checked(object sender, RoutedEventArgs e)
-    {
-        if (_loading) return;
-        CurrencyChaosCheck.IsChecked = false;
-    }
-
-    private void CurrencyExalt_Unchecked(object sender, RoutedEventArgs e)
-    {
-        if (_loading) return;
-        if (CurrencyChaosCheck.IsChecked != true)
-            CurrencyExaltCheck.IsChecked = true;
-    }
+    private void CurrencyChaos_Checked(object sender, RoutedEventArgs e) { if (!_loading) CurrencyExaltCheck.IsChecked = false; }
+    private void CurrencyExalt_Checked(object sender, RoutedEventArgs e) { if (!_loading) CurrencyChaosCheck.IsChecked = false; }
+    private void CurrencyChaos_Unchecked(object sender, RoutedEventArgs e) { if (!_loading && CurrencyExaltCheck.IsChecked != true) CurrencyChaosCheck.IsChecked = true; }
+    private void CurrencyExalt_Unchecked(object sender, RoutedEventArgs e) { if (!_loading && CurrencyChaosCheck.IsChecked != true) CurrencyExaltCheck.IsChecked = true; }
 
     private void RestoreWindowPosition()
     {
-        try
-        {
-            if (!File.Exists(_configPath)) return;
+        var pos = _vm.RestoreWindowPosition();
+        if (pos is not { } p) return;
 
-            var json = File.ReadAllText(_configPath, Encoding.UTF8);
-            var root = JsonNode.Parse(json);
-            if (root?["Window"] is not JsonNode window) return;
+        if (!double.IsNaN(p.Width) && p.Width >= MinWidth)
+            Width = Math.Min(p.Width, SystemParameters.VirtualScreenWidth);
+        if (!double.IsNaN(p.Height) && p.Height >= MinHeight)
+            Height = Math.Min(p.Height, SystemParameters.VirtualScreenHeight);
+        if (double.IsNaN(p.Left) || double.IsNaN(p.Top)) return;
 
-            var left = window["Left"]?.GetValue<double>() ?? double.NaN;
-            var top = window["Top"]?.GetValue<double>() ?? double.NaN;
-            var width = window["Width"]?.GetValue<double>() ?? double.NaN;
-            var height = window["Height"]?.GetValue<double>() ?? double.NaN;
+        var vr = new Rect(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
+            SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
+        if (p.Left >= vr.Left && p.Top >= vr.Top && p.Left + Width <= vr.Right && p.Top + Height <= vr.Bottom)
+        { Left = p.Left; Top = p.Top; }
+    }
 
-            if (!double.IsNaN(width) && width >= MinWidth)
-                Width = Math.Min(width, SystemParameters.VirtualScreenWidth);
-            if (!double.IsNaN(height) && height >= MinHeight)
-                Height = Math.Min(height, SystemParameters.VirtualScreenHeight);
-
-            if (double.IsNaN(left) || double.IsNaN(top)) return;
-
-            var virtualRect = new Rect(
-                SystemParameters.VirtualScreenLeft,
-                SystemParameters.VirtualScreenTop,
-                SystemParameters.VirtualScreenWidth,
-                SystemParameters.VirtualScreenHeight);
-
-            if (left >= virtualRect.Left && top >= virtualRect.Top &&
-                left + Width <= virtualRect.Right &&
-                top + Height <= virtualRect.Bottom)
-            {
-                Left = left;
-                Top = top;
-            }
-        }
-        catch { }
+    private void SaveWindowPosition()
+    {
+        if (WindowState != WindowState.Normal) return;
+        _vm.SaveWindowPosition(Left, Top, Width, Height);
     }
 
     private static readonly Dictionary<string, string> TesseractLanguageNames = new()
@@ -737,45 +837,6 @@ public sealed partial class DashboardWindow : Window
         LogLevelCombo.Items.Add(new ComboBoxItem { Content = "Information", Tag = "Information" });
         LogLevelCombo.SelectedIndex = 2; // Information
     }
-
-    private void SaveWindowPosition()
-    {
-        try
-        {
-            if (WindowState != WindowState.Normal) return;
-
-            var configDir = Path.GetDirectoryName(_configPath);
-            if (!string.IsNullOrEmpty(configDir) && !Directory.Exists(configDir))
-                Directory.CreateDirectory(configDir);
-
-            JsonNode root;
-            if (File.Exists(_configPath))
-            {
-                var existingJson = File.ReadAllText(_configPath, Encoding.UTF8);
-                root = JsonNode.Parse(existingJson) ?? new JsonObject();
-            }
-            else
-            {
-                root = new JsonObject();
-            }
-
-            var windowNode = root["Window"] as JsonObject;
-            if (windowNode is null)
-            {
-                windowNode = new JsonObject();
-                root["Window"] = windowNode;
-            }
-
-            windowNode["Left"] = (int)Left;
-            windowNode["Top"] = (int)Top;
-            windowNode["Width"] = (int)Width;
-            windowNode["Height"] = (int)Height;
-
-            var json = root.ToJsonString(new() { WriteIndented = true });
-            File.WriteAllText(_configPath, json + Environment.NewLine, Encoding.UTF8);
-        }
-        catch { }
-    }
 }
 
 public sealed class LogEntryViewModel : INotifyPropertyChanged
@@ -784,6 +845,7 @@ public sealed class LogEntryViewModel : INotifyPropertyChanged
     public DateTime Timestamp { get; set; }
     public int Count { get; set; } = 1;
     public Brush? ForegroundBrush { get; set; }
+    public Microsoft.Extensions.Logging.LogLevel LogLevel { get; set; }
 
     private string _timestampText = "";
     public string TimestampText

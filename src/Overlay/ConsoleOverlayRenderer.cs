@@ -74,10 +74,10 @@ public sealed class ConsoleOverlayRenderer(
         }
     }
 
-    private static IReadOnlyList<OverlayRowEntry> BuildEntries(
+    private static List<OverlayRowEntry> BuildEntries(
         LeagueWindowSnapshot snapshot,
         IReadOnlyDictionary<string, PriceQuote?> pricesByItemName,
-        IReadOnlyList<Rectangle> rows,
+        List<Rectangle> rows,
         PricingCacheOptions pricing)
     {
         var count = Math.Min(snapshot.ItemNames.Count, rows.Count);
@@ -93,7 +93,6 @@ public sealed class ConsoleOverlayRenderer(
                 continue;
             }
 
-            var label = quote.Label;
             var segments = BuildTextSegments(quote, pricing);
             entries.Add(new OverlayRowEntry(row.Y, row.Height, segments));
         }
@@ -615,4 +614,5 @@ public sealed class ConsoleOverlayRenderer(
                 uint uFlags);
         }
     }
+
 }

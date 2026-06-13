@@ -1,7 +1,5 @@
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
-using RuneshapePriceChecker.Configuration;
-using RuneshapePriceChecker.OCR;
 
 namespace RuneshapePriceChecker.OCR;
 
@@ -35,7 +33,7 @@ internal static class OcrImagePreprocessor
         int[] finalRowPositions;
         if (lineYPositions.Length >= lines.Length)
         {
-            finalRowPositions = lineYPositions.Take(lines.Length).ToArray();
+            finalRowPositions = [.. lineYPositions.Take(lines.Length)];
         }
         else
         {

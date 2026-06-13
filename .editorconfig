@@ -4,3 +4,14 @@
 dotnet_diagnostic.IDE0160.severity = none
 # IDE0130: Namespace does not match folder structure
 dotnet_diagnostic.IDE0130.severity = none
+
+# Code style: surface during build
+dotnet_diagnostic.IDE0005.severity = warning
+dotnet_diagnostic.IDE0044.severity = warning
+dotnet_diagnostic.IDE0055.severity = warning
+dotnet_diagnostic.IDE0059.severity = warning
+dotnet_diagnostic.IDE0060.severity = warning
+
+# DashboardViewModel uses JSON keys that don't match property names by design
+[src/Dashboard/DashboardViewModel.cs]
+dotnet_diagnostic.CA1507.severity = none

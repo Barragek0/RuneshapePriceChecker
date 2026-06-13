@@ -8,13 +8,15 @@
         Title="RuneshapePriceChecker"
         SourceInitialized="Window_SourceInitialized"
         MinWidth="444"
-        MinHeight="685"
+        MinHeight="691"
         Width="444"
-        Height="685"
+        Height="691"
         WindowStartupLocation="Manual"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True"
         Loaded="Window_Loaded"
+        LocationChanged="Window_LocationChanged"
+        SizeChanged="Window_SizeChanged"
         Closing="Window_Closing"
         MouseLeftButtonDown="Window_MouseLeftButtonDown">
 
@@ -394,6 +396,12 @@
                                         Property="BorderBrush"
                                         Value="#1C1F26"/>
                             </Trigger>
+                            <Trigger Property="Tag"
+                                     Value="invalid">
+                                <Setter TargetName="Border"
+                                        Property="BorderBrush"
+                                        Value="#F87171"/>
+                            </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -544,6 +552,21 @@
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center"/>
                 </Button>
+                <Border x:Name="TestModeIndicator"
+                        Visibility="Collapsed"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Top"
+                        Margin="0,6,70,0"
+                        Padding="4,2"
+                        BorderBrush="{StaticResource RedBrush}"
+                        BorderThickness="1.5"
+                        CornerRadius="3"
+                        Background="#22F87171">
+                    <TextBlock Text="TEST MODE"
+                               Foreground="{StaticResource RedBrush}"
+                               FontSize="9"
+                               FontWeight="Bold"/>
+                </Border>
                 <Button Width="30"
                         Height="30"
                         Style="{StaticResource IconButtonStyle}"
@@ -628,6 +651,40 @@
                     </Grid>
                 </Border>
 
+                <!-- Changelog panel -->
+                <Border x:Name="ChangelogSection"
+                        Background="Transparent"
+                        CornerRadius="0,0,10,10"
+                        Visibility="Collapsed">
+                    <Grid Margin="12,8,2,8">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <FlowDocumentScrollViewer x:Name="ChangelogViewer"
+                                                  Grid.Row="0"
+                                                  Grid.RowSpan="2"
+                                                  VerticalScrollBarVisibility="Auto"
+                                                  HorizontalScrollBarVisibility="Disabled"
+                                                  Background="Transparent"
+                                                  Padding="0"
+                                                  Margin="0,0,0,44"/>
+                        <Button Grid.Row="1"
+                                Width="100"
+                                Height="32"
+                                Background="{StaticResource GreenBtnBrush}"
+                                Foreground="White"
+                                BorderThickness="0"
+                                FontSize="13"
+                                FontWeight="SemiBold"
+                                Content="Got it"
+                                Click="ChangelogClose_Click"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Bottom"
+                                Margin="0,0,0,4"/>
+                    </Grid>
+                </Border>
+
                 <!-- Setup prompt panel -->
                 <Border x:Name="SetupPromptSection"
                         Background="Transparent"
@@ -688,11 +745,68 @@
                                               Grid.Row="0"
                                               Grid.Column="0"
                                               VerticalAlignment="Center">Check for updates</CheckBox>
+                                    <StackPanel Grid.Row="1"
+                                                Grid.Column="0"
+                                                Orientation="Horizontal"
+                                                Margin="28,4,0,0">
+                                        <Button Content="View Changelog"
+                                                HorizontalAlignment="Left"
+                                                Background="Transparent"
+                                                Foreground="{StaticResource AccentBrush}"
+                                                BorderThickness="0"
+                                                FontSize="12"
+                                                Cursor="Hand"
+                                                Click="ViewChangelog_Click"/>
+                                        <Ellipse x:Name="ChangelogSpinner"
+                                                 Width="10"
+                                                 Height="10"
+                                                 Stroke="{StaticResource AccentBrush}"
+                                                 StrokeThickness="2"
+                                                 StrokeDashArray="0.6 0.15"
+                                                 RenderTransformOrigin="0.5,0.5"
+                                                 VerticalAlignment="Center"
+                                                 Margin="6,0,0,0"
+                                                 Visibility="Collapsed">
+                                            <Ellipse.RenderTransform>
+                                                <RotateTransform x:Name="ChangelogSpinnerRotate"
+                                                                 Angle="0"/>
+                                            </Ellipse.RenderTransform>
+                                        </Ellipse>
+                                    </StackPanel>
                                     <StackPanel Grid.Row="0"
                                                 Grid.RowSpan="2"
                                                 Grid.Column="1">
-                                        <TextBlock Style="{StaticResource FieldLabel}"
-                                                   Text="Log Level"/>
+                                        <StackPanel Orientation="Horizontal"
+                                                    Margin="14,0,0,6">
+                                            <TextBlock Text="Log Level"
+                                                       Foreground="#B8BEC6"
+                                                       FontSize="13"
+                                                       VerticalAlignment="Center"/>
+                                            <TextBlock x:Name="LogLevelTooltipIcon"
+                                                       Text="&#x24D8;"
+                                                       FontSize="13"
+                                                       VerticalAlignment="Center"
+                                                       Margin="4,0,0,0"
+                                                       ToolTipService.InitialShowDelay="0"
+                                                       Cursor="Help">
+                                                <TextBlock.ToolTip>
+                                                    <ToolTip>Changing the log level will restart the app.</ToolTip>
+                                                </TextBlock.ToolTip>
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground"
+                                                                Value="#6A7078"/>
+                                                        <Style.Triggers>
+                                                            <Trigger Property="IsMouseOver"
+                                                                     Value="True">
+                                                                <Setter Property="Foreground"
+                                                                        Value="#B8BEC6"/>
+                                                            </Trigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </StackPanel>
                                         <ComboBox x:Name="LogLevelCombo"
                                                   Width="130"
                                                   HorizontalAlignment="Left"
@@ -767,8 +881,11 @@
                                                            HorizontalAlignment="Center"/>
                                                 <TextBox x:Name="RedThresholdBox"
                                                          Width="52"
+                                                         MaxLength="3"
                                                          HorizontalAlignment="Center"
-                                                         TextAlignment="Center"/>
+                                                         TextAlignment="Center"
+                                                         PreviewTextInput="ThresholdBox_PreviewTextInput"
+                                                         TextChanged="ThresholdBox_TextChanged"/>
                                             </StackPanel>
                                             <StackPanel Margin="0,0,10,0">
                                                 <TextBlock Foreground="{StaticResource AmberBrush}"
@@ -778,8 +895,11 @@
                                                            HorizontalAlignment="Center"/>
                                                 <TextBox x:Name="OrangeThresholdBox"
                                                          Width="52"
+                                                         MaxLength="3"
                                                          HorizontalAlignment="Center"
-                                                         TextAlignment="Center"/>
+                                                         TextAlignment="Center"
+                                                         PreviewTextInput="ThresholdBox_PreviewTextInput"
+                                                         TextChanged="ThresholdBox_TextChanged"/>
                                             </StackPanel>
                                             <StackPanel>
                                                 <TextBlock Foreground="{StaticResource GreenBrush}"
@@ -789,8 +909,11 @@
                                                            HorizontalAlignment="Center"/>
                                                 <TextBox x:Name="GreenThresholdBox"
                                                          Width="52"
+                                                         MaxLength="3"
                                                          HorizontalAlignment="Center"
-                                                         TextAlignment="Center"/>
+                                                         TextAlignment="Center"
+                                                         PreviewTextInput="ThresholdBox_PreviewTextInput"
+                                                         TextChanged="ThresholdBox_TextChanged"/>
                                             </StackPanel>
                                         </StackPanel>
                                     </StackPanel>

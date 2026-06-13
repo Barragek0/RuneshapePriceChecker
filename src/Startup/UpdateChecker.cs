@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.IO.Compression;
 using System.Net.Http.Json;
 using System.Reflection;
@@ -23,6 +24,8 @@ internal sealed class UpdateChecker(
     private string? _downloadUrl;
     private string? _localZipPath;
     private string? _latestVersion;
+    private string? _changelogBody;
+    private string? _changelogVersion;
     private CancellationToken _stoppingToken;
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -145,6 +148,8 @@ internal sealed class UpdateChecker(
         }
 
         _latestVersion = latestVersionText;
+        _changelogBody = latest.Body;
+        _changelogVersion = latestVersionText;
         dashboard.ShowUpdateButton();
 
         if (latestVersion > currentVersion)
@@ -175,6 +180,8 @@ internal sealed class UpdateChecker(
             logger.LogWarning("No download URL available. Cannot apply update.");
             return;
         }
+
+        WriteChangelogToSettings();
 
         var installDir = AppContext.BaseDirectory;
         var tempZip = Path.Combine(Path.GetTempPath(), $"runeshape-update-{Guid.NewGuid():N}.zip");
@@ -305,7 +312,7 @@ internal sealed class UpdateChecker(
         }
 
         Version? expectedVersion = null;
-        TryParseVersion(expectedVersionText, out expectedVersion);
+        _ = TryParseVersion(expectedVersionText, out expectedVersion);
 
         Version? diskVersion = null;
         try
@@ -319,7 +326,7 @@ internal sealed class UpdateChecker(
                 if (!TryParseVersion(clean, out diskVersion))
                 {
                     var lastDot = clean.LastIndexOf('.');
-                    if (lastDot >= 0) TryParseVersion(clean[..lastDot], out diskVersion);
+                    if (lastDot >= 0) _ = TryParseVersion(clean[..lastDot], out diskVersion);
                 }
             }
         }
@@ -449,6 +456,11 @@ internal sealed class UpdateChecker(
                 ? tagProp.GetString()!
                 : string.Empty;
 
+            var body = release.TryGetProperty("body", out var bodyProp) &&
+                       bodyProp.ValueKind == JsonValueKind.String
+                ? bodyProp.GetString()
+                : null;
+
             var assets = new List<GitHubAsset>();
             if (release.TryGetProperty("assets", out var assetsProp) && assetsProp.ValueKind == JsonValueKind.Array)
             {
@@ -461,22 +473,63 @@ internal sealed class UpdateChecker(
                 }
             }
 
-            return new GitHubRelease(tagName, assets);
+            return new GitHubRelease(tagName, assets, body);
         }
 
         return null;
     }
 
-    private static bool TryParseVersion(string text, out Version version)
+    private void WriteChangelogToSettings()
+    {
+        try
+        {
+            var configPath = Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json");
+            var configDir = Path.GetDirectoryName(configPath);
+            if (!string.IsNullOrEmpty(configDir) && !Directory.Exists(configDir))
+                Directory.CreateDirectory(configDir);
+
+            System.Text.Json.Nodes.JsonNode root;
+            if (File.Exists(configPath))
+            {
+                var json = File.ReadAllText(configPath, System.Text.Encoding.UTF8);
+                root = System.Text.Json.Nodes.JsonNode.Parse(json) ?? new System.Text.Json.Nodes.JsonObject();
+            }
+            else
+            {
+                root = new System.Text.Json.Nodes.JsonObject();
+            }
+
+            if (root["Changelog"] is not System.Text.Json.Nodes.JsonObject changelog)
+            {
+                changelog = [];
+                root["Changelog"] = changelog;
+            }
+
+            changelog["Shown"] = false;
+            if (!string.IsNullOrWhiteSpace(_changelogBody))
+                changelog["Body"] = _changelogBody;
+            if (!string.IsNullOrWhiteSpace(_changelogVersion))
+                changelog["Version"] = _changelogVersion;
+
+            var jsonResult = root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(configPath, jsonResult + Environment.NewLine, System.Text.Encoding.UTF8);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to write changelog to settings.");
+        }
+    }
+
+    internal static bool TryParseVersion(string text, out Version version)
     {
         version = new Version(0, 0);
         var match = Regex.Match(text, @"^(\d+)\.(\d+)\.(\d+)$");
         if (!match.Success) return false;
 
         version = new Version(
-            int.Parse(match.Groups[1].Value),
-            int.Parse(match.Groups[2].Value),
-            int.Parse(match.Groups[3].Value));
+            int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture),
+            int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture),
+            int.Parse(match.Groups[3].Value, CultureInfo.InvariantCulture));
         return true;
     }
 }
@@ -484,10 +537,11 @@ internal sealed class UpdateChecker(
 internal sealed class UpdateOptions
 {
     public bool AutoUpdate { get; set; } = true;
-    public bool IgnorePrereleases { get; set; } = false;
+    public bool IgnorePrereleases { get; set; }
+    public string GitHubApiBaseUrl { get; set; } = "https://api.github.com";
     public string GitHubRepoOwner { get; set; } = "Barragek0";
     public string GitHubRepoName { get; set; } = "RuneshapePriceChecker";
 }
 
-internal sealed record GitHubRelease(string TagName, List<GitHubAsset>? Assets);
+internal sealed record GitHubRelease(string TagName, List<GitHubAsset>? Assets, string? Body = null);
 internal sealed record GitHubAsset(string? Name, string? BrowserDownloadUrl, long? Size);

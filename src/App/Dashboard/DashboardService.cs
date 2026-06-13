@@ -42,19 +42,27 @@ public sealed class DashboardService(DashboardLogSink sink) : IDisposable
 
         app.DispatcherUnhandledException += (_, e) =>
         {
-            _sink.Emit($"Dashboard error: {e.Exception.Message}", "red");
+            _sink.Emit($"Dashboard error: {e.Exception.GetType().Name}: {e.Exception.Message}", "red");
+            _window?.Dispatcher.InvokeAsync(() => _window.SetStatus($"Error: {e.Exception.Message}", "red"));
             e.Handled = true;
         };
 
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
         {
-            var msg = e.ExceptionObject is Exception ex ? ex.Message : e.ExceptionObject.ToString();
-            _sink.Emit($"Fatal error: {msg}", "red");
+            var ex = e.ExceptionObject as Exception;
+            var type = ex?.GetType().Name ?? e.ExceptionObject.GetType().Name;
+            var msg = ex?.Message ?? e.ExceptionObject.ToString();
+            _sink.Emit($"Fatal error: {type}: {msg}", "red");
+            _window?.Dispatcher.InvokeAsync(() => _window.SetStatus($"Fatal: {msg}", "red"));
         };
 
         TaskScheduler.UnobservedTaskException += (_, e) =>
         {
-            _sink.Emit($"Task error: {e.Exception.InnerException?.Message ?? e.Exception.Message}", "red");
+            var inner = e.Exception.InnerException;
+            var type = inner?.GetType().Name ?? e.Exception.GetType().Name;
+            var msg = inner?.Message ?? e.Exception.Message;
+            _sink.Emit($"Task error: {type}: {msg}", "red");
+            _window?.Dispatcher.InvokeAsync(() => _window.SetStatus($"Error: {msg}", "red"));
             e.SetObserved();
         };
 

@@ -86,7 +86,7 @@ public sealed class LeaguePricingWorker(
                             hasCompletedSnapshot = true;
                             logger.LogTrace("Worker: late snapshot has {Count} items", latestSnapshot.ItemNames.Count);
                         }
-                        catch (Exception ex) { logger.LogTrace(ex, "OCR task threw after timeout."); }
+                        catch (Exception ex) { logger.LogWarning(ex, "OCR task threw after timeout."); }
                         inFlightSnapshotTask = null;
                     }
                 }
@@ -159,6 +159,8 @@ public sealed class LeaguePricingWorker(
             }
         }
     }
+
+
 
     private static Task<LeagueWindowSnapshot> StartSnapshotReadTask(ILeagueWindowReader reader, CancellationToken stoppingToken)
     {
@@ -236,7 +238,7 @@ public sealed class LeaguePricingWorker(
 
     private static void LogVerboseSnapshot(
         LeagueWindowSnapshot snapshot,
-        IReadOnlyDictionary<string, PriceQuote?> prices,
+        Dictionary<string, PriceQuote?> prices,
         ILogger<LeaguePricingWorker> logger)
     {
         if (snapshot.ItemNames.Count == 0)
@@ -254,6 +256,7 @@ public sealed class LeaguePricingWorker(
             return $"{itemName}={display}{matchDetail}";
         });
 
-        logger.LogTrace("Detected {Count} items with prices: {Entries}", snapshot.ItemNames.Count, string.Join(" | ", entries));
+        if (logger.IsEnabled(LogLevel.Trace))
+            logger.LogTrace("Detected {Count} items with prices: {Entries}", snapshot.ItemNames.Count, string.Join(" | ", entries));
     }
 }
