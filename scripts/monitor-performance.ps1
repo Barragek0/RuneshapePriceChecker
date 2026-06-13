@@ -1,12 +1,13 @@
 <#
 .SYNOPSIS
     Monitors RuneshapePriceChecker performance (CPU, memory, disk, .NET runtime).
-    Compares baseline (installed v0.2.2) against the latest built version.
+    Compares baseline (v0.2.2) against the latest built version.
 
 .DESCRIPTION
-    When a baseline executable exists at %LOCALAPPDATA%\RuneshapePriceChecker\RuneshapePriceChecker.exe,
-    runs it first, collects metrics, then builds and runs the latest version, and prints a
-    side-by-side comparison.  Use -SkipBaseline to monitor only the latest version.
+    Runs the baseline v0.2.2 release, collects metrics, then builds and runs the
+    latest version, and prints a side-by-side comparison.  Use -SkipBaseline to
+    monitor only the latest version.  Use -DownloadBaseline to auto-download the
+    v0.2.2 release zip from GitHub.
 
     Collects:
     - OS metrics: CPU%, memory, handles, threads, disk I/O (PowerShell)
@@ -15,12 +16,12 @@
     - CPU hotspots: per-method profiling (dotnet-trace)
 
 .EXAMPLE
-    # Compare baseline v0.2.2 vs latest build (15s each):
-    ./scripts/monitor-performance.ps1
+    # Compare baseline v0.2.2 vs latest build (15s each), auto-download:
+    ./scripts/monitor-performance.ps1 -DownloadBaseline
 
 .EXAMPLE
     # Compare with longer duration:
-    ./scripts/monitor-performance.ps1 -DurationSeconds 60
+    ./scripts/monitor-performance.ps1 -DownloadBaseline -DurationSeconds 60
 
 .EXAMPLE
     # Skip baseline, monitor latest only:
@@ -41,7 +42,10 @@ param(
     [string]$AppArgs = "",
     [int]$ProcessId = 0,
     [string]$BaselinePath = "$env:LOCALAPPDATA\RuneshapePriceChecker\RuneshapePriceChecker.exe",
-    [switch]$SkipBaseline
+    [switch]$SkipBaseline,
+    [switch]$DownloadBaseline,
+    [string]$BaselineVersion = "0.2.2",
+    [string]$BaselineDownloadUrl = "https://github.com/Barragek0/RuneshapePriceChecker/releases/download/0.2.2/RuneshapePriceChecker.zip"
 )
 
 $ErrorActionPreference = "Stop"
@@ -58,6 +62,47 @@ function Ensure-DotNetTool($toolName, $packageName) {
             Write-Host "Installing $toolName..." -ForegroundColor Yellow
             dotnet tool install --global $packageName 2>&1 | Out-Null
         }
+    }
+}
+
+function Ensure-BaselineDownloaded {
+    param(
+        [string]$Version,
+        [string]$DownloadUrl,
+        [string]$TargetPath
+    )
+
+    if (Test-Path $TargetPath) {
+        Write-Host "Baseline v$Version found at: $TargetPath"
+        return $TargetPath
+    }
+
+    $targetDir = Split-Path $TargetPath -Parent
+    $zipPath = Join-Path $targetDir "RuneshapePriceChecker-$Version.zip"
+
+    Write-Host "Downloading v$Version from $DownloadUrl ..." -ForegroundColor Yellow
+    New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+
+    try {
+        Invoke-WebRequest -Uri $DownloadUrl -OutFile $zipPath -ErrorAction Stop
+        Write-Host "Downloaded: $((Get-Item $zipPath).Length) bytes"
+
+        Write-Host "Extracting v$Version..." -ForegroundColor Yellow
+        Expand-Archive -Force -Path $zipPath -DestinationPath $targetDir
+
+        if (Test-Path $TargetPath) {
+            Write-Host "Baseline v$Version ready at: $TargetPath" -ForegroundColor Green
+            Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+            return $TargetPath
+        }
+
+        Write-Host "Warning: Expected exe not found after extraction at $TargetPath" -ForegroundColor Red
+        Get-ChildItem $targetDir | ForEach-Object { Write-Host "  $($_.Name)" }
+        return $null
+    }
+    catch {
+        Write-Host "Failed to download v${Version}: $_" -ForegroundColor Red
+        return $null
     }
 }
 
@@ -99,7 +144,12 @@ function Invoke-PerformanceRun {
             throw "Executable not found: $ExePath"
         }
         Write-Host "Launching: $ExePath"
-        $appProcess = Start-Process -FilePath $ExePath -ArgumentList $Args -PassThru -NoNewWindow
+        if ([string]::IsNullOrWhiteSpace($Args)) {
+            $appProcess = Start-Process -FilePath $ExePath -PassThru -NoNewWindow
+        }
+        else {
+            $appProcess = Start-Process -FilePath $ExePath -ArgumentList $Args -PassThru -NoNewWindow
+        }
         $ownedProcess = $true
 
         Write-Host "App started (PID: $($appProcess.Id)). Waiting 5s for warm-up..."
@@ -368,34 +418,40 @@ Ensure-DotNetTool "dotnet-trace" "dotnet-trace"
 
 $allStats = @()
 
-# ---- Phase 1: Baseline (installed v0.2.2) ----
-$runBaseline = (-not $SkipBaseline) -and ($ProcessId -eq 0) -and (Test-Path $BaselinePath)
+# ---- Phase 1: Baseline (v0.2.2) ----
+$runBaseline = (-not $SkipBaseline) -and ($ProcessId -eq 0)
 
 if ($runBaseline) {
-    Write-Host ""
-    Write-Host "Baseline found: $BaselinePath" -ForegroundColor Magenta
-    $baselineDir = Join-Path $runDir "baseline"
-    try {
-        $baselineStats = Invoke-PerformanceRun -Label "Baseline (v0.2.2)" -ExePath $BaselinePath -RunDir $baselineDir -Duration $DurationSeconds -Args $AppArgs
-        $allStats += $baselineStats
-    }
-    catch {
-        Write-Host "Baseline run failed: $_" -ForegroundColor Red
-        Write-Host "Continuing with latest only..." -ForegroundColor Yellow
+    if ($DownloadBaseline) {
+        $BaselinePath = Ensure-BaselineDownloaded -Version $BaselineVersion -DownloadUrl $BaselineDownloadUrl -TargetPath $BaselinePath
     }
 
-    Write-Host "`nWaiting 3s before launching latest version..." -ForegroundColor DarkGray
-    Start-Sleep -Seconds 3
+    if (-not (Test-Path $BaselinePath)) {
+        Write-Host "Baseline not found at: $BaselinePath" -ForegroundColor DarkGray
+        Write-Host "Use -DownloadBaseline to auto-download v$BaselineVersion, or install manually." -ForegroundColor DarkGray
+    }
+    else {
+        Write-Host ""
+        Write-Host "Baseline found: $BaselinePath" -ForegroundColor Magenta
+        $baselineDir = Join-Path $runDir "baseline"
+        try {
+            $baselineStats = Invoke-PerformanceRun -Label "Baseline (v$BaselineVersion)" -ExePath $BaselinePath -RunDir $baselineDir -Duration $DurationSeconds -Args $AppArgs
+            $allStats += $baselineStats
+        }
+        catch {
+            Write-Host "Baseline run failed: $_" -ForegroundColor Red
+            Write-Host "Continuing with latest only..." -ForegroundColor Yellow
+        }
+
+        Write-Host "`nWaiting 3s before launching latest version..." -ForegroundColor DarkGray
+        Start-Sleep -Seconds 3
+    }
 }
 elseif ($SkipBaseline) {
     Write-Host "Baseline comparison skipped (-SkipBaseline)." -ForegroundColor DarkGray
 }
 elseif ($ProcessId -ne 0) {
     Write-Host "Baseline skipped (attaching to existing process)." -ForegroundColor DarkGray
-}
-else {
-    Write-Host "Baseline not found at: $BaselinePath" -ForegroundColor DarkGray
-    Write-Host "Install v0.2.2 to %LOCALAPPDATA%\RuneshapePriceChecker to enable comparison." -ForegroundColor DarkGray
 }
 
 # ---- Phase 2: Latest ----

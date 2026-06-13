@@ -51,19 +51,26 @@ internal static partial class MarkdownRenderer
             LineHeight = 3
         };
 
-        doc.Resources.Add(typeof(Hyperlink), new Style(typeof(Hyperlink))
+        try
         {
-            Setters =
+            doc.Resources.Add(typeof(Hyperlink), new Style(typeof(Hyperlink))
             {
-                new Setter(Hyperlink.ForegroundProperty, LinkBrush),
-                new Setter(Hyperlink.TextDecorationsProperty, null)
-            },
-            Triggers =
-            {
-                new Trigger { Property = Hyperlink.IsMouseOverProperty, Value = true,
-                    Setters = { new Setter(Hyperlink.ForegroundProperty, new SolidColorBrush(Color.FromRgb(0x7A, 0xBE, 0xFF))) } }
-            }
-        });
+                Setters =
+                {
+                    new Setter(Hyperlink.ForegroundProperty, LinkBrush),
+                    new Setter(Hyperlink.TextDecorationsProperty, null)
+                },
+                Triggers =
+                {
+                    new Trigger { Property = Hyperlink.IsMouseOverProperty, Value = true,
+                        Setters = { new Setter(Hyperlink.ForegroundProperty, new SolidColorBrush(Color.FromRgb(0x7A, 0xBE, 0xFF))) } }
+                }
+            });
+        }
+        catch (InvalidOperationException)
+        {
+            // WPF resources may not be available in test/headless contexts; continue without style.
+        }
 
         var raw = markdown
             .Replace("\r\n", "\n").Replace('\r', '\n');

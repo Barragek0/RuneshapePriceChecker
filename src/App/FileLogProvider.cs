@@ -12,7 +12,7 @@ public sealed class FileLogProvider : ILoggerProvider
     {
         var dir = Path.Combine(AppContext.BaseDirectory, "logs");
         Directory.CreateDirectory(dir);
-        _path = Path.Combine(dir, $"{DateTime.Now:yyyyMMdd-HHmmss}-log.txt");
+        _path = Path.Combine(dir, $"{DateTime.Now:yyyyMMdd-HHmmss.fff}-log.txt");
     }
 
     public ILogger CreateLogger(string categoryName) => new FileLogger(categoryName, this);

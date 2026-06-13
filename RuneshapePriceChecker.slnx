@@ -9,5 +9,6 @@
     <Project Path="tests/Tests.csproj" />
     <Project Path="tests/UpdateTestServer/UpdateTestServer.csproj" />
   </Folder>
+  <Folder Name="/tests/UpdateTestServer/" />
   <Project Path="RuneshapePriceChecker.csproj" />
 </Solution>

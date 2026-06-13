@@ -34,11 +34,14 @@ internal static class TesseractBootstrapper
         var tessDataDir = Path.Combine(AppContext.BaseDirectory, TessDataSubDir);
         var targetFile = Path.Combine(tessDataDir, $"{language}.traineddata");
 
-        if (File.Exists(targetFile))
+        if (IsTrainedDataFileValid(targetFile))
             return;
 
         if (string.Equals(language, "eng", StringComparison.OrdinalIgnoreCase))
-            return; // Already extracted in static constructor
+        {
+            ExtractEmbeddedEngTrainedData();
+            return;
+        }
 
         await DownloadLanguageDataAsync(language, targetFile, cancellationToken).ConfigureAwait(false);
     }
@@ -50,7 +53,52 @@ internal static class TesseractBootstrapper
 
         var tessDataDir = Path.Combine(AppContext.BaseDirectory, TessDataSubDir);
         var targetFile = Path.Combine(tessDataDir, $"{language}.traineddata");
-        return File.Exists(targetFile);
+        return IsTrainedDataFileValid(targetFile);
+    }
+
+    public static async Task RepairLanguageDataAsync(string language, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(language))
+            return;
+
+        var tessDataDir = Path.Combine(AppContext.BaseDirectory, TessDataSubDir);
+        var targetFile = Path.Combine(tessDataDir, $"{language}.traineddata");
+
+        try { File.Delete(targetFile); } catch { }
+
+        if (string.Equals(language, "eng", StringComparison.OrdinalIgnoreCase))
+        {
+            ExtractEmbeddedEngTrainedData();
+            return;
+        }
+
+        await DownloadLanguageDataAsync(language, targetFile, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static bool IsTrainedDataFileValid(string filePath)
+    {
+        if (!File.Exists(filePath))
+            return false;
+
+        try
+        {
+            var fileInfo = new FileInfo(filePath);
+            if (fileInfo.Length < 500_000)
+                return false;
+
+            using var fs = File.OpenRead(filePath);
+            var buffer = new byte[4];
+            if (fs.Read(buffer, 0, 4) < 4)
+                return false;
+
+            // traineddata files have no universal magic number, but a valid file
+            // is at least several MB and readable
+            return fileInfo.Length >= 500_000;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static void ExtractEmbeddedEngTrainedData()
@@ -60,22 +108,31 @@ internal static class TesseractBootstrapper
             var tessDataDir = Path.Combine(AppContext.BaseDirectory, TessDataSubDir);
             var targetFile = Path.Combine(tessDataDir, "eng.traineddata");
 
-            if (File.Exists(targetFile))
-                return;
-
             var assembly = Assembly.GetExecutingAssembly();
             var resourceName = $"{assembly.GetName().Name}.tesseract.eng.traineddata";
 
-            using var stream = assembly.GetManifestResourceStream(resourceName);
-            if (stream is null)
+            using var resourceStream = assembly.GetManifestResourceStream(resourceName);
+            if (resourceStream is null)
             {
                 LogInfo("English traineddata not embedded; will download on first use if needed.");
                 return;
             }
 
+            var expectedLength = resourceStream.Length;
+
+            if (File.Exists(targetFile))
+            {
+                var fileInfo = new FileInfo(targetFile);
+                if (fileInfo.Length == expectedLength)
+                    return;
+
+                LogWarning($"English traineddata on disk is {fileInfo.Length} bytes but expected {expectedLength} bytes. Re-extracting...");
+                try { File.Delete(targetFile); } catch { }
+            }
+
             Directory.CreateDirectory(tessDataDir);
             using var fileStream = File.Create(targetFile);
-            stream.CopyTo(fileStream);
+            resourceStream.CopyTo(fileStream);
 
             LogInfo($"English traineddata extracted to '{tessDataDir}'.");
         }

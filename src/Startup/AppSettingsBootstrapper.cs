@@ -48,9 +48,17 @@ public static class AppSettingsBootstrapper
         }
 
         var existingJson = File.ReadAllText(appSettingsPath, Encoding.UTF8);
-        var existing = JsonNode.Parse(existingJson);
-        var defaults = JsonNode.Parse(DefaultAppSettingsJson);
-        if (existing is null || defaults is null) return;
+        JsonNode? existing;
+        try { existing = JsonNode.Parse(existingJson); } catch { existing = null; }
+        if (existing is null)
+        {
+            File.WriteAllText(appSettingsPath, DefaultAppSettingsJson + Environment.NewLine, Encoding.UTF8);
+            return;
+        }
+
+        JsonNode? defaults;
+        try { defaults = JsonNode.Parse(DefaultAppSettingsJson); } catch { return; }
+        if (defaults is null) return;
 
         MigrateRenamedProperties(existing);
 

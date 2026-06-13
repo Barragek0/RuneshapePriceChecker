@@ -153,7 +153,7 @@ public class InMemoryPricingCacheUniqueAggregationTests
         Assert.NotNull(quote);
         Assert.True(quote!.IsRange);
         Assert.True(quote.RepresentativeChaosValue > 0m, $"{itemName} should have positive price");
-        Assert.False(quote.Label.StartsWith("N/A"), $"{itemName} label should not be N/A");
+        Assert.False(quote.Label.StartsWith("N/A", StringComparison.Ordinal), $"{itemName} label should not be N/A");
     }
 
     private InMemoryPricingCache CreateCache(PricingSnapshot snapshot)

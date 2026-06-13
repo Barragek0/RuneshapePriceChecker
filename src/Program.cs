@@ -68,7 +68,7 @@ AppSettingsBootstrapper.EnsureExists();
 var host = Host.CreateDefaultBuilder(args)
     .ConfigureHostOptions(options =>
     {
-        options.ShutdownTimeout = TimeSpan.FromSeconds(2);
+        options.ShutdownTimeout = TimeSpan.FromSeconds(1);
     })
     .ConfigureAppConfiguration(config =>
     {

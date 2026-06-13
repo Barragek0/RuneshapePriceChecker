@@ -70,7 +70,27 @@ internal sealed class TesseractEngineManager : IDisposable
                 throw new FileNotFoundException("Tesseract traineddata directory not found.");
 
             _logger.LogInformation("Tesseract: creating engine for {Lang}...", language);
-            _engine = new NativeTesseractEngine(tessDataPath, language);
+            try
+            {
+                _engine = new NativeTesseractEngine(tessDataPath, language);
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("Tesseract init failed"))
+            {
+                _logger.LogWarning(ex, "Tesseract init failed for {Lang}, traineddata may be corrupt. Attempting repair...", language);
+
+                lock (_engineLock)
+                {
+                    TesseractBootstrapper.RepairLanguageDataAsync(language, CancellationToken.None)
+                        .GetAwaiter().GetResult();
+
+                    if (!TesseractBootstrapper.IsLanguageDataAvailable(language))
+                        throw new InvalidOperationException(
+                            $"Tesseract {language} language data repair failed.", ex);
+
+                    _engine = new NativeTesseractEngine(tessDataPath, language);
+                }
+            }
+
             _engineLanguage = language;
             _logger.LogInformation("Tesseract: engine created successfully for {Lang}", language);
             return _engine;

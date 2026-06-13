@@ -126,6 +126,13 @@ internal sealed class UpdateChecker(
                 await RepairUpdaterIfNeededAsync(zipAsset, currentVersionText, installDir);
             }
 
+            if (latestVersion == currentVersion && !string.IsNullOrWhiteSpace(latest.Body))
+            {
+                _changelogBody = latest.Body;
+                _changelogVersion = latestVersionText;
+                WriteChangelogIfNotAlreadyShown();
+            }
+
             return;
         }
 
@@ -400,19 +407,56 @@ internal sealed class UpdateChecker(
 
     private async Task<GitHubRelease?> FetchLatestReleaseWithRetryAsync(string owner, string repo, bool ignorePrereleases)
     {
-        while (!_stoppingToken.IsCancellationRequested)
+        for (var attempt = 0; attempt < 3; attempt++)
         {
+            _stoppingToken.ThrowIfCancellationRequested();
+
             try
             {
                 return await FetchLatestReleaseAsync(owner, repo, ignorePrereleases).ConfigureAwait(false);
             }
+            catch (RateLimitExceededException rle)
+            {
+                logger.LogWarning(
+                    "GitHub rate limit exceeded. Resets at {ResetTime:yyyy-MM-dd HH:mm:ss} UTC ({Remaining} remaining until then).",
+                    rle.ResetTime, rle.RemainingString);
+                dashboard.SetStatus("GitHub rate limited — waiting...", "orange");
+
+                var waitTime = rle.ResetTime - DateTimeOffset.UtcNow;
+                if (waitTime > TimeSpan.Zero && waitTime < TimeSpan.FromHours(1))
+                {
+                    try
+                    {
+                        await Task.Delay(waitTime, _stoppingToken).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                }
+                else
+                {
+                    // Don't wait more than an hour; let the next scheduled check handle it
+                    break;
+                }
+            }
             catch (Exception ex)
             {
-                logger.LogError("GitHub API unreachable ({Reason}). Retrying in 10s...", ex.Message);
+                var delay = attempt switch
+                {
+                    0 => TimeSpan.FromSeconds(10),
+                    1 => TimeSpan.FromSeconds(30),
+                    _ => TimeSpan.FromSeconds(90)
+                };
+
+                logger.LogError(
+                    "GitHub API unreachable ({Reason}). Retrying in {Delay}s... (attempt {Attempt}/3)",
+                    ex.Message, (int)delay.TotalSeconds, attempt + 1);
                 dashboard.SetStatus("GitHub API unreachable — retrying...", "red");
+
                 try
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(10), _stoppingToken).ConfigureAwait(false);
+                    await Task.Delay(delay, _stoppingToken).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
@@ -429,12 +473,22 @@ internal sealed class UpdateChecker(
     {
         using var http = httpClientFactory.CreateClient("GitHub");
 
-        var url = $"https://api.github.com/repos/{owner}/{repo}/releases?per_page=10";
+        var baseUrl = updateOptions.Value.GitHubApiBaseUrl;
+        var url = $"{baseUrl}/repos/{owner}/{repo}/releases?per_page=10";
 
         var response = await http.GetAsync(url);
+        LogRateLimitHeaders(response);
+
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
             return null;
+        }
+
+        if (response.StatusCode is System.Net.HttpStatusCode.Forbidden or (System.Net.HttpStatusCode)429)
+        {
+            var resetTime = ReadRateLimitReset(response);
+            var remaining = ReadRateLimitRemaining(response);
+            throw new RateLimitExceededException(resetTime, remaining);
         }
 
         response.EnsureSuccessStatusCode();
@@ -520,6 +574,40 @@ internal sealed class UpdateChecker(
         }
     }
 
+    private void WriteChangelogIfNotAlreadyShown()
+    {
+        try
+        {
+            var configPath = Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json");
+            if (!File.Exists(configPath))
+            {
+                WriteChangelogToSettings();
+                return;
+            }
+
+            var json = File.ReadAllText(configPath, System.Text.Encoding.UTF8);
+            var root = System.Text.Json.Nodes.JsonNode.Parse(json);
+            if (root?["Changelog"] is System.Text.Json.Nodes.JsonObject existing)
+            {
+                var shown = existing["Shown"]?.GetValue<bool>() ?? false;
+                var existingVersion = existing["Version"]?.GetValue<string>();
+
+                if (shown && string.Equals(existingVersion, _changelogVersion, StringComparison.OrdinalIgnoreCase))
+                {
+                    logger.LogTrace("Changelog for {Version} already shown, skipping.", _changelogVersion);
+                    return;
+                }
+            }
+
+            WriteChangelogToSettings();
+            logger.LogInformation("Wrote pending changelog for {Version} to settings.", _changelogVersion);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to check/write changelog to settings.");
+        }
+    }
+
     internal static bool TryParseVersion(string text, out Version version)
     {
         version = new Version(0, 0);
@@ -531,6 +619,68 @@ internal sealed class UpdateChecker(
             int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture),
             int.Parse(match.Groups[3].Value, CultureInfo.InvariantCulture));
         return true;
+    }
+
+    private void LogRateLimitHeaders(HttpResponseMessage response)
+    {
+        var remaining = ReadRateLimitRemaining(response);
+        var reset = ReadRateLimitReset(response);
+
+        if (remaining >= 0)
+        {
+            var resetStr = reset > DateTimeOffset.MinValue
+                ? $", resets at {reset:yyyy-MM-dd HH:mm:ss} UTC"
+                : string.Empty;
+            if (remaining <= 5)
+                logger.LogWarning("GitHub rate limit: {Remaining} remaining{ResetInfo}", remaining, resetStr);
+            else if (logger.IsEnabled(LogLevel.Debug))
+                logger.LogDebug("GitHub rate limit: {Remaining} remaining{ResetInfo}", remaining, resetStr);
+        }
+    }
+
+    private static int ReadRateLimitRemaining(HttpResponseMessage response)
+    {
+        if (response.Headers.TryGetValues("X-RateLimit-Remaining", out var values) &&
+            int.TryParse(values.FirstOrDefault(), out var remaining))
+        {
+            return remaining;
+        }
+        return -1;
+    }
+
+    private static DateTimeOffset ReadRateLimitReset(HttpResponseMessage response)
+    {
+        // Primary: X-RateLimit-Reset (Unix epoch seconds)
+        if (response.Headers.TryGetValues("X-RateLimit-Reset", out var resetValues) &&
+            long.TryParse(resetValues.FirstOrDefault(), out var unixSeconds))
+        {
+            return DateTimeOffset.FromUnixTimeSeconds(unixSeconds);
+        }
+
+        // Secondary: Retry-After header (seconds or HTTP-date)
+        var retryAfter = response.Headers.RetryAfter;
+        if (retryAfter is not null)
+        {
+            if (retryAfter.Date.HasValue)
+                return retryAfter.Date.Value;
+            if (retryAfter.Delta.HasValue)
+                return DateTimeOffset.UtcNow + retryAfter.Delta.Value;
+        }
+
+        return DateTimeOffset.MinValue;
+    }
+}
+
+internal sealed class RateLimitExceededException : Exception
+{
+    public DateTimeOffset ResetTime { get; }
+    public string RemainingString { get; }
+
+    public RateLimitExceededException(DateTimeOffset resetTime, int remaining)
+        : base($"GitHub API rate limit exceeded. Resets at {resetTime:yyyy-MM-dd HH:mm:ss} UTC.")
+    {
+        ResetTime = resetTime;
+        RemainingString = remaining >= 0 ? remaining.ToString(CultureInfo.InvariantCulture) : "?";
     }
 }
 

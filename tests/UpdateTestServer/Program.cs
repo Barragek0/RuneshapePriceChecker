@@ -67,14 +67,81 @@ static void HandleRequest(HttpListenerContext ctx, byte[] zipBytes, string zipNa
         return;
     }
 
-    if (path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase))
+    if (path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWith("/repos/", StringComparison.OrdinalIgnoreCase))
     {
         var mockRelease = new
         {
             tag_name = "v1.0.0",
             prerelease = false,
             html_url = $"http://localhost:{port}",
-            body = "## What's New in v1.0.0\n\n### 🚀 Features\n\n- **New Changelog Window** — See what's new after each update\n- **Auto-update improvements** — More reliable update process\n- **Performance optimizations** — Reduced CPU and memory usage\n\n### 🐛 Bug Fixes\n\n- Fixed overlay click-through issue with `WS_EX_TRANSPARENT`\n- Fixed settings validation for threshold values\n- Fixed window position not saving during resize\n\n### 📝 Notes\n\n> This is a **major release** with significant changes.",
+            body = "# 🎉 Runeshape Price Checker v1.0.0\n\n" +
+                   "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.\n\n" +
+                   "---\n\n" +
+                   "## 🚀 Major Features\n\n" +
+                   "Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident.\n\n" +
+                   "### Auto-Updater\n\n" +
+                   "The app now checks for and applies updates automatically. Configure via `appsettings.json`:\n\n" +
+                   "```json\n" +
+                   "{\n" +
+                   "  \"Update\": {\n" +
+                   "    \"AutoUpdate\": true,\n" +
+                   "    \"IgnorePrereleases\": false\n" +
+                   "  }\n" +
+                   "}\n" +
+                   "```\n\n" +
+                   "### Changelog Window\n\n" +
+                   "- **Rich Markdown rendering** — supports *italic*, **bold**, ~~strikethrough~~, and `inline code`\n" +
+                   "- **Spoiler blocks** for patch notes you want to hide\n" +
+                   "- **Auto-display** after updates so you never miss what changed\n\n" +
+                   "---\n\n" +
+                   "## 🐛 Bug Fixes\n\n" +
+                   "1. Fixed overlay click-through with `WS_EX_TRANSPARENT` — windows no longer eat clicks\n" +
+                   "2. Fixed uncut gem pricing — *Support*, *Skill*, and *Spirit* gems now return proper ranges\n" +
+                   "3. Fixed slot detection for missing categories: rings, amulets, belts, shields, foci, quivers, talismans\n" +
+                   "4. Fixed Tesseract download blocking OCR on first launch\n" +
+                   "5. Fixed config `reloadOnChange` not propagating to `IOptionsMonitor`\n\n" +
+                   "## ⚡ Performance\n\n" +
+                   "| Area | Before | After | Improvement |\n" +
+                   "|------|--------|-------|-------------|\n" +
+                   "| DWM capture | ~720 KB per read | ~2 KB anchor check | **360x less** |\n" +
+                   "| Window hide | Always posts to UI | No-op when hidden | **0 overhead** |\n" +
+                   "| Tesseract init | Blocks for 2+ min | Background download | **non-blocking** |\n\n" +
+                   "## 📝 Upgrade Notes\n\n" +
+                   "> **Important:** This is a major release. Your settings will be preserved.\n" +
+                   "> If you encounter any issues, check the [GitHub repo](https://github.com/Barragek0/RuneshapePriceChecker) or use the Dashboard to report them.\n\n" +
+                   "<details>\n" +
+                   "<summary>📋 Full Patch Notes (click to expand)</summary>\n\n" +
+                   "### Detailed Changes\n\n" +
+                   "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Vivamus lacinia odio vitae vestibulum vestibulum. Cras venenatis euismod malesuada. Nullam ac erat ante. Suspendisse potenti.\n\n" +
+                   "- **Pricing Pipeline:** Refactored `InMemoryPricingCache` to aggregate by base type across Poe2Scout categories\n" +
+                   "- **OCR Engine:** Added live language switching via `OnChange` subscription in `OcrLeagueWindowReader`\n" +
+                   "- **Dashboard:** New changelog rendering with `MarkdownRenderer` supporting full markdown syntax\n" +
+                   "- **Updater:** `UpdateChecker` now uses `IOptionsMonitor` for `GitHubApiBaseUrl` instead of hardcoded URL\n\n" +
+                   "```csharp\n" +
+                   "// Example: new slot detection logic\n" +
+                   "private static string? GetSlotFromBaseType(string? baseType)\n" +
+                   "{\n" +
+                   "    if (baseType is null) return null;\n" +
+                   "    // Rings, amulets, belts, shields, foci, quivers, talismans\n" +
+                   "    return baseType switch\n" +
+                   "    {\n" +
+                   "        \"Ring\" => \"ring\",\n" +
+                   "        \"Amulet\" => \"amulet\",\n" +
+                   "        _ => null\n" +
+                   "    };\n" +
+                   "}\n" +
+                   "```\n\n" +
+                   "> **Note:** This is mock data for testing the changelog rendering. Real release notes will accompany actual releases.\n\n" +
+                   "</details>\n\n" +
+                   "<details>\n" +
+                   "<summary>🔧 Known Issues</summary>\n\n" +
+                   "- ~~Pricing overlay may flicker on multi-monitor setups~~ *(fixed in v0.2.1)*\n" +
+                   "- Tesseract requires `eng.traineddata` in the `tesseract` folder\n" +
+                   "- League window must be in **foreground** for OCR to work\n\n" +
+                   "</details>\n\n" +
+                   "---\n\n" +
+                   "**Full Changelog**: https://github.com/Barragek0/RuneshapePriceChecker/releases/tag/v1.0.0",
             assets = new[]
             {
                 new { name = zipName, browser_download_url = $"http://localhost:{port}/download/{zipName}", size = (long)zipBytes.Length }

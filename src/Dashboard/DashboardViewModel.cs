@@ -18,7 +18,7 @@ public sealed class DashboardViewModel(string configPath)
 
     public string CurrentLeague { get; set; } = "Runes of Aldur";
     public string PricingSource { get; set; } = "poe2scout";
-    public string DisplayCurrency { get; set; } = "chaos";
+    public string DisplayCurrency { get; set; } = "exalt";
     public decimal RedThreshold { get; set; } = 0.5m;
     public decimal OrangeThreshold { get; set; } = 1.0m;
     public decimal GreenThreshold { get; set; } = 5.0m;
@@ -92,7 +92,7 @@ public sealed class DashboardViewModel(string configPath)
             {
                 CurrentLeague = pricing.Str("League", "Runes of Aldur");
                 PricingSource = pricing.Str("PricingSource", "poe2scout");
-                DisplayCurrency = pricing.Str("DisplayCurrency", "chaos");
+                DisplayCurrency = pricing.Str("DisplayCurrency", "exalt");
                 RedThreshold = pricing.Val("RedThreshold", 0.5m);
                 OrangeThreshold = pricing.Val("OrangeThreshold", 1.0m);
                 GreenThreshold = pricing.Val("GreenThreshold", 5.0m);
@@ -220,6 +220,18 @@ public sealed class DashboardViewModel(string configPath)
             return (body, version);
         }
         catch { return null; }
+    }
+
+    public bool HasChangelogSection()
+    {
+        try
+        {
+            if (!File.Exists(_configPath)) return false;
+            var json = File.ReadAllText(_configPath, Encoding.UTF8);
+            var root = JsonNode.Parse(json);
+            return root?["Changelog"] is not null;
+        }
+        catch { return false; }
     }
 
     public (string? Body, string? Version)? GetCachedChangelog()

@@ -5,6 +5,9 @@ namespace RuneshapePriceChecker.App.Dashboard;
 public sealed class DashboardService(DashboardLogSink sink) : IDisposable
 {
     public static Action<IProgress<int>>? UpdateTrigger { get; set; }
+    private static readonly ManualResetEventSlim ChangelogDismissedEvent = new(false);
+    public static Task WaitForChangelogDismissedAsync(CancellationToken ct)
+        => Task.Run(() => ChangelogDismissedEvent.Wait(ct), ct);
 
     private readonly DashboardLogSink _sink = sink;
     private Thread? _wpfThread;
@@ -70,13 +73,21 @@ public sealed class DashboardService(DashboardLogSink sink) : IDisposable
 
         _window.SetUpdateTrigger(p => UpdateTrigger?.Invoke(p));
 
+        _window.ChangelogShown += () => ChangelogDismissedEvent.Reset();
+        _window.ChangelogDismissed += () => ChangelogDismissedEvent.Set();
+
+        _window.Loaded += (_, _) =>
+        {
+            _onWindowLoaded?.Invoke();
+            if (!_window.IsChangelogVisible)
+                ChangelogDismissedEvent.Set();
+        };
+
         _window.Closed += (_, _) =>
         {
             _onWindowClosed?.Invoke();
             app.Shutdown();
         };
-
-        _window.Loaded += (_, _) => _onWindowLoaded?.Invoke();
 
         _windowReady.Set();
         app.Run(_window);
@@ -138,7 +149,28 @@ public sealed class DashboardService(DashboardLogSink sink) : IDisposable
 
     public void SetReRunSetupTrigger(Action trigger)
     {
-        _window?.Dispatcher.InvokeAsync(() => _window.SetReRunSetupTrigger(trigger));
+        _window?.Dispatcher.InvokeAsync(() => _window.SetReRunSetupTrigger(() =>
+        {
+            ResetInitialSetupComplete();
+            trigger();
+        }));
+    }
+
+    private static void ResetInitialSetupComplete()
+    {
+        try
+        {
+            var configPath = Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json");
+            if (!File.Exists(configPath)) return;
+            var json = File.ReadAllText(configPath, System.Text.Encoding.UTF8);
+            var root = System.Text.Json.Nodes.JsonNode.Parse(json);
+            if (root is null) return;
+            var windowNode = root["Window"] as System.Text.Json.Nodes.JsonObject ?? new System.Text.Json.Nodes.JsonObject();
+            windowNode["InitialSetupComplete"] = false;
+            root["Window"] = windowNode;
+            File.WriteAllText(configPath, root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }) + Environment.NewLine, System.Text.Encoding.UTF8);
+        }
+        catch { }
     }
 
     public void Dispose()

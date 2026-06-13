@@ -113,7 +113,7 @@ public class DashboardViewModelSettingsTests
             Assert.Equal("Information", vm.LogLevel);
             Assert.Equal("poe2scout", vm.PricingSource);
             Assert.Equal("Runes of Aldur", vm.CurrentLeague);
-            Assert.Equal("chaos", vm.DisplayCurrency);
+            Assert.Equal("exalt", vm.DisplayCurrency);
             Assert.Equal(0.5m, vm.RedThreshold);
             Assert.Equal(1.0m, vm.OrangeThreshold);
             Assert.Equal(5.0m, vm.GreenThreshold);

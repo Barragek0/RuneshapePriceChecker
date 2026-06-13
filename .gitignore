@@ -4,6 +4,7 @@ scripts/*
 !scripts/monitor-performance.ps1
 tests/*/bin/
 tests/*/obj/
+tests/pre-release-tests.ps1
 native/
 tesseract/
 tmp/
@@ -18,3 +19,4 @@ appsettings.release.json
 docs/
 .github/plans/
 .github/prompts/
+releases/

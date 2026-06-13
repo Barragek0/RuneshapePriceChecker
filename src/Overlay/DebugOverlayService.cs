@@ -146,7 +146,6 @@ public sealed class DebugOverlayService(
     private bool _wasHidden;
     private volatile bool _forceHidden;
     private volatile bool _setupInProgress;
-    private volatile bool _setupAttempted;
     public bool IsSetupInProgress => _setupInProgress;
     private Thread? _bannerThread;
     private BannerForm? _bannerForm;
@@ -163,32 +162,47 @@ public sealed class DebugOverlayService(
 
     public bool NeedsInitialSetup()
     {
-        return !_windowOptions.CurrentValue.InitialSetupComplete && !_setupAttempted;
+        return !_windowOptions.CurrentValue.InitialSetupComplete;
     }
 
     public void RunInitialSetup()
     {
         if (_setupInProgress) return;
-        _setupAttempted = true;
-        var region = windowResolutionProvider.CurrentCaptureRegion;
-        if (region is null) return;
+        _setupInProgress = true;
 
-        var ctx = windowResolutionProvider.CurrentWindowCaptureContext;
+        logger.LogInformation("RunInitialSetup: starting initial setup flow");
+        var region = windowResolutionProvider.CurrentCaptureRegion;
         Rectangle gameBounds;
-        if (ctx is not null)
+
+        if (region is { } r)
         {
-            gameBounds = new Rectangle(ctx.ClientX, ctx.ClientY, ctx.ClientWidth, ctx.ClientHeight);
+            var ctx = windowResolutionProvider.CurrentWindowCaptureContext;
+            if (ctx is not null)
+            {
+                gameBounds = new Rectangle(ctx.ClientX, ctx.ClientY, ctx.ClientWidth, ctx.ClientHeight);
+            }
+            else
+            {
+                var screen = Screen.FromPoint(new Point(r.X, r.Y));
+                gameBounds = screen.Bounds;
+            }
         }
         else
         {
-            var screen = Screen.FromPoint(new Point(region.X, region.Y));
+            var screen = Screen.PrimaryScreen;
+            if (screen is null)
+            {
+                logger.LogError("Setup: no screen available.");
+                _setupInProgress = false;
+                return;
+            }
             gameBounds = screen.Bounds;
-            logger.LogWarning("Setup: no window capture context available, falling back to screen bounds ({W}x{H})", gameBounds.Width, gameBounds.Height);
+            r = new OcrCaptureRegion(gameBounds.X + 100, gameBounds.Y + 100, 400, 500);
+            logger.LogInformation("Setup: PoE2 not detected, using primary screen bounds as fallback.");
         }
 
-        var initialRect = new Rectangle(region.X, region.Y, region.Width, region.Height);
+        var initialRect = new Rectangle(r.X, r.Y, r.Width, r.Height);
 
-        _setupInProgress = true;
         ForceHide();
 
         var setupThread = new Thread(() =>
@@ -205,19 +219,17 @@ public sealed class DebugOverlayService(
 
     private void RunSetupFlow(Rectangle initialRect, Rectangle gameBounds)
     {
+        logger.LogInformation("RunSetupFlow: entering setup loop");
         while (true)
         {
             var continueClicked = new ManualResetEventSlim(false);
             dashboard.SetOnSetupContinue(() => continueClicked.Set());
+            logger.LogInformation("RunSetupFlow: showing Continue prompt in Dashboard");
             dashboard.ShowSetupPrompt();
 
-            continueClicked.Wait(TimeSpan.FromMinutes(5));
-
-            if (!continueClicked.IsSet)
-            {
-                dashboard.HideSetupPrompt();
-                break;
-            }
+            logger.LogInformation("RunSetupFlow: waiting for user to click Continue...");
+            continueClicked.Wait();
+            logger.LogInformation("RunSetupFlow: user clicked Continue");
 
             dashboard.HideSetupPrompt();
 
@@ -272,7 +284,7 @@ public sealed class DebugOverlayService(
 
             File.WriteAllText(configPath, root.ToJsonString(new() { WriteIndented = true }) + Environment.NewLine, Encoding.UTF8);
 
-            logger.LogInformation("Setup complete: custom region (window-relative) X={RelX} Y={RelY} W={W} H={H}", relX, relY, rect.Width, rect.Height);
+            logger.LogInformation("SaveCustomOffsets: setup confirmed, offsets saved (X={RelX} Y={RelY} W={W} H={H})", relX, relY, rect.Width, rect.Height);
         }
         catch (Exception ex)
         {

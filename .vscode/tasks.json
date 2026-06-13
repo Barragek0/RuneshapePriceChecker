@@ -46,6 +46,27 @@
             "isBackground": true,
             "problemMatcher": "$msCompile",
             "detail": "Runs RuneshapePriceChecker with .NET Hot Reload for development."
+        },
+        {
+            "label": "Start Update Test Servers",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "scripts\\start-update-test-servers.ps1"
+            ],
+            "isBackground": true,
+            "problemMatcher": [],
+            "detail": "Starts the HTTP test server and TLS proxy for local auto-update testing."
+        },
+        {
+            "label": "Stop Update Test Servers",
+            "type": "shell",
+            "command": "taskkill /F /IM UpdateTestServer.exe & taskkill /F /IM TlsProxy.exe",
+            "problemMatcher": [],
+            "detail": "Stops the HTTP test server and TLS proxy."
         }
     ]
 }

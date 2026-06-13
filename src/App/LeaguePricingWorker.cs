@@ -24,7 +24,6 @@ public sealed class LeaguePricingWorker(
 {
     private static readonly TimeSpan MinOcrInterval = TimeSpan.FromMilliseconds(120);
     private static readonly TimeSpan StaleRenderTimeout = TimeSpan.FromMilliseconds(180);
-    private bool _setupTriggered;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -42,6 +41,14 @@ public sealed class LeaguePricingWorker(
                     dashboard.SetStatus("Initial setup — configure overlay position", "amber");
                     await Task.Delay(200, stoppingToken).ConfigureAwait(false);
                     continue;
+                }
+
+                if (debugOverlay.NeedsInitialSetup())
+                {
+                    logger.LogInformation("Waiting for changelog to be dismissed before initial setup...");
+                    await DashboardService.WaitForChangelogDismissedAsync(stoppingToken).ConfigureAwait(false);
+                    logger.LogInformation("Triggering initial setup");
+                    debugOverlay.RunInitialSetup();
                 }
 
                 if (inFlightSnapshotTask is null)
@@ -105,10 +112,9 @@ public sealed class LeaguePricingWorker(
                     debugOverlay.ForceHide();
                 }
 
-                if (snapshot.InterfaceDetected && debugOverlay.NeedsInitialSetup() && !_setupTriggered)
+                if (snapshot.InterfaceDetected && debugOverlay.NeedsInitialSetup())
                 {
-                    _setupTriggered = true;
-                    logger.LogTrace("Worker: triggering initial setup");
+                    logger.LogInformation("Triggering initial setup (InterfaceDetected={Detected})", snapshot.InterfaceDetected);
                     debugOverlay.RunInitialSetup();
                 }
 
@@ -175,7 +181,8 @@ public sealed class LeaguePricingWorker(
 
     private static bool IsRareUniqueItem(string itemName)
     {
-        return itemName.Equals("Rare Unique Item", StringComparison.OrdinalIgnoreCase);
+        return itemName.Equals("Rare Unique Item", StringComparison.OrdinalIgnoreCase)
+            || itemName.Equals("Very Rare Unique Item", StringComparison.OrdinalIgnoreCase);
     }
 
     private static readonly string[] UnpriceableExactNames =

@@ -28,6 +28,11 @@ public sealed partial class DashboardWindow : Window
 
     public ObservableCollection<LogEntryViewModel> LogEntries => _vm.LogEntries;
 
+    public event Action? ChangelogShown;
+    public event Action? ChangelogDismissed;
+
+    internal bool IsChangelogVisible => _changelogVisible;
+
     public DashboardWindow(DashboardLogSink sink)
     {
         _sink = sink;
@@ -95,10 +100,33 @@ public sealed partial class DashboardWindow : Window
     private void CheckPendingChangelog()
     {
         var pending = _vm.TryGetPendingChangelog();
-        if (pending is not { Body: not null } p) return;
+        if (pending is { Body: not null } p)
+        {
+            _vm.MarkChangelogShown();
+            ShowChangelog(p.Version ?? "", p.Body);
+            return;
+        }
 
-        _vm.MarkChangelogShown();
-        ShowChangelog(p.Version ?? "", p.Body);
+        if (!_vm.HasChangelogSection())
+        {
+            Loaded += (_, _) =>
+            {
+                Dispatcher.BeginInvoke(new Action(async () =>
+                {
+                    for (var i = 0; i < 20; i++)
+                    {
+                        await Task.Delay(1000);
+                        pending = _vm.TryGetPendingChangelog();
+                        if (pending is { Body: not null } p2)
+                        {
+                            _vm.MarkChangelogShown();
+                            ShowChangelog(p2.Version ?? "", p2.Body);
+                            return;
+                        }
+                    }
+                }), DispatcherPriority.Background);
+            };
+        }
     }
 
     private void ShowChangelogPreview()
@@ -127,12 +155,14 @@ public sealed partial class DashboardWindow : Window
             ChangelogViewer.Document = MarkdownRenderer.Render(title + body);
             RefreshContentArea();
         });
+        ChangelogShown?.Invoke();
     }
 
     private void ChangelogClose_Click(object sender, RoutedEventArgs e)
     {
         _changelogVisible = false;
         RefreshContentArea();
+        ChangelogDismissed?.Invoke();
     }
 
     private void SyncUiFromViewModel()
@@ -450,7 +480,11 @@ public sealed partial class DashboardWindow : Window
     }
 
     public void SetUpdateTrigger(Action<IProgress<int>> trigger) => _vm.OnUpdateTriggered = trigger;
-    public void ShowUpdateButton() => Dispatcher.Invoke(() => UpdateBadge.Visibility = Visibility.Visible);
+    public void ShowUpdateButton() => Dispatcher.Invoke(() =>
+    {
+        if (UpdateProgressPanel.Visibility == Visibility.Visible) return;
+        UpdateBadge.Visibility = Visibility.Visible;
+    });
     public void HideUpdateButton() => Dispatcher.Invoke(() => UpdateBadge.Visibility = Visibility.Collapsed);
     public void SetReRunSetupTrigger(Action trigger) => _vm.OnReRunSetup = trigger;
 
@@ -571,7 +605,7 @@ public sealed partial class DashboardWindow : Window
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
                 FileName = "cmd",
-                Arguments = $"/c \"timeout /t 2 /nobreak >nul && start \"\" \"{exePath}\"\"",
+                Arguments = $"/c \"timeout /t 1 /nobreak >nul && start \"\" \"{exePath}\"\"",
                 UseShellExecute = false,
                 CreateNoWindow = true
             });

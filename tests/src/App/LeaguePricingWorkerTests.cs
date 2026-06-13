@@ -63,6 +63,18 @@ public class LeaguePricingWorkerTests
     }
 
     [Fact]
+    public void IsRareUniqueItem_VeryRare_ReturnsTrue()
+    {
+        var method = typeof(LeaguePricingWorker).GetMethod("IsRareUniqueItem",
+            BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        Assert.True((bool)method!.Invoke(null, ["Very Rare Unique Item"])!);
+        Assert.True((bool)method!.Invoke(null, ["Very Rare Unique item"])!);
+        Assert.True((bool)method!.Invoke(null, ["VERY RARE UNIQUE ITEM"])!);
+    }
+
+    [Fact]
     public void IsRareUniqueItem_OtherItem_ReturnsFalse()
     {
         var method = typeof(LeaguePricingWorker).GetMethod("IsRareUniqueItem",

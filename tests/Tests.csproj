@@ -26,4 +26,16 @@
     <Compile Remove="UpdateTestServer\**\*.cs" />
     <Compile Remove="ResolutionVisualizer\**\*.cs" />
   </ItemGroup>
+
+  <!-- Copy traineddata to test output so Tesseract tests don't rely on runtime extraction -->
+  <Target Name="CopyTessDataForTests" AfterTargets="Build" Condition="'$(DesignTimeBuild)' != 'true'">
+    <PropertyGroup>
+      <_TestTessDataDir>$(OutputPath)tesseract\</_TestTessDataDir>
+    </PropertyGroup>
+    <MakeDir Directories="$(_TestTessDataDir)" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\..\tesseract\eng.traineddata"
+          DestinationFolder="$(_TestTessDataDir)"
+          SkipUnchangedFiles="true"
+          Condition="Exists('$(MSBuildProjectDirectory)\..\tesseract\eng.traineddata')" />
+  </Target>
 </Project>

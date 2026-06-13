@@ -60,7 +60,11 @@ public sealed class DashboardLogSink : IDisposable
         Array.Sort(batch, (a, b) => b.Timestamp.CompareTo(a.Timestamp));
 
         foreach (var entry in batch)
-            OnLogEntry?.Invoke(entry);
+        {
+            try { OnLogEntry?.Invoke(entry); }
+            catch (OperationCanceledException) { return; }
+            catch { }
+        }
     }
 
     public IReadOnlyList<LogEntry> Snapshot()
