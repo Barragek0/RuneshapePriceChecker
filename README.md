@@ -7,7 +7,6 @@ It reads visible rows on the runeshape page with OCR (Optical Character Recognit
 ## Requirements
 
 - Windows
-- .NET 8 SDK
 - Your in-game `UI Brightness` setting, under `Graphics`, must be set above `-0.8`, with it ideally being at least `0.0`. If you set it below `0.0`, its more likely that it will incorrectly match the text with the wrong items, and if you set it below `-0.8`, it may not be able to detect the text on the interface at all.
 - Borderless Windowed or Windowed display mode — exclusive fullscreen blocks screen capture entirely. The tool will warn you with a popup if it detects fullscreen mode.
 
