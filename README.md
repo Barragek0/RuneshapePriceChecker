@@ -2,7 +2,7 @@
 
 RuneshapePriceChecker is a Path of Exile 2 pricing tool for the Runes of Aldur League Mechanic.
 
-It reads visible rows on the runeshape page with OCR (Optical Character Recognition), looks up live prices from poe.ninja, and renders color-coded values beside each row.
+It reads visible rows on the runeshape page with OCR (Optical Character Recognition), looks up live prices from poe2scout / poe.ninja, and renders color-coded values beside each row.
 
 ## Requirements
 
@@ -14,8 +14,9 @@ It reads visible rows on the runeshape page with OCR (Optical Character Recognit
 ![example](https://i.vgy.me/1XkXx8.png)
 
 ## Known Issues / Limitations
-- The new Skills and Supports don't have price data on poe.ninja, so the tool can't display prices for them.
+- The new Skills and Supports don't have price data on poe2scout or poe.ninja, so the tool can't display prices for them. The tool will warn you when it detects these items and indicate that it can't price them.
 - If you use Lossless Scaling with this tool, you should use the 'WGC' Capture API. The tool may cause frame pacing issues if you are using the 'DXGI' API.
+- When the tool first starts, it may make the cursor disappear if you use Lossless Scaling. To work around this, enable 'Multi-display mode' in Lossless Scaling, then you can tab out and tab back in to the window while keeping it scaled. Tabbing out and back in will let the cursor appear again.
 
 ## Troubleshooting
 
