@@ -19,19 +19,6 @@
             "detail": "Publishes RuneshapePriceChecker as a trimmed compressed single-file Release executable, runs tests, and packages the release zip + installer."
         },
         {
-            "label": "Run Visualizer",
-            "type": "shell",
-            "command": "dotnet",
-            "args": [
-                "run",
-                "--project",
-                "tests\\ResolutionVisualizer\\ResolutionVisualizer.csproj"
-            ],
-            "group": "build",
-            "problemMatcher": "$msCompile",
-            "detail": "Builds and runs the resolution visualizer."
-        },
-        {
             "label": "Run with Hot Reload",
             "type": "shell",
             "command": "dotnet",

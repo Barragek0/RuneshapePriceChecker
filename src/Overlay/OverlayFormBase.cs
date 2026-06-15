@@ -16,9 +16,30 @@ internal class OverlayFormBase : Form
         BackColor = TransparencyChroma;
         TransparencyKey = TransparencyChroma;
         DoubleBuffered = true;
+        Cursor = Cursors.Default;
     }
 
     protected override bool ShowWithoutActivation => true;
+
+    private const int WM_SETCURSOR = 0x0020;
+    private const int HTCLIENT = 1;
+
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == WM_SETCURSOR)
+        {
+            if (Cursor is not null)
+            {
+                SetCursor(Cursor.Handle);
+                m.Result = (IntPtr)1;
+                return;
+            }
+        }
+        base.WndProc(ref m);
+    }
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetCursor(IntPtr hCursor);
 
     protected override CreateParams CreateParams
     {

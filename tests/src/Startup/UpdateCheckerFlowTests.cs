@@ -81,21 +81,16 @@ public class UpdateCheckerFlowTests
         var path = Path.Combine(Path.GetTempPath(), $"rstest-update-{Guid.NewGuid():N}.json");
         try
         {
-            WriteChangelogJson(path, "## v1.0.0\n\nRelease notes", "1.0.0");
+            WriteChangelogJson(path, "1.0.0");
 
             var vm = new DashboardViewModel(path);
 
-            var pending = vm.TryGetPendingChangelog();
+            var pending = vm.TryGetPendingChangelogVersion();
             Assert.NotNull(pending);
-            Assert.Equal("## v1.0.0\n\nRelease notes", pending!.Value.Body);
-            Assert.Equal("1.0.0", pending.Value.Version);
+            Assert.Equal("1.0.0", pending);
 
             vm.MarkChangelogShown();
-            Assert.Null(vm.TryGetPendingChangelog());
-
-            var cached = vm.GetCachedChangelog();
-            Assert.NotNull(cached);
-            Assert.Equal("## v1.0.0\n\nRelease notes", cached!.Value.Body);
+            Assert.Null(vm.TryGetPendingChangelogVersion());
         }
         finally { try { File.Delete(path); } catch { } }
     }
@@ -112,7 +107,6 @@ public class UpdateCheckerFlowTests
                 ["Pricing"] = new JsonObject { ["League"] = "Test League" },
                 ["Changelog"] = new JsonObject
                 {
-                    ["Body"] = "## v2.0.0\n\nBig update!",
                     ["Version"] = "2.0.0",
                     ["Shown"] = false
                 }
@@ -127,16 +121,16 @@ public class UpdateCheckerFlowTests
             Assert.Equal("Trace", vm.LogLevel);
             Assert.Equal("Test League", vm.CurrentLeague);
 
-            var pending = vm.TryGetPendingChangelog();
+            var pending = vm.TryGetPendingChangelogVersion();
             Assert.NotNull(pending);
-            Assert.Equal("## v2.0.0\n\nBig update!", pending!.Value.Body);
+            Assert.Equal("2.0.0", pending);
 
             vm.MarkChangelogShown();
 
             var vm2 = new DashboardViewModel(path);
             vm2.LoadSettings();
             Assert.Equal("Trace", vm2.LogLevel);
-            Assert.Null(vm2.TryGetPendingChangelog());
+            Assert.Null(vm2.TryGetPendingChangelogVersion());
         }
         finally { try { File.Delete(path); } catch { } }
     }
@@ -149,13 +143,12 @@ public class UpdateCheckerFlowTests
         return method!;
     }
 
-    private static void WriteChangelogJson(string path, string body, string version)
+    private static void WriteChangelogJson(string path, string version)
     {
         var root = new JsonObject
         {
             ["Changelog"] = new JsonObject
             {
-                ["Body"] = body,
                 ["Version"] = version,
                 ["Shown"] = false
             }

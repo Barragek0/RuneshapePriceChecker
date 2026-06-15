@@ -39,6 +39,11 @@ public sealed class DebugOverlayService(
                 {
                     CloseOverlay();
                 }
+
+                if (options.ShowBanner)
+                {
+                    EnsureBannerThreadStarted();
+                }
             }
             catch (Exception ex)
             {
@@ -86,6 +91,12 @@ public sealed class DebugOverlayService(
         }
 
         if (_forceHidden || _setupInProgress)
+        {
+            overlay.SafeHide();
+            return;
+        }
+
+        if (OverlayGate.AllOverlaysDisabled)
         {
             overlay.SafeHide();
             return;
@@ -249,6 +260,8 @@ public sealed class DebugOverlayService(
 
             Application.Run(overlayForm);
 
+            dashboard.BringToFront();
+
             if (!goBack) break;
         }
     }
@@ -274,7 +287,7 @@ public sealed class DebugOverlayService(
             var relX = rect.X - ctx.ClientX;
             var relY = rect.Y - ctx.ClientY;
 
-            var windowNode = root["Window"] as JsonObject ?? new JsonObject();
+            var windowNode = root["Window"] as JsonObject ?? [];
             windowNode["CustomOffsetX"] = relX;
             windowNode["CustomOffsetY"] = relY;
             windowNode["CustomWidth"] = rect.Width;
@@ -294,6 +307,13 @@ public sealed class DebugOverlayService(
 
     public void SetBannerMessage(string? message)
     {
+        if (OverlayGate.AllOverlaysDisabled)
+        {
+            var form = GetBannerForm();
+            form?.SafeHide();
+            return;
+        }
+
         if (!_options.CurrentValue.ShowBanner)
             return;
 
@@ -403,7 +423,7 @@ public sealed class DebugOverlayService(
         }
 
         overlay.SetStatusLine(statusLine);
-        overlay.SetDebugLines(lines.ToArray(), rowYPositions?.ToArray());
+        overlay.SetDebugLines([.. lines], rowYPositions is { } ry ? [.. ry] : null);
     }
 
     private sealed class BoundsOverlayForm : Form
@@ -428,9 +448,24 @@ public sealed class DebugOverlayService(
             BackColor = TransparencyChroma;
             TransparencyKey = TransparencyChroma;
             DoubleBuffered = true;
+            Cursor = Cursors.Default;
         }
 
         protected override bool ShowWithoutActivation => true;
+
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == 0x0020 && Cursor is not null)
+            {
+                SetCursor(Cursor.Handle);
+                m.Result = (IntPtr)1;
+                return;
+            }
+            base.WndProc(ref m);
+        }
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SetCursor(IntPtr hCursor);
 
         protected override CreateParams CreateParams
         {
@@ -467,9 +502,9 @@ public sealed class DebugOverlayService(
             using var pen = new Pen(Color.Red, 3);
             e.Graphics.DrawRectangle(pen, 0, 1, boxWidth - 1, _frame.Height - 1);
 
-            var scanLeft = (int)(boxWidth * ListDetector.LeftFraction);
-            var scanRight = (int)(boxWidth * ListDetector.RightFraction);
-            var ry = (int)(_frame.Height * ListDetector.TopRowFraction);
+            var scanLeft = (int)(boxWidth * LeaguePanelDetector.LeftFraction);
+            var scanRight = (int)(boxWidth * LeaguePanelDetector.RightFraction);
+            var ry = (int)(_frame.Height * LeaguePanelDetector.TopRowFraction);
 
             using var scanPen = new Pen(Color.FromArgb(220, 255, 255, 0), 2f)
             {

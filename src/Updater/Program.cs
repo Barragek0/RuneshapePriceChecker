@@ -24,7 +24,12 @@ Console.WriteLine();
 var args_ = ParseArgs(args);
 var installDir = AppContext.BaseDirectory;
 
-if (!string.IsNullOrWhiteSpace(args_.DownloadUrl))
+if (!string.IsNullOrWhiteSpace(args_.LocalZipPath))
+{
+    Log("Launched by main app (local zip mode).");
+    await RunLocalZipUpdateAsync(args_.LocalZipPath, args_.NewVersion ?? "unknown", installDir);
+}
+else if (!string.IsNullOrWhiteSpace(args_.DownloadUrl))
 {
     Log("Launched by main app (direct URL mode).");
     await RunDirectUpdateAsync(args_.DownloadUrl, args_.NewVersion ?? "unknown", installDir);
@@ -39,6 +44,22 @@ else
     Console.ReadKey(intercept: true);
 }
 
+static async Task RunLocalZipUpdateAsync(string zipPath, string newVersion, string installDir)
+{
+    Log($"Update to version {newVersion}");
+    Log($"Local zip: {zipPath}");
+
+    if (!File.Exists(zipPath))
+    {
+        Fail($"Zip not found: {zipPath}");
+    }
+
+    Log($"Zip size: {FormatBytes(new FileInfo(zipPath).Length)}");
+    await FinishUpdateAsync(zipPath, newVersion, installDir);
+
+    try { File.Delete(zipPath); } catch { }
+}
+
 static async Task RunDirectUpdateAsync(string downloadUrl, string newVersion, string installDir)
 {
     Log($"Update to version {newVersion}");
@@ -47,7 +68,7 @@ static async Task RunDirectUpdateAsync(string downloadUrl, string newVersion, st
     var tempZip = Path.Combine(Path.GetTempPath(), $"runeshape-update-{Guid.NewGuid():N}.zip");
 
     Log("Downloading update...");
-    using (var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) })
+    using (var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) })
     {
         try
         {
@@ -247,6 +268,7 @@ static string FormatBytes(long bytes)
 static UpdaterArgs ParseArgs(string[] args)
 {
     string? url = null;
+    string? zip = null;
     string? version = null;
     var owner = "Barragek0";
     var repo = "RuneshapePriceChecker";
@@ -257,6 +279,9 @@ static UpdaterArgs ParseArgs(string[] args)
         {
             case "--url" when i + 1 < args.Length:
                 url = args[++i];
+                break;
+            case "--zip" when i + 1 < args.Length:
+                zip = args[++i];
                 break;
             case "--version" when i + 1 < args.Length:
                 version = args[++i];
@@ -270,7 +295,7 @@ static UpdaterArgs ParseArgs(string[] args)
         }
     }
 
-    return new UpdaterArgs(url, version, owner, repo);
+    return new UpdaterArgs(url, zip, version, owner, repo);
 }
 
 static async Task CloseMainProcessAsync(string exeName)
@@ -351,6 +376,11 @@ static void ExtractZip(string zipPath, string destinationDir)
             {
                 if (retry < 4) { Thread.Sleep(500); }
             }
+            catch (Exception ex)
+            {
+                Log($"  ERROR extracting {entry.FullName}: {ex.GetType().Name}: {ex.Message}");
+                break;
+            }
         }
 
         if (!extracted)
@@ -371,6 +401,6 @@ static extern bool AllocConsole();
 [return: MarshalAs(UnmanagedType.Bool)]
 static extern bool AttachConsole(uint dwProcessId = uint.MaxValue);
 
-sealed record UpdaterArgs(string? DownloadUrl, string? NewVersion, string RepoOwner, string RepoName);
+sealed record UpdaterArgs(string? DownloadUrl, string? LocalZipPath, string? NewVersion, string RepoOwner, string RepoName);
 sealed record GitHubRelease(string TagName, List<GitHubAsset>? Assets);
 sealed record GitHubAsset(string? Name, string? BrowserDownloadUrl);

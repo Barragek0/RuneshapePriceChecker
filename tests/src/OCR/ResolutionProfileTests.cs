@@ -9,14 +9,16 @@ public class ResolutionProfileTests
 
     public record Profile(string Key, int CaptureW, int CaptureH);
 
-    public static readonly TheoryData<Profile> AllProfiles = new()
-    {
+#pragma warning disable CA1825 // TheoryData<T> is List<T>-derived; collection expression is correct here
+    public static readonly TheoryData<Profile> AllProfiles =
+    [
         new("1600x900", 240, 450),
         new("1920x1080", 288, 540),
         new("2560x1440", 418, 720),
         new("3440x1440", 390, 725),
         new("3840x2160", 680, 1080),
-    };
+    ];
+#pragma warning restore CA1825
 
     private static (int leftX, int rightX, int sampleY, int radiusX, int radiusY, int leftMin, int leftMax, int rightMin, int rightMax, int minY, int maxY) ComputeAnchors(int w, int h)
     {

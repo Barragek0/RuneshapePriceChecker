@@ -10,7 +10,7 @@ public sealed record ListDetectorDiag(
     bool PanelOpen,
     int MinSum);
 
-public sealed class ListDetector
+public sealed class LeaguePanelDetector
 {
     public const double LeftFraction = 0.40;
     public const double RightFraction = 0.98;

@@ -56,7 +56,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
     private OcrRunContext _runContext = new(string.Empty, []);
     private bool _lastInterfaceDetected = true;
     private DateTimeOffset _lastDebugImageSavedAtUtc = DateTimeOffset.MinValue;
-    private readonly ListDetector _listDetector = new();
+    private readonly LeaguePanelDetector _listDetector = new();
 
     public void Warmup()
     {
@@ -233,9 +233,9 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         _logger.LogDebug(
             "Panel check: region=({RegX},{RegY} {RegW}x{RegH}) scanX={ScanX0}-{ScanX1} scanY={ScanY} fmt={Fmt} open={Open}",
             region.X, region.Y, region.Width, region.Height,
-            region.X + (int)(region.Width * ListDetector.LeftFraction),
-            region.X + (int)(region.Width * ListDetector.RightFraction),
-            region.Y + (int)(region.Height * ListDetector.TopRowFraction),
+            region.X + (int)(region.Width * LeaguePanelDetector.LeftFraction),
+            region.X + (int)(region.Width * LeaguePanelDetector.RightFraction),
+            region.Y + (int)(region.Height * LeaguePanelDetector.TopRowFraction),
             pxFormat, diag.PanelOpen);
         _logger.LogTrace(
             "Panel check diagnostics: bri={Brightness} black={Black}/{Total} minSum={MinSum}",

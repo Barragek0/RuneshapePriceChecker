@@ -24,7 +24,6 @@
   <ItemGroup>
     <Compile Remove="OcrPricingSimulator\**\*.cs" />
     <Compile Remove="UpdateTestServer\**\*.cs" />
-    <Compile Remove="ResolutionVisualizer\**\*.cs" />
   </ItemGroup>
 
   <!-- Copy traineddata to test output so Tesseract tests don't rely on runtime extraction -->

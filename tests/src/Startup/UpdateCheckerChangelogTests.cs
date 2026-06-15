@@ -33,10 +33,10 @@ public class UpdateCheckerChangelogTests : IDisposable
     }
 
     [Fact]
-    public void WriteChangelog_CreatesConfigDirAndWritesBody()
+    public void WriteChangelog_CreatesConfigDirAndSetsPending()
     {
         var checker = CreateChecker();
-        SetPrivateFields(checker, "## Test Changelog\n\n- Feature 1", "1.0.0");
+        SetPrivateFields(checker, "1.0.0");
 
         InvokeWriteChangelog(checker);
 
@@ -46,7 +46,6 @@ public class UpdateCheckerChangelogTests : IDisposable
         var root = doc.RootElement;
 
         Assert.True(root.TryGetProperty("Changelog", out var changelog));
-        Assert.Equal("## Test Changelog\n\n- Feature 1", changelog.GetProperty("Body").GetString());
         Assert.Equal("1.0.0", changelog.GetProperty("Version").GetString());
         Assert.False(changelog.GetProperty("Shown").GetBoolean());
     }
@@ -60,7 +59,6 @@ public class UpdateCheckerChangelogTests : IDisposable
         {
             "Changelog": {
                 "Shown": true,
-                "Body": "Old changelog",
                 "Version": "0.9.0"
             },
             "OtherSetting": "value"
@@ -69,7 +67,7 @@ public class UpdateCheckerChangelogTests : IDisposable
         File.WriteAllText(_configPath, existingJson);
 
         var checker = CreateChecker();
-        SetPrivateFields(checker, "New changelog body", "2.0.0");
+        SetPrivateFields(checker, "2.0.0");
 
         InvokeWriteChangelog(checker);
 
@@ -78,7 +76,6 @@ public class UpdateCheckerChangelogTests : IDisposable
         var root = doc.RootElement;
 
         Assert.True(root.TryGetProperty("Changelog", out var changelog));
-        Assert.Equal("New changelog body", changelog.GetProperty("Body").GetString());
         Assert.Equal("2.0.0", changelog.GetProperty("Version").GetString());
         Assert.False(changelog.GetProperty("Shown").GetBoolean());
         Assert.True(root.TryGetProperty("OtherSetting", out var other));
@@ -103,7 +100,7 @@ public class UpdateCheckerChangelogTests : IDisposable
         File.WriteAllText(_configPath, existingJson);
 
         var checker = CreateChecker();
-        SetPrivateFields(checker, "Changelog text", "3.0.0");
+        SetPrivateFields(checker, "3.0.0");
 
         InvokeWriteChangelog(checker);
 
@@ -131,11 +128,9 @@ public class UpdateCheckerChangelogTests : IDisposable
         return new UpdateChecker(updateOptions, appOptions, lifetime, logger, dashboard, factory);
     }
 
-    private static void SetPrivateFields(UpdateChecker checker, string changelogBody, string changelogVersion)
+    private static void SetPrivateFields(UpdateChecker checker, string changelogVersion)
     {
         var type = typeof(UpdateChecker);
-        type.GetField("_changelogBody", BindingFlags.NonPublic | BindingFlags.Instance)!
-            .SetValue(checker, changelogBody);
         type.GetField("_changelogVersion", BindingFlags.NonPublic | BindingFlags.Instance)!
             .SetValue(checker, changelogVersion);
     }

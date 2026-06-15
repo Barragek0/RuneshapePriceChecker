@@ -5,7 +5,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/OcrPricingSimulator/OcrPricingSimulator.csproj" />
-    <Project Path="tests/ResolutionVisualizer/ResolutionVisualizer.csproj" />
     <Project Path="tests/Tests.csproj" />
     <Project Path="tests/UpdateTestServer/UpdateTestServer.csproj" />
   </Folder>

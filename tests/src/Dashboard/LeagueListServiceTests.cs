@@ -27,16 +27,16 @@ public class LeagueListServiceTests
     private static TestHandler EmptyResultHandler()
     {
         var json = JsonSerializer.Serialize(new { result = Array.Empty<object>() });
-        return new TestHandler(json, HttpStatusCode.OK);
+        return new(json, HttpStatusCode.OK);
     }
 
     private static TestHandler ErrorHandler()
-        => new TestHandler("{}", HttpStatusCode.InternalServerError);
+        => new("{}", HttpStatusCode.InternalServerError);
 
     private static TestHandler MissingResultHandler()
     {
         var json = JsonSerializer.Serialize(new { other = "data" });
-        return new TestHandler(json, HttpStatusCode.OK);
+        return new(json, HttpStatusCode.OK);
     }
 
     [Fact]

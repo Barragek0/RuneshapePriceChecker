@@ -23,6 +23,5 @@
   <ItemGroup>
     <Compile Remove="OcrPricingSimulator\**\*.cs" />
     <Compile Remove="UpdateTestServer\**\*.cs" />
-    <Compile Remove="ResolutionVisualizer\**\*.cs" />
   </ItemGroup>
 </Project>

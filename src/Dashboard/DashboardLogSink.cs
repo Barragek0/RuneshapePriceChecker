@@ -16,6 +16,7 @@ public sealed class DashboardLogSink : IDisposable
     public DashboardLogSink()
     {
         _flushTimer = new Timer(_ => Flush(), null, Timeout.Infinite, Timeout.Infinite);
+        _flushTimer.Change(FlushIntervalMs, FlushIntervalMs);
     }
 
     public void Emit(string message, string color = "default", LogLevel logLevel = LogLevel.Information)
@@ -32,7 +33,6 @@ public sealed class DashboardLogSink : IDisposable
                     var updated = node.Value with { Count = node.Value.Count + 1, Timestamp = now };
                     _recent.AddFirst(updated);
                     _pending.Add(updated);
-                    _flushTimer.Change(FlushIntervalMs, Timeout.Infinite);
                     return;
                 }
             }
@@ -43,7 +43,6 @@ public sealed class DashboardLogSink : IDisposable
                 _recent.RemoveLast();
 
             _pending.Add(entry);
-            _flushTimer.Change(FlushIntervalMs, Timeout.Infinite);
         }
     }
 
@@ -57,11 +56,9 @@ public sealed class DashboardLogSink : IDisposable
             _pending.Clear();
         }
 
-        Array.Sort(batch, (a, b) => b.Timestamp.CompareTo(a.Timestamp));
-
-        foreach (var entry in batch)
+        for (var i = batch.Length - 1; i >= 0; i--)
         {
-            try { OnLogEntry?.Invoke(entry); }
+            try { OnLogEntry?.Invoke(batch[i]); }
             catch (OperationCanceledException) { return; }
             catch { }
         }
@@ -71,7 +68,7 @@ public sealed class DashboardLogSink : IDisposable
     {
         lock (_pendingLock)
         {
-            return _recent.ToArray();
+            return [.. _recent];
         }
     }
 
@@ -85,6 +82,6 @@ public sealed class DashboardLogSink : IDisposable
 public sealed record LogEntry(DateTime Timestamp, string Message, string Color, int Count, LogLevel LogLevel)
 {
     public string DisplayText => Count > 1
-        ? $"{Timestamp:HH:mm:ss}  {Message}  (x{Count})"
-        : $"{Timestamp:HH:mm:ss}  {Message}";
+        ? $"{Timestamp:HH:mm:ss.fff}  {Message}  (x{Count})"
+        : $"{Timestamp:HH:mm:ss.fff}  {Message}";
 }

@@ -122,11 +122,33 @@ public static class AppSettingsBootstrapper
         if (existing["OCR"] is JsonNode ocr)
         {
             if (RenameKey(ocr, "ShowCaptureBoundsOverlay", "DebugOverlay")) renamed = true;
+            ocr.AsObject().Remove("BinarizationThreshold");
         }
 
         if (existing["Update"] is JsonNode update)
         {
             if (RenameKey(update, "AutoUpdateEnabled", "AutoUpdate")) renamed = true;
+        }
+
+        // Migrate PricingCache to 1.0.0
+        if (existing["PricingCache"] is JsonObject oldPricingCache)
+        {
+            var pricing = (existing["Pricing"] as JsonObject) ?? [];
+            existing["Pricing"] = pricing;
+            foreach (var kvp in oldPricingCache)
+            {
+                if (!pricing.ContainsKey(kvp.Key))
+                    pricing[kvp.Key] = kvp.Value?.DeepClone();
+            }
+            existing.AsObject().Remove("PricingCache");
+            renamed = true;
+        }
+
+        // Remove stale Changelog.Body key (changelog is now fetched live from GitHub)
+        if (existing["Changelog"] is JsonObject changelog)
+        {
+            if (changelog.Remove("Body"))
+                renamed = true;
         }
 
         if (renamed)

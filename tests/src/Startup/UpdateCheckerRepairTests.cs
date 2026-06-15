@@ -67,7 +67,7 @@ public class UpdateCheckerRepairTests : IDisposable
         {
             var entry = archive.CreateEntry("Update.exe");
             using var stream = entry.Open();
-            stream.Write(new byte[] { 0x4D, 0x5A }, 0, 2); // MZ header
+            stream.Write([0x4D, 0x5A], 0, 2); // MZ header
         }
 
         var zipAsset = new GitHubAsset("release.zip", "file://" + zipPath.Replace('\\', '/'), new FileInfo(zipPath).Length);

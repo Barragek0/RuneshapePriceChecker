@@ -37,7 +37,6 @@ Source: "obj\Release\updater-publish\Update.exe"; DestDir: "{app}"; Flags: ignor
 Source: "obj\Release\publish\*.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "obj\Release\publish\runtimes\*"; DestDir: "{app}\runtimes"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 Source: "README.md"; DestDir: "{app}"; DestName: "README.txt"; Flags: ignoreversion
-Source: "ADDING_A_RESOLUTION.md"; DestDir: "{app}"; DestName: "ADDING_A_RESOLUTION.txt"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"

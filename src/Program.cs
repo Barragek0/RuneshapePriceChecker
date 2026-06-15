@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 using RuneshapePriceChecker.App;
 using RuneshapePriceChecker.App.Dashboard;
 using RuneshapePriceChecker.Configuration;
@@ -13,6 +14,23 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 var suppressWarning = args.Any(a => a.StartsWith("--App:SuppressAlreadyRunningWarning=", StringComparison.OrdinalIgnoreCase));
+if (!suppressWarning)
+{
+    // Also check config file — post-update restarts won't have CLI args
+    try
+    {
+        var cfgPath = Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json");
+        if (File.Exists(cfgPath))
+        {
+            var cfgJson = JsonDocument.Parse(File.ReadAllText(cfgPath));
+            if (cfgJson.RootElement.TryGetProperty("App", out var app) &&
+                app.TryGetProperty("SuppressAlreadyRunningWarning", out var sw) &&
+                sw.ValueKind == JsonValueKind.True)
+                suppressWarning = true;
+        }
+    }
+    catch { }
+}
 
 var mutex = new Mutex(true, @"Global\RuneshapePriceChecker_SingleInstance", out var createdNew);
 if (!createdNew && !suppressWarning)
@@ -53,6 +71,7 @@ dashboardService.SetOnWindowClosed(hostCts.Cancel);
 dashboardService.Start();
 
 TryDeleteFile(Path.Combine(AppContext.BaseDirectory, "Update.exe.old"));
+TryDeleteFile(Path.Combine(AppContext.BaseDirectory, "RuneshapePriceChecker.exe.old"));
 
 var updaterNewPath = Path.Combine(AppContext.BaseDirectory, "Update.exe.new");
 if (File.Exists(updaterNewPath))
@@ -60,6 +79,14 @@ if (File.Exists(updaterNewPath))
     var updaterPath = Path.Combine(AppContext.BaseDirectory, "Update.exe");
     try { File.Delete(updaterPath); } catch { }
     try { File.Move(updaterNewPath, updaterPath); } catch { }
+}
+
+var exeNewPath = Path.Combine(AppContext.BaseDirectory, "RuneshapePriceChecker.exe.new");
+if (File.Exists(exeNewPath))
+{
+    var exePath = Path.Combine(AppContext.BaseDirectory, "RuneshapePriceChecker.exe");
+    try { File.Delete(exePath); } catch { }
+    try { File.Move(exeNewPath, exePath); } catch { }
 }
 
 var resolvedTesseractDataPath = TesseractBootstrapper.ResolveTessDataPath();
@@ -129,7 +156,7 @@ var host = Host.CreateDefaultBuilder(args)
         services.AddSingleton<IPoe2WindowResolutionProvider>(sp => sp.GetRequiredService<Poe2WindowResolutionService>());
 
         services.AddSingleton<ILeagueWindowReader, OcrLeagueWindowReader>();
-        services.AddSingleton<IOverlayRenderer, ConsoleOverlayRenderer>();
+        services.AddSingleton<IOverlayRenderer, PricingOverlayRenderer>();
         services.AddSingleton<IPricingCache, InMemoryPricingCache>();
 
         services.AddHostedService(sp => sp.GetRequiredService<Poe2WindowResolutionService>());
@@ -150,7 +177,7 @@ var host = Host.CreateDefaultBuilder(args)
         logging.AddProvider(new FileLogProvider());
         logging.AddSimpleConsole(options =>
         {
-            options.TimestampFormat = "HH:mm:ss ";
+            options.TimestampFormat = "HH:mm:ss.fff ";
             options.SingleLine = true;
         });
         logging.SetMinimumLevel(minLevel);
@@ -167,7 +194,11 @@ var ocrReader = host.Services.GetRequiredService<ILeagueWindowReader>();
 _ = Task.Run(() =>
 {
     try { ocrReader.Warmup(); }
-    catch (Exception ex) { dashboardService.SetStatus($"Tesseract warmup failed: {ex.Message}", "amber"); }
+    catch (Exception ex)
+    {
+        dashboardSink.Emit($"Tesseract warmup failed: {ex.Message}", "amber");
+        dashboardService.SetStatus($"Tesseract warmup failed: {ex.Message}", "amber");
+    }
 });
 
 dashboardService.SetOnWindowLoaded(() =>

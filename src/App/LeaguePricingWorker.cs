@@ -182,7 +182,11 @@ public sealed class LeaguePricingWorker(
     private static bool IsRareUniqueItem(string itemName)
     {
         return itemName.Equals("Rare Unique Item", StringComparison.OrdinalIgnoreCase)
-            || itemName.Equals("Very Rare Unique Item", StringComparison.OrdinalIgnoreCase);
+            || itemName.Equals("Very Rare Unique Item", StringComparison.OrdinalIgnoreCase)
+            || StrComp.IsOneCharAway(itemName, "Rare Unique Item")
+            || StrComp.IsOneCharAway(itemName, "Very Rare Unique Item")
+            || StrComp.IsTwoCharsAway(itemName, "Rare Unique Item")
+            || StrComp.IsTwoCharsAway(itemName, "Very Rare Unique Item");
     }
 
     private static readonly string[] UnpriceableExactNames =
@@ -217,21 +221,27 @@ public sealed class LeaguePricingWorker(
             }
 
             var isPricedUncut = PricedUncutPrefixes.Any(p =>
-                normalized.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+                normalized.StartsWith(p, StringComparison.OrdinalIgnoreCase) ||
+                (normalized.Length <= p.Length + 1 && StrComp.IsOneCharAway(normalized, p)) ||
+                StrComp.IsTwoCharsAway(normalized, p));
             if (isPricedUncut)
             {
                 continue;
             }
 
             if (UnpriceableExactNames.Any(e =>
-                    normalized.Equals(e, StringComparison.OrdinalIgnoreCase)))
+                    normalized.Equals(e, StringComparison.OrdinalIgnoreCase) ||
+                    StrComp.IsOneCharAway(normalized, e) ||
+                    StrComp.IsTwoCharsAway(normalized, e)))
             {
                 found = true;
                 break;
             }
 
             if (UnpriceablePrefixes.Any(p =>
-                    normalized.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
+                    normalized.StartsWith(p, StringComparison.OrdinalIgnoreCase) ||
+                    StrComp.IsOneCharAway(normalized, p) ||
+                    StrComp.IsTwoCharsAway(normalized, p)))
             {
                 found = true;
                 break;

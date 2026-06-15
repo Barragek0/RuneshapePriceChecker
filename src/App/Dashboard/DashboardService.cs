@@ -107,6 +107,11 @@ public sealed class DashboardService(DashboardLogSink sink) : IDisposable
         _window?.Dispatcher.InvokeAsync(() => _window.SetStatus(text, color));
     }
 
+    public void LogError(string message)
+    {
+        _window?.Dispatcher.InvokeAsync(() => _window.LogError(message));
+    }
+
     public void SetOnSetupContinue(Action callback)
     {
         _window?.Dispatcher.InvokeAsync(() => _window.SetOnSetupContinue(callback));
@@ -142,6 +147,11 @@ public sealed class DashboardService(DashboardLogSink sink) : IDisposable
         _window?.Dispatcher.InvokeAsync(_window.HideUpdateOverlay);
     }
 
+    public void BringToFront()
+    {
+        _window?.Dispatcher.InvokeAsync(_window.BringToFront);
+    }
+
     public void SetUpdateProgress(int percent)
     {
         _window?.Dispatcher.InvokeAsync(() => _window.SetUpdateProgress(percent));
@@ -165,7 +175,7 @@ public sealed class DashboardService(DashboardLogSink sink) : IDisposable
             var json = File.ReadAllText(configPath, System.Text.Encoding.UTF8);
             var root = System.Text.Json.Nodes.JsonNode.Parse(json);
             if (root is null) return;
-            var windowNode = root["Window"] as System.Text.Json.Nodes.JsonObject ?? new System.Text.Json.Nodes.JsonObject();
+            var windowNode = root["Window"] as System.Text.Json.Nodes.JsonObject ?? [];
             windowNode["InitialSetupComplete"] = false;
             root["Window"] = windowNode;
             File.WriteAllText(configPath, root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }) + Environment.NewLine, System.Text.Encoding.UTF8);

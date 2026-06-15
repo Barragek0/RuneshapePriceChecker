@@ -1,16 +1,11 @@
 [*.cs]
 
-# IDE0160: Convert to block scoped namespace
-dotnet_diagnostic.IDE0160.severity = none
-# IDE0130: Namespace does not match folder structure
-dotnet_diagnostic.IDE0130.severity = none
+# Code style: surface all IDE diagnostics as build warnings
+dotnet_diagnostic.IDE*.severity = warning
 
-# Code style: surface during build
-dotnet_diagnostic.IDE0005.severity = warning
-dotnet_diagnostic.IDE0044.severity = warning
-dotnet_diagnostic.IDE0055.severity = warning
-dotnet_diagnostic.IDE0059.severity = warning
-dotnet_diagnostic.IDE0060.severity = warning
+# Exceptions: rules we don't want
+dotnet_diagnostic.IDE0130.severity = none  # Namespace does not match folder structure
+dotnet_diagnostic.IDE0160.severity = none  # Convert to block scoped namespace
 
 # DashboardViewModel uses JSON keys that don't match property names by design
 [src/Dashboard/DashboardViewModel.cs]

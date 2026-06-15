@@ -72,7 +72,7 @@ static void HandleRequest(HttpListenerContext ctx, byte[] zipBytes, string zipNa
     {
         var mockRelease = new
         {
-            tag_name = "v1.0.0",
+            tag_name = "v1.0.1",
             prerelease = false,
             html_url = $"http://localhost:{port}",
             body = "# 🎉 Runeshape Price Checker v1.0.0\n\n" +

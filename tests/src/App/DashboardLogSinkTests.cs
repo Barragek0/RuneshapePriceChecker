@@ -127,7 +127,7 @@ public class DashboardLogSinkTests : IDisposable
             }));
         }
 
-        Task.WaitAll(tasks.ToArray());
+        Task.WaitAll([.. tasks]);
         Assert.Empty(exceptions);
     }
 

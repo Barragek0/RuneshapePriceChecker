@@ -125,7 +125,6 @@
     <Copy SourceFiles="@(_UpdaterZipFiles)" DestinationFolder="$(ReleaseZipStageDir)" />
 
     <Copy SourceFiles="README.md" DestinationFiles="$(ReleaseZipStageDir)README.txt" />
-    <Copy SourceFiles="ADDING_A_RESOLUTION.md" DestinationFiles="$(ReleaseZipStageDir)ADDING_A_RESOLUTION.txt" />
 
     <Delete Files="$(ReleaseZipPath)" ContinueOnError="true" />
     <ZipDirectory SourceDirectory="$(ReleaseZipStageDir)" DestinationFile="$(ReleaseZipPath)" Overwrite="true" ContinueOnError="WarnAndContinue" />

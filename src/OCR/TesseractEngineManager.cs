@@ -3,17 +3,11 @@ using RuneshapePriceChecker.Startup;
 
 namespace RuneshapePriceChecker.OCR;
 
-internal sealed class TesseractEngineManager : IDisposable
+internal sealed class TesseractEngineManager(ILogger<TesseractEngineManager> logger) : IDisposable
 {
-    private readonly ILogger<TesseractEngineManager> _logger;
     private readonly object _engineLock = new();
     private NativeTesseractEngine? _engine;
     private string? _engineLanguage;
-
-    public TesseractEngineManager(ILogger<TesseractEngineManager> logger)
-    {
-        _logger = logger;
-    }
 
     public NativeTesseractEngine GetEngine(OcrOptions options)
     {
@@ -23,19 +17,19 @@ internal sealed class TesseractEngineManager : IDisposable
 
         if (_engine is not null && string.Equals(_engineLanguage, language, StringComparison.OrdinalIgnoreCase))
         {
-            _logger.LogTrace("Tesseract: reusing existing engine for '{Lang}'", language);
+            logger.LogTrace("Tesseract: reusing existing engine for '{Lang}'", language);
             return _engine;
         }
 
         if (!TesseractBootstrapper.IsLanguageDataAvailable(language))
         {
-            _logger.LogInformation("Tesseract: downloading {Lang} language data...", language);
+            logger.LogInformation("Tesseract: downloading {Lang} language data...", language);
             TesseractBootstrapper.EnsureLanguageDataAvailableAsync(language, CancellationToken.None)
                 .GetAwaiter().GetResult();
 
             if (!TesseractBootstrapper.IsLanguageDataAvailable(language))
             {
-                _logger.LogWarning(
+                logger.LogWarning(
                     "Tesseract: failed to download {Lang} language data, falling back to English", language);
                 if (string.Equals(language, "eng", StringComparison.OrdinalIgnoreCase))
                     throw new InvalidOperationException(
@@ -47,7 +41,7 @@ internal sealed class TesseractEngineManager : IDisposable
                 });
             }
 
-            _logger.LogInformation("Tesseract: {Lang} language data download complete", language);
+            logger.LogInformation("Tesseract: {Lang} language data download complete", language);
         }
 
         lock (_engineLock)
@@ -57,7 +51,7 @@ internal sealed class TesseractEngineManager : IDisposable
 
             if (_engine is not null)
             {
-                _logger.LogInformation("Tesseract: switching language from {OldLang} to {NewLang}", _engineLanguage, language);
+                logger.LogInformation("Tesseract: switching language from {OldLang} to {NewLang}", _engineLanguage, language);
                 _engine.Dispose();
                 _engine = null;
             }
@@ -69,14 +63,14 @@ internal sealed class TesseractEngineManager : IDisposable
             if (string.IsNullOrWhiteSpace(tessDataPath))
                 throw new FileNotFoundException("Tesseract traineddata directory not found.");
 
-            _logger.LogInformation("Tesseract: creating engine for {Lang}...", language);
+            logger.LogInformation("Tesseract: creating engine for {Lang}...", language);
             try
             {
                 _engine = new NativeTesseractEngine(tessDataPath, language);
             }
             catch (InvalidOperationException ex) when (ex.Message.Contains("Tesseract init failed"))
             {
-                _logger.LogWarning(ex, "Tesseract init failed for {Lang}, traineddata may be corrupt. Attempting repair...", language);
+                logger.LogWarning(ex, "Tesseract init failed for {Lang}, traineddata may be corrupt. Attempting repair...", language);
 
                 lock (_engineLock)
                 {
@@ -92,7 +86,7 @@ internal sealed class TesseractEngineManager : IDisposable
             }
 
             _engineLanguage = language;
-            _logger.LogInformation("Tesseract: engine created successfully for {Lang}", language);
+            logger.LogInformation("Tesseract: engine created successfully for {Lang}", language);
             return _engine;
         }
     }

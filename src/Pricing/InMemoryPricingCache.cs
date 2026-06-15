@@ -52,7 +52,7 @@ public sealed class InMemoryPricingCache(
 
         if (itemName.StartsWith("Unique ", StringComparison.OrdinalIgnoreCase))
         {
-            if (logger.IsEnabled(LogLevel.Warning))
+            if (logger.IsEnabled(LogLevel.Debug))
             {
                 logger.LogDebug("[Quote] All {Count} candidates failed for '{Name}'. Keys: {Keys}", keys.Length, itemName, string.Join(", ", keys));
             }
@@ -648,7 +648,11 @@ public sealed class InMemoryPricingCache(
         range = default;
 
         if (!normalizedItemName.Equals("UNIQUE JEWELLERY", StringComparison.OrdinalIgnoreCase) &&
-            !normalizedItemName.Equals("UNIQUE JEWELRY", StringComparison.OrdinalIgnoreCase))
+            !normalizedItemName.Equals("UNIQUE JEWELRY", StringComparison.OrdinalIgnoreCase) &&
+            !StrComp.IsOneCharAway(normalizedItemName, "UNIQUE JEWELLERY") &&
+            !StrComp.IsOneCharAway(normalizedItemName, "UNIQUE JEWELRY") &&
+            !StrComp.IsTwoCharsAway(normalizedItemName, "UNIQUE JEWELLERY") &&
+            !StrComp.IsTwoCharsAway(normalizedItemName, "UNIQUE JEWELRY"))
         {
             return false;
         }

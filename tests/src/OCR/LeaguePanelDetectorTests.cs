@@ -56,13 +56,13 @@ public class ListDetectorTests
     [Fact]
     public void Update_InitialState_IsNotOpen()
     {
-        Assert.False(new ListDetector().IsOpen);
+        Assert.False(new LeaguePanelDetector().IsOpen);
     }
 
     [Fact]
     public void Update_FirstBrightFrame_NotYetOpen()
     {
-        var d = new ListDetector();
+        var d = new LeaguePanelDetector();
         Assert.False(d.Update(SharedBright, out _));
         Assert.False(d.IsOpen);
     }
@@ -70,7 +70,7 @@ public class ListDetectorTests
     [Fact]
     public void Update_ThreeBrightFrames_BecomesOpen()
     {
-        var d = new ListDetector();
+        var d = new LeaguePanelDetector();
         d.Update(SharedBright, out _);
         d.Update(SharedBright, out _);
         Assert.False(d.IsOpen); // 2 frames not enough
@@ -81,7 +81,7 @@ public class ListDetectorTests
     [Fact]
     public void Update_ThreeDarkFramesAfterOpen_BecomesClosed()
     {
-        var d = new ListDetector();
+        var d = new LeaguePanelDetector();
         d.Update(SharedBright, out _);
         d.Update(SharedBright, out _);
         d.Update(SharedBright, out _);
@@ -97,7 +97,7 @@ public class ListDetectorTests
     [Fact]
     public void Update_DiagRecord_HasExpectedFields()
     {
-        var d = new ListDetector();
+        var d = new LeaguePanelDetector();
         d.Update(SharedBright, out var diag);
         Assert.True(diag.TotalCount > 0);
         Assert.True(diag.AvgBrightness > 0);
@@ -107,7 +107,7 @@ public class ListDetectorTests
     [Fact]
     public void Update_ResetStreakOnOppositeSignal()
     {
-        var d = new ListDetector();
+        var d = new LeaguePanelDetector();
         d.Update(SharedBright, out _);
         d.Update(SharedDark, out _); // resets bright streak
         d.Update(SharedBright, out _);
@@ -120,7 +120,7 @@ public class ListDetectorTests
     [Fact]
     public void Update_MultipleCycles_OpenCloseWorks()
     {
-        var d = new ListDetector();
+        var d = new LeaguePanelDetector();
         d.Update(SharedBright, out _);
         d.Update(SharedBright, out _);
         d.Update(SharedBright, out _);
@@ -138,7 +138,7 @@ public class ListDetectorTests
     [Fact]
     public void Update_DarkBitmap_ProducesLowBrightness()
     {
-        var d = new ListDetector();
+        var d = new LeaguePanelDetector();
         d.Update(SharedDark, out var diag);
         Assert.True(diag.AvgBrightness <= 140);
     }

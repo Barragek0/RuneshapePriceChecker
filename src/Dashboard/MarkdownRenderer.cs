@@ -104,7 +104,7 @@ internal static partial class MarkdownRenderer
             if (inDetails && line.TrimStart().StartsWith("</details>", StringComparison.OrdinalIgnoreCase))
             {
                 inDetails = false;
-                FlushDetailsBlock(doc, detailsSummary, new List<string>(detailsLines));
+                FlushDetailsBlock(doc, detailsSummary, [.. detailsLines]);
                 detailsLines.Clear();
                 continue;
             }

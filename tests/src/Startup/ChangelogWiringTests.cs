@@ -42,7 +42,7 @@ public class ChangelogWiringTests
         var file = Path.Combine(RepoRoot, "src", "Dashboard", "DashboardWindow.xaml.cs");
         Assert.True(File.Exists(file), $"File not found: {file}");
         var content = File.ReadAllText(file);
-        Assert.Contains("TryGetPendingChangelog", content);
+        Assert.Contains("TryGetPendingChangelogVersion", content);
     }
 
     [Fact]

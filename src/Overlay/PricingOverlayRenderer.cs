@@ -9,11 +9,11 @@ using System.Runtime.InteropServices;
 
 namespace RuneshapePriceChecker.Overlay;
 
-public sealed class ConsoleOverlayRenderer(
+public sealed class PricingOverlayRenderer(
     IPoe2WindowResolutionProvider windowResolutionProvider,
     IOptionsMonitor<PricingCacheOptions> pricingOptions,
     IOptionsMonitor<OcrOptions> ocrOptions,
-    ILogger<ConsoleOverlayRenderer> logger) : IOverlayRenderer, IDisposable
+    ILogger<PricingOverlayRenderer> logger) : IOverlayRenderer, IDisposable
 {
     private readonly object _sync = new();
     private readonly IOptionsMonitor<OcrOptions> _ocrOptions = ocrOptions;
@@ -25,6 +25,9 @@ public sealed class ConsoleOverlayRenderer(
         try
         {
             if (!_ocrOptions.CurrentValue.ShowPricingOverlay)
+                return;
+
+            if (OverlayGate.AllOverlaysDisabled)
                 return;
 
             EnsureOverlayThreadStarted();
@@ -368,9 +371,24 @@ public sealed class ConsoleOverlayRenderer(
             TransparencyKey = TransparencyChroma;
             DoubleBuffered = true;
             Bounds = new Rectangle(-32000, -32000, 1, 1);
+            Cursor = Cursors.Default;
         }
 
         protected override bool ShowWithoutActivation => true;
+
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == 0x0020 && Cursor is not null)
+            {
+                SetCursor(Cursor.Handle);
+                m.Result = (IntPtr)1;
+                return;
+            }
+            base.WndProc(ref m);
+        }
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SetCursor(IntPtr hCursor);
 
         protected override CreateParams CreateParams
         {

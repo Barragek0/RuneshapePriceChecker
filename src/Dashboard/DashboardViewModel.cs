@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Windows.Media;
 
@@ -200,7 +201,23 @@ public sealed class DashboardViewModel(string configPath)
         catch { return false; }
     }
 
-    public (string? Body, string? Version)? TryGetPendingChangelog()
+    public void SetConfigFlag(string section, string key, bool value)
+    {
+        try
+        {
+            if (!File.Exists(_configPath)) return;
+            var json = File.ReadAllText(_configPath, Encoding.UTF8);
+            var root = JsonNode.Parse(json);
+            if (root?[section] is JsonObject sectionObj)
+            {
+                sectionObj[key] = value;
+                File.WriteAllText(_configPath, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }), Encoding.UTF8);
+            }
+        }
+        catch { }
+    }
+
+    public string? TryGetPendingChangelogVersion()
     {
         try
         {
@@ -213,11 +230,10 @@ public sealed class DashboardViewModel(string configPath)
             var shown = changelog["Shown"]?.GetValue<bool>() ?? true;
             if (shown) return null;
 
-            var body = changelog["Body"]?.GetValue<string>();
             var version = changelog["Version"]?.GetValue<string>();
-            if (string.IsNullOrWhiteSpace(body)) return null;
+            if (string.IsNullOrWhiteSpace(version)) return null;
 
-            return (body, version);
+            return version;
         }
         catch { return null; }
     }
@@ -234,24 +250,6 @@ public sealed class DashboardViewModel(string configPath)
         catch { return false; }
     }
 
-    public (string? Body, string? Version)? GetCachedChangelog()
-    {
-        try
-        {
-            if (!File.Exists(_configPath)) return null;
-            var json = File.ReadAllText(_configPath, Encoding.UTF8);
-            var root = JsonNode.Parse(json);
-            var changelog = root?["Changelog"];
-            if (changelog is null) return null;
-
-            var body = changelog["Body"]?.GetValue<string>();
-            var version = changelog["Version"]?.GetValue<string>();
-            if (string.IsNullOrWhiteSpace(body)) return null;
-
-            return (body, version);
-        }
-        catch { return null; }
-    }
 
     public void MarkChangelogShown()
     {

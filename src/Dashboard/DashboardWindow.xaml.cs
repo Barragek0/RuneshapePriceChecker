@@ -83,7 +83,11 @@ public sealed partial class DashboardWindow : Window
                     await Task.Delay(500);
                 }
                 if (_vm.OnUpdateTriggered is not null)
+                {
+                    // Clear the flag so it doesn't trigger again after the update
+                    _vm.SetConfigFlag("App", "AutoApplyUpdate", false);
                     Dispatcher.Invoke(() => Update_Click(this, new RoutedEventArgs()));
+                }
             };
         }
 
@@ -99,11 +103,11 @@ public sealed partial class DashboardWindow : Window
 
     private void CheckPendingChangelog()
     {
-        var pending = _vm.TryGetPendingChangelog();
-        if (pending is { Body: not null } p)
+        var pendingVersion = _vm.TryGetPendingChangelogVersion();
+        if (pendingVersion is not null && UpdateProgressPanel.Visibility != Visibility.Visible)
         {
             _vm.MarkChangelogShown();
-            ShowChangelog(p.Version ?? "", p.Body);
+            _ = FetchAndShowChangelogAsync(pendingVersion);
             return;
         }
 
@@ -116,11 +120,13 @@ public sealed partial class DashboardWindow : Window
                     for (var i = 0; i < 20; i++)
                     {
                         await Task.Delay(1000);
-                        pending = _vm.TryGetPendingChangelog();
-                        if (pending is { Body: not null } p2)
+                        if (UpdateProgressPanel.Visibility == Visibility.Visible)
+                            continue;
+                        pendingVersion = _vm.TryGetPendingChangelogVersion();
+                        if (pendingVersion is not null)
                         {
                             _vm.MarkChangelogShown();
-                            ShowChangelog(p2.Version ?? "", p2.Body);
+                            await FetchAndShowChangelogAsync(pendingVersion);
                             return;
                         }
                     }
@@ -138,7 +144,7 @@ public sealed partial class DashboardWindow : Window
         }
         if (!File.Exists(changelogPath))
         {
-            SetStatus("Changelog preview file not found", "red");
+            LogError("Changelog preview file not found");
             return;
         }
 
@@ -246,6 +252,18 @@ public sealed partial class DashboardWindow : Window
         if (color == "red")
             _statusLockedUntil = DateTime.UtcNow.AddSeconds(3);
     }
+
+    public void LogError(string message)
+    {
+        _sink.Emit(message, "red");
+        if (!IsLogVisibleToUser)
+            SetStatus(message, "red");
+    }
+
+    private bool IsLogVisibleToUser =>
+        SetupPromptSection.Visibility != Visibility.Visible &&
+        !_changelogVisible &&
+        !_settingsVisible;
 
     public void SetOnSetupContinue(Action callback) => _vm.OnSetupContinue = callback;
 
@@ -398,17 +416,22 @@ public sealed partial class DashboardWindow : Window
             if (plusIdx >= 0) version = version[..plusIdx];
             if (string.IsNullOrWhiteSpace(version))
             {
-                SetStatus("Cannot determine current version.", "red");
+                LogError("Cannot determine current version.");
                 return;
             }
 
-            var cached = _vm.GetCachedChangelog();
-            if (cached is { Body: not null } c && string.Equals(c.Version, version, StringComparison.OrdinalIgnoreCase))
-            {
-                ShowChangelog(version, c.Body);
-                return;
-            }
+            await FetchAndShowChangelogAsync(version);
+        }
+        finally
+        {
+            StopChangelogSpinner();
+        }
+    }
 
+    private async Task FetchAndShowChangelogAsync(string version)
+    {
+        try
+        {
             var configPath = Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json");
             var owner = "Barragek0";
             var repo = "RuneshapePriceChecker";
@@ -434,16 +457,12 @@ public sealed partial class DashboardWindow : Window
             }
             else
             {
-                SetStatus($"Error fetching changelog for v{version}", "red");
+                LogError($"Error fetching changelog for v{version}");
             }
         }
         catch (Exception ex)
         {
-            SetStatus($"Error fetching changelog: {ex.Message}", "red");
-        }
-        finally
-        {
-            StopChangelogSpinner();
+            LogError($"Error fetching changelog for v{version}: {ex.Message}");
         }
     }
 
@@ -569,7 +588,7 @@ public sealed partial class DashboardWindow : Window
         BringToFront();
     }
 
-    private void BringToFront()
+    internal void BringToFront()
     {
         Topmost = true;
         Activate();
@@ -711,9 +730,15 @@ public sealed partial class DashboardWindow : Window
         }
 
         if (error is not null)
+        {
+            LogError(error);
             SetStatus(error, "red");
+        }
         else if (!valid)
+        {
+            LogError("Invalid threshold values");
             SetStatus("Invalid threshold values", "red");
+        }
         else
             ClearValidationStatus();
 

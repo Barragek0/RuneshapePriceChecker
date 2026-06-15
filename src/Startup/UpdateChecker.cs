@@ -33,6 +33,13 @@ internal sealed class UpdateChecker(
         _stoppingToken = cancellationToken;
         DashboardService.UpdateTrigger = progress => _ = ApplyUpdateAsync(progress);
 
+        // Repair broken v1.0.0 self-contained updater on startup
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken).ConfigureAwait(false);
+            await RepairBrokenUpdaterIfNeededAsync();
+        }, cancellationToken);
+
         _ = Task.Run(async () =>
         {
             while (!cancellationToken.IsCancellationRequested)
@@ -41,6 +48,96 @@ internal sealed class UpdateChecker(
                 await Task.Delay(TimeSpan.FromMinutes(5), cancellationToken).ConfigureAwait(false);
             }
         }, cancellationToken);
+    }
+
+    private async Task RepairBrokenUpdaterIfNeededAsync()
+    {
+        var installDir = AppContext.BaseDirectory;
+        var updaterPath = Path.Combine(installDir, "Update.exe");
+        if (!File.Exists(updaterPath)) return;
+        if (new FileInfo(updaterPath).Length < 10_000_000) return;
+
+        logger.LogWarning("Found broken v1.0.0 self-contained updater. Repairing...");
+        try
+        {
+            var opts = updateOptions.Value;
+            var latest = await FetchLatestReleaseWithRetryAsync(
+                opts.GitHubRepoOwner, opts.GitHubRepoName, opts.IgnorePrereleases);
+            if (latest is null) return;
+            var zipAsset = latest.Assets?.FirstOrDefault(a =>
+                a.Name?.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) == true &&
+                a.BrowserDownloadUrl is not null);
+            if (zipAsset is null) return;
+
+            var tempZip = Path.Combine(Path.GetTempPath(), $"runeshape-repair-{Guid.NewGuid():N}.zip");
+            try
+            {
+                using var http = httpClientFactory.CreateClient("GitHub");
+                await using var stream = await http.GetStreamAsync(zipAsset.BrowserDownloadUrl);
+                await using var fs = File.Create(tempZip);
+                await stream.CopyToAsync(fs);
+
+                using var archive = ZipFile.OpenRead(tempZip);
+                var entry = archive.Entries.FirstOrDefault(e =>
+                    e.Name.Equals("Update.exe", StringComparison.OrdinalIgnoreCase));
+                if (entry is null) return;
+
+                var tmp = updaterPath + ".repairtmp";
+                entry.ExtractToFile(tmp, overwrite: true);
+                try { File.Delete(updaterPath); } catch { }
+                File.Move(tmp, updaterPath);
+                logger.LogInformation("Update.exe repaired successfully.");
+            }
+            finally { try { File.Delete(tempZip); } catch { } }
+        }
+        catch (Exception ex) { logger.LogWarning(ex, "Updater repair failed."); }
+    }
+
+    private void RunPowerShellUpdate(string zipPath, string installDir)
+    {
+        var escapedZip = zipPath.Replace("'", "''");
+        var escapedInstall = installDir.Replace("'", "''");
+        var scriptPath = Path.Combine(Path.GetTempPath(), $"runeshape-update-{Guid.NewGuid():N}.ps1");
+        var script = $@"
+        $ErrorActionPreference = 'Stop'
+        Start-Sleep -Seconds 2
+        $staging = Join-Path $env:TEMP ""runeshape-staging-$(New-Guid)""
+        try {{
+            Expand-Archive -Path '{escapedZip}' -DestinationPath $staging -Force
+            Remove-Item '{escapedZip}' -Force -ErrorAction SilentlyContinue
+            Get-ChildItem $staging -Recurse -File | ForEach-Object {{
+                $relative = $_.FullName.Substring($staging.Length + 1)
+                $target = Join-Path '{escapedInstall}' $relative
+                $targetDir = Split-Path $target -Parent
+                if (-not (Test-Path $targetDir)) {{ New-Item -ItemType Directory -Path $targetDir -Force | Out-Null }}
+                Copy-Item $_.FullName $target -Force
+            }}
+            Remove-Item $staging -Recurse -Force
+            Start-Process (Join-Path '{escapedInstall}' 'RuneshapePriceChecker.exe')
+        }} catch {{
+            Write-Error $_.Exception.Message
+        }} finally {{
+            Remove-Item '{scriptPath.Replace("'", "''")}' -Force -ErrorAction SilentlyContinue
+        }}
+        ";
+        File.WriteAllText(scriptPath, script);
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = $"-ExecutionPolicy Bypass -WindowStyle Hidden -File \"{scriptPath}\"",
+                CreateNoWindow = true,
+                UseShellExecute = false
+            });
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to launch PowerShell update script.");
+            try { File.Delete(scriptPath); } catch { }
+            throw;
+        }
+        logger.LogInformation("PowerShell update script launched.");
     }
 
     private async Task CheckForUpdatesAsync()
@@ -52,7 +149,7 @@ internal sealed class UpdateChecker(
             return;
 
         dashboard.SetStatus("Checking for updates...", "green");
-        logger.LogInformation("Checking for updates via GitHub...");
+        logger.LogInformation("Checking for updates...");
 
         var installDir = AppContext.BaseDirectory;
         var attr = typeof(UpdateChecker).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>();
@@ -119,7 +216,6 @@ internal sealed class UpdateChecker(
         if (latestVersion <= currentVersion && !forceUpdate)
         {
             logger.LogInformation("Already up to date ({Current} >= {Latest}).", currentVersion, latestVersion);
-            dashboard.SetStatus("Up to date", "green");
 
             if (latestVersion == currentVersion && zipAsset is not null)
             {
@@ -184,7 +280,7 @@ internal sealed class UpdateChecker(
     {
         if (_downloadUrl is null)
         {
-            logger.LogWarning("No download URL available. Cannot apply update.");
+            dashboard.HideUpdateOverlay();
             return;
         }
 
@@ -241,58 +337,10 @@ internal sealed class UpdateChecker(
             if (_downloadUrl == "local")
             {
                 progress?.Report(100);
-
-                var scriptPath = Path.Combine(Path.GetTempPath(), $"runeshape-update-{Guid.NewGuid():N}.ps1");
-                File.WriteAllText(scriptPath,
-                    $"$zip = '{tempZip}'\r\n" +
-                    $"$dest = '{installDir}'\r\n" +
-                    $"$staging = Join-Path $env:TEMP \"runeshape-staging-$(New-Guid)\"\r\n" +
-                    $"Expand-Archive -Path $zip -DestinationPath $staging -Force\r\n" +
-                    $"Remove-Item $zip -Force\r\n" +
-                    $"Get-ChildItem $staging -Recurse | Copy-Item -Destination $dest -Force -ErrorAction SilentlyContinue\r\n" +
-                    $"Remove-Item $staging -Recurse -Force -ErrorAction SilentlyContinue\r\n" +
-                    $"Start-Process (Join-Path $dest 'RuneshapePriceChecker.exe')\r\n" +
-                    $"Remove-Item '{scriptPath}' -Force -ErrorAction SilentlyContinue\r\n");
-
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = "powershell.exe",
-                    Arguments = $"-ExecutionPolicy Bypass -WindowStyle Hidden -File \"{scriptPath}\"",
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                });
-
-                lifetime.StopApplication();
-                return;
-            }
-            else
-            {
-                var updaterPath = Path.Combine(installDir, "Update.exe");
-                using (var archive = ZipFile.OpenRead(tempZip))
-                {
-                    var updaterEntry = archive.Entries.FirstOrDefault(e =>
-                        e.Name.Equals("Update.exe", StringComparison.OrdinalIgnoreCase));
-                    if (updaterEntry is not null)
-                    {
-                        var tempUpdater = updaterPath + ".new";
-                        updaterEntry.ExtractToFile(tempUpdater, overwrite: true);
-                        try { File.Delete(updaterPath); } catch { }
-                        File.Move(tempUpdater, updaterPath);
-                    }
-                }
-
-                File.Delete(tempZip);
-
-                logger.LogInformation("Launching updater...");
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = updaterPath,
-                    Arguments = $"--url \"{_downloadUrl}\" --version \"{_latestVersion ?? "0.0.0"}\"",
-                    WorkingDirectory = installDir,
-                    UseShellExecute = true
-                });
             }
 
+            logger.LogInformation("Extracting update...");
+            RunPowerShellUpdate(tempZip, installDir);
             await Task.Delay(500);
             lifetime.StopApplication();
         }
@@ -418,9 +466,9 @@ internal sealed class UpdateChecker(
             catch (RateLimitExceededException rle)
             {
                 logger.LogWarning(
-                    "GitHub rate limit exceeded. Resets at {ResetTime:yyyy-MM-dd HH:mm:ss} UTC ({Remaining} remaining until then).",
+                    "Github rate limit exceeded. Resets at {ResetTime:yyyy-MM-dd HH:mm:ss} UTC ({Remaining} remaining until then).",
                     rle.ResetTime, rle.RemainingString);
-                dashboard.SetStatus("GitHub rate limited — waiting...", "orange");
+                dashboard.SetStatus("Github rate limited — waiting...", "orange");
 
                 var waitTime = rle.ResetTime - DateTimeOffset.UtcNow;
                 if (waitTime > TimeSpan.Zero && waitTime < TimeSpan.FromHours(1))
@@ -560,8 +608,6 @@ internal sealed class UpdateChecker(
             }
 
             changelog["Shown"] = false;
-            if (!string.IsNullOrWhiteSpace(_changelogBody))
-                changelog["Body"] = _changelogBody;
             if (!string.IsNullOrWhiteSpace(_changelogVersion))
                 changelog["Version"] = _changelogVersion;
 
@@ -632,9 +678,9 @@ internal sealed class UpdateChecker(
                 ? $", resets at {reset:yyyy-MM-dd HH:mm:ss} UTC"
                 : string.Empty;
             if (remaining <= 5)
-                logger.LogWarning("GitHub rate limit: {Remaining} remaining{ResetInfo}", remaining, resetStr);
+                logger.LogWarning("Github rate limit: {Remaining} remaining{ResetInfo}", remaining, resetStr);
             else if (logger.IsEnabled(LogLevel.Debug))
-                logger.LogDebug("GitHub rate limit: {Remaining} remaining{ResetInfo}", remaining, resetStr);
+                logger.LogDebug("Github rate limit: {Remaining} remaining{ResetInfo}", remaining, resetStr);
         }
     }
 
@@ -671,17 +717,11 @@ internal sealed class UpdateChecker(
     }
 }
 
-internal sealed class RateLimitExceededException : Exception
+internal sealed class RateLimitExceededException(DateTimeOffset resetTime, int remaining)
+    : Exception($"Github API rate limit exceeded. Resets at {resetTime:yyyy-MM-dd HH:mm:ss} UTC.")
 {
-    public DateTimeOffset ResetTime { get; }
-    public string RemainingString { get; }
-
-    public RateLimitExceededException(DateTimeOffset resetTime, int remaining)
-        : base($"GitHub API rate limit exceeded. Resets at {resetTime:yyyy-MM-dd HH:mm:ss} UTC.")
-    {
-        ResetTime = resetTime;
-        RemainingString = remaining >= 0 ? remaining.ToString(CultureInfo.InvariantCulture) : "?";
-    }
+    public DateTimeOffset ResetTime { get; } = resetTime;
+    public string RemainingString { get; } = remaining >= 0 ? remaining.ToString(CultureInfo.InvariantCulture) : "?";
 }
 
 internal sealed class UpdateOptions
