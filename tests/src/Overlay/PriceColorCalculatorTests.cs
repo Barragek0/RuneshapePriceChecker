@@ -18,7 +18,7 @@ public class PriceColorCalculatorTests
     {
         var color = PriceColorCalculator.GetPriceColor(0.4m, DefaultOptions);
 
-        Assert.NotEqual(System.Drawing.Color.White, color);
+        Assert.NotEqual(Color.White, color);
         Assert.True(color.R > color.G + 50 || color.R > color.B + 50); // reddish
     }
 

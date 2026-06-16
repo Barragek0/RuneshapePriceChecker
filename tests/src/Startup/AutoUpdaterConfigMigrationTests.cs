@@ -12,7 +12,7 @@ public class AutoUpdaterConfigMigrationTests : IDisposable
     public AutoUpdaterConfigMigrationTests()
     {
         _tempDir = Path.Combine(Path.GetTempPath(), $"rstest-cfg-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(_tempDir);
+        _ = Directory.CreateDirectory(_tempDir);
     }
 
     public void Dispose()
@@ -170,6 +170,6 @@ public class AutoUpdaterConfigMigrationTests : IDisposable
         var configPath = Path.Combine(_tempDir, "appsettings.json");
         File.WriteAllText(configPath, corruptedConfig);
 
-        Assert.ThrowsAny<Exception>(() => JsonDocument.Parse(File.ReadAllText(configPath)));
+        _ = Assert.ThrowsAny<Exception>(() => JsonDocument.Parse(File.ReadAllText(configPath)));
     }
 }

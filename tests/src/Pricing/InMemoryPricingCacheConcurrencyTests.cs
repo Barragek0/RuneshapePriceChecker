@@ -26,7 +26,7 @@ public class InMemoryPricingCacheConcurrencyTests
             tasks.Add(Task.Run(async () =>
             {
                 await cache.RefreshAsync(CancellationToken.None);
-                cache.TryGetPriceQuote("Chaos Orb", 1);
+                _ = cache.TryGetPriceQuote("Chaos Orb", 1);
             }));
         }
         await Task.WhenAll(tasks);

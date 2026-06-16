@@ -16,14 +16,20 @@ public class CompactConsoleFormatterTests
     private static readonly MethodInfo GetLogLevelColorMethod = typeof(CompactConsoleFormatter)
         .GetMethod("GetLogLevelColor", BindingFlags.NonPublic | BindingFlags.Static)!;
 
-    private static string ShortenCategory(string category) =>
-        (string)ShortenCategoryMethod.Invoke(null, [category])!;
+    private static string ShortenCategory(string category)
+    {
+        return (string)ShortenCategoryMethod.Invoke(null, [category])!;
+    }
 
-    private static string GetLogLevelText(LogLevel level) =>
-        (string)GetLogLevelTextMethod.Invoke(null, [level])!;
+    private static string GetLogLevelText(LogLevel level)
+    {
+        return (string)GetLogLevelTextMethod.Invoke(null, [level])!;
+    }
 
-    private static ConsoleColor GetLogLevelColor(LogLevel level) =>
-        (ConsoleColor)GetLogLevelColorMethod.Invoke(null, [level])!;
+    private static ConsoleColor GetLogLevelColor(LogLevel level)
+    {
+        return (ConsoleColor)GetLogLevelColorMethod.Invoke(null, [level])!;
+    }
 
     // ── ShortenCategory ──
 

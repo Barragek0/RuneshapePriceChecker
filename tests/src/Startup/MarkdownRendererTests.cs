@@ -9,63 +9,76 @@ public class MarkdownRendererTests
 {
     [Fact]
     public void Render_EmptyString_ReturnsFlowDocument()
-        => StaTestHelper.RunOnStaThread(() =>
-        {
-            var doc = MarkdownRenderer.Render("");
-            Assert.NotNull(doc);
-            Assert.IsType<FlowDocument>(doc);
-        });
+    {
+        StaTestHelper.RunOnStaThread(() =>
+            {
+                var doc = MarkdownRenderer.Render("");
+                Assert.NotNull(doc);
+                _ = Assert.IsType<FlowDocument>(doc);
+            });
+    }
 
     [Fact]
     public void Render_PlainText_ReturnsDocumentWithParagraph()
-        => StaTestHelper.RunOnStaThread(() =>
-        {
-            var doc = MarkdownRenderer.Render("Hello world");
-            Assert.NotNull(doc);
-            Assert.NotEmpty(doc.Blocks);
-        });
+    {
+        StaTestHelper.RunOnStaThread(() =>
+            {
+                var doc = MarkdownRenderer.Render("Hello world");
+                Assert.NotNull(doc);
+                Assert.NotEmpty(doc.Blocks);
+            });
+    }
 
     [Fact]
     public void Render_Heading_ParsesCorrectly()
-        => StaTestHelper.RunOnStaThread(() =>
-        {
-            var doc = MarkdownRenderer.Render("## Heading Two");
-            Assert.NotNull(doc);
-            Assert.NotEmpty(doc.Blocks);
-        });
+    {
+        StaTestHelper.RunOnStaThread(() =>
+            {
+                var doc = MarkdownRenderer.Render("## Heading Two");
+                Assert.NotNull(doc);
+                Assert.NotEmpty(doc.Blocks);
+            });
+    }
 
     [Fact]
     public void Render_BoldText_ParsesCorrectly()
-        => StaTestHelper.RunOnStaThread(() =>
-        {
-            var doc = MarkdownRenderer.Render("This is **bold** text");
-            Assert.NotNull(doc);
-            Assert.NotEmpty(doc.Blocks);
-        });
+    {
+        StaTestHelper.RunOnStaThread(() =>
+            {
+                var doc = MarkdownRenderer.Render("This is **bold** text");
+                Assert.NotNull(doc);
+                Assert.NotEmpty(doc.Blocks);
+            });
+    }
 
     [Fact]
     public void Render_InlineCode_ParsesCorrectly()
-        => StaTestHelper.RunOnStaThread(() =>
-        {
-            var doc = MarkdownRenderer.Render("Use `dotnet build` to compile");
-            Assert.NotNull(doc);
-            Assert.NotEmpty(doc.Blocks);
-        });
+    {
+        StaTestHelper.RunOnStaThread(() =>
+            {
+                var doc = MarkdownRenderer.Render("Use `dotnet build` to compile");
+                Assert.NotNull(doc);
+                Assert.NotEmpty(doc.Blocks);
+            });
+    }
 
     [Fact]
     public void Render_Blockquote_ParsesCorrectly()
-        => StaTestHelper.RunOnStaThread(() =>
-        {
-            var doc = MarkdownRenderer.Render("> This is a quote");
-            Assert.NotNull(doc);
-            Assert.NotEmpty(doc.Blocks);
-        });
+    {
+        StaTestHelper.RunOnStaThread(() =>
+            {
+                var doc = MarkdownRenderer.Render("> This is a quote");
+                Assert.NotNull(doc);
+                Assert.NotEmpty(doc.Blocks);
+            });
+    }
 
     [Fact]
     public void Render_MixedContent_DoesNotThrow()
-        => StaTestHelper.RunOnStaThread(() =>
-        {
-            var markdown = """
+    {
+        StaTestHelper.RunOnStaThread(() =>
+            {
+                var markdown = """
             ## Features
 
             - **Item 1**: Description with `code`
@@ -74,16 +87,18 @@ public class MarkdownRendererTests
             > Note: This is important
             """;
 
-            var doc = MarkdownRenderer.Render(markdown);
-            Assert.NotNull(doc);
-            Assert.NotEmpty(doc.Blocks);
-        });
+                var doc = MarkdownRenderer.Render(markdown);
+                Assert.NotNull(doc);
+                Assert.NotEmpty(doc.Blocks);
+            });
+    }
 
     [Fact]
     public void Render_RealChangelog_DoesNotCrash()
-        => StaTestHelper.RunOnStaThread(() =>
-        {
-            var changelog = """
+    {
+        StaTestHelper.RunOnStaThread(() =>
+            {
+                var changelog = """
             ## What's New in v1.0.0
 
             ### 🚀 Features
@@ -99,21 +114,24 @@ public class MarkdownRendererTests
             > This is a **major release** with significant changes.
             """;
 
-            var doc = MarkdownRenderer.Render(changelog);
-            Assert.NotNull(doc);
-            Assert.NotEmpty(doc.Blocks);
-        });
+                var doc = MarkdownRenderer.Render(changelog);
+                Assert.NotNull(doc);
+                Assert.NotEmpty(doc.Blocks);
+            });
+    }
 
     [Fact]
     public void Render_VeryLongMarkdown_DoesNotCrash()
-        => StaTestHelper.RunOnStaThread(() =>
-        {
-            var sb = new System.Text.StringBuilder();
-            for (var i = 0; i < 200; i++)
-                sb.AppendLine(CultureInfo.InvariantCulture, $"- Item {i}: Some description text here");
+    {
+        StaTestHelper.RunOnStaThread(() =>
+            {
+                var sb = new System.Text.StringBuilder();
+                for (var i = 0; i < 200; i++)
+                    _ = sb.AppendLine(CultureInfo.InvariantCulture, $"- Item {i}: Some description text here");
 
-            var doc = MarkdownRenderer.Render(sb.ToString());
-            Assert.NotNull(doc);
-            Assert.NotEmpty(doc.Blocks);
-        });
+                var doc = MarkdownRenderer.Render(sb.ToString());
+                Assert.NotNull(doc);
+                Assert.NotEmpty(doc.Blocks);
+            });
+    }
 }

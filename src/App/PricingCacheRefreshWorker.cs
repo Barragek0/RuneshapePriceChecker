@@ -24,7 +24,7 @@ public sealed class PricingCacheRefreshWorker(
     {
         var refreshCts = new CancellationTokenSource();
 
-        _options.OnChange((updated, _) =>
+        _ = _options.OnChange((updated, _) =>
         {
             var sourceChanged = !string.Equals(updated.PricingSource, _lastPricingSource, StringComparison.OrdinalIgnoreCase);
             var leagueChanged = !string.Equals(updated.League, _lastLeague, StringComparison.OrdinalIgnoreCase);

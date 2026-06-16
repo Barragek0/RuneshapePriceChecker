@@ -11,11 +11,14 @@ public sealed class FileLogProvider : ILoggerProvider
     public FileLogProvider()
     {
         var dir = Path.Combine(AppContext.BaseDirectory, "logs");
-        Directory.CreateDirectory(dir);
+        _ = Directory.CreateDirectory(dir);
         _path = Path.Combine(dir, $"{DateTime.Now:yyyyMMdd-HHmmss.fff}-log.txt");
     }
 
-    public ILogger CreateLogger(string categoryName) => new FileLogger(categoryName, this);
+    public ILogger CreateLogger(string categoryName)
+    {
+        return new FileLogger(categoryName, this);
+    }
 
     internal void Write(string entry)
     {
@@ -30,8 +33,15 @@ public sealed class FileLogProvider : ILoggerProvider
 
     private sealed class FileLogger(string category, FileLogProvider provider) : ILogger
     {
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-        public bool IsEnabled(LogLevel logLevel) => true;
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull
+        {
+            return null;
+        }
+
+        public bool IsEnabled(LogLevel logLevel)
+        {
+            return true;
+        }
 
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {

@@ -169,16 +169,16 @@ internal sealed partial class NativeTesseractEngine : IDisposable
             // BITMAPFILEHEADER
             bmpBytes[0] = (byte)'B';
             bmpBytes[1] = (byte)'M';
-            BitConverter.TryWriteBytes(bmpBytes.AsSpan(2), fileSize);
-            BitConverter.TryWriteBytes(bmpBytes.AsSpan(10), 54);
+            _ = BitConverter.TryWriteBytes(bmpBytes.AsSpan(2), fileSize);
+            _ = BitConverter.TryWriteBytes(bmpBytes.AsSpan(10), 54);
 
             // BITMAPINFOHEADER
-            BitConverter.TryWriteBytes(bmpBytes.AsSpan(14), 40);
-            BitConverter.TryWriteBytes(bmpBytes.AsSpan(18), width);
-            BitConverter.TryWriteBytes(bmpBytes.AsSpan(22), height);
+            _ = BitConverter.TryWriteBytes(bmpBytes.AsSpan(14), 40);
+            _ = BitConverter.TryWriteBytes(bmpBytes.AsSpan(18), width);
+            _ = BitConverter.TryWriteBytes(bmpBytes.AsSpan(22), height);
             bmpBytes[26] = 1; // planes
             bmpBytes[28] = 24; // bpp
-            BitConverter.TryWriteBytes(bmpBytes.AsSpan(34), pixelDataSize);
+            _ = BitConverter.TryWriteBytes(bmpBytes.AsSpan(34), pixelDataSize);
 
             // Copy rows from bottom to top (BMP order)
             var srcPtr = data.Scan0;

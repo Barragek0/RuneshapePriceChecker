@@ -112,7 +112,7 @@ public class UpdateCheckerFlowTests
                 }
             };
             var dir = Path.GetDirectoryName(path)!;
-            Directory.CreateDirectory(dir);
+            _ = Directory.CreateDirectory(dir);
             File.WriteAllText(path, root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }) + Environment.NewLine, Encoding.UTF8);
 
             var vm = new DashboardViewModel(path);
@@ -154,7 +154,7 @@ public class UpdateCheckerFlowTests
             }
         };
         var dir = Path.GetDirectoryName(path)!;
-        Directory.CreateDirectory(dir);
+        _ = Directory.CreateDirectory(dir);
         File.WriteAllText(path, root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }) + Environment.NewLine, Encoding.UTF8);
     }
 }

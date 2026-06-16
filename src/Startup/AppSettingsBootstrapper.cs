@@ -39,7 +39,7 @@ public static class AppSettingsBootstrapper
     public static void EnsureExists()
     {
         var configDir = Path.Combine(AppContext.BaseDirectory, "config");
-        Directory.CreateDirectory(configDir);
+        _ = Directory.CreateDirectory(configDir);
         var appSettingsPath = Path.Combine(configDir, "appsettings.json");
         if (!File.Exists(appSettingsPath))
         {
@@ -108,13 +108,13 @@ public static class AppSettingsBootstrapper
             if (app["EnableDebugLogging"] is JsonValue enableVal)
             {
                 app["LogLevel"] = enableVal.GetValueKind() == System.Text.Json.JsonValueKind.True ? "Debug" : "Information";
-                app.AsObject().Remove("EnableDebugLogging");
+                _ = app.AsObject().Remove("EnableDebugLogging");
                 renamed = true;
             }
             if (app["DebugLogging"] is JsonValue debugVal)
             {
                 app["LogLevel"] = debugVal.GetValueKind() == System.Text.Json.JsonValueKind.True ? "Debug" : "Information";
-                app.AsObject().Remove("DebugLogging");
+                _ = app.AsObject().Remove("DebugLogging");
                 renamed = true;
             }
         }
@@ -122,7 +122,7 @@ public static class AppSettingsBootstrapper
         if (existing["OCR"] is JsonNode ocr)
         {
             if (RenameKey(ocr, "ShowCaptureBoundsOverlay", "DebugOverlay")) renamed = true;
-            ocr.AsObject().Remove("BinarizationThreshold");
+            _ = ocr.AsObject().Remove("BinarizationThreshold");
         }
 
         if (existing["Update"] is JsonNode update)
@@ -140,7 +140,7 @@ public static class AppSettingsBootstrapper
                 if (!pricing.ContainsKey(kvp.Key))
                     pricing[kvp.Key] = kvp.Value?.DeepClone();
             }
-            existing.AsObject().Remove("PricingCache");
+            _ = existing.AsObject().Remove("PricingCache");
             renamed = true;
         }
 
@@ -166,7 +166,7 @@ public static class AppSettingsBootstrapper
             return false;
 
         node[newKey] = node[oldKey]!.DeepClone();
-        node.AsObject().Remove(oldKey);
+        _ = node.AsObject().Remove(oldKey);
         return true;
     }
 }

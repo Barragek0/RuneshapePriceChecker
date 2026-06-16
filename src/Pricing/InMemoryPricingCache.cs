@@ -319,7 +319,7 @@ public sealed class InMemoryPricingCache(
         foreach (var key in _uniqueCategoryRanges.Keys)
         {
             if (key.StartsWith("UNIQUE ", StringComparison.OrdinalIgnoreCase))
-                savedAggregateKeys.Add(key);
+                _ = savedAggregateKeys.Add(key);
         }
         var savedAggregates = new Dictionary<string, (decimal, decimal)>(StringComparer.OrdinalIgnoreCase);
         foreach (var key in savedAggregateKeys)
@@ -575,8 +575,15 @@ public sealed class InMemoryPricingCache(
         return null;
     }
 
-    private static decimal? Min(decimal? a, decimal b) => a.HasValue ? Math.Min(a.Value, b) : b;
-    private static decimal? Max(decimal? a, decimal b) => a.HasValue ? Math.Max(a.Value, b) : b;
+    private static decimal? Min(decimal? a, decimal b)
+    {
+        return a.HasValue ? Math.Min(a.Value, b) : b;
+    }
+
+    private static decimal? Max(decimal? a, decimal b)
+    {
+        return a.HasValue ? Math.Max(a.Value, b) : b;
+    }
 
     private bool TryResolveUncutGemRange(string normalizedItemName, out (decimal MinChaos, decimal MaxChaos) range)
     {
@@ -645,48 +652,6 @@ public sealed class InMemoryPricingCache(
         }
 
         return false;
-    }
-
-    private bool TryResolveCombinedJewelleryRange(string normalizedItemName, out (decimal MinChaos, decimal MaxChaos) range)
-    {
-        range = default;
-
-        if (!normalizedItemName.Equals("UNIQUE JEWELLERY", StringComparison.OrdinalIgnoreCase) &&
-            !normalizedItemName.Equals("UNIQUE JEWELRY", StringComparison.OrdinalIgnoreCase) &&
-            !StrComp.IsOneCharAway(normalizedItemName, "UNIQUE JEWELLERY") &&
-            !StrComp.IsOneCharAway(normalizedItemName, "UNIQUE JEWELRY") &&
-            !StrComp.IsTwoCharsAway(normalizedItemName, "UNIQUE JEWELLERY") &&
-            !StrComp.IsTwoCharsAway(normalizedItemName, "UNIQUE JEWELRY"))
-        {
-            return false;
-        }
-
-        decimal? min = null;
-        decimal? max = null;
-
-        foreach (var pair in _uniqueCategoryRanges)
-        {
-            var key = pair.Key;
-            // Match ring, amulet, or belt items in the unique accessory pool
-            if (!key.Contains("RING", StringComparison.OrdinalIgnoreCase) &&
-                !key.Contains("AMULET", StringComparison.OrdinalIgnoreCase) &&
-                !key.Contains("BELT", StringComparison.OrdinalIgnoreCase) &&
-                !key.Contains("SASH", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            min = min.HasValue ? Math.Min(min.Value, pair.Value.MinChaos) : pair.Value.MinChaos;
-            max = max.HasValue ? Math.Max(max.Value, pair.Value.MaxChaos) : pair.Value.MaxChaos;
-        }
-
-        if (!min.HasValue || !max.HasValue)
-        {
-            return false;
-        }
-
-        range = (min.Value, max.Value);
-        return true;
     }
 
     private string FormatAmount(decimal chaosValue)

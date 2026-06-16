@@ -23,7 +23,7 @@ internal sealed class BannerForm : OverlayFormBase
 
     public void SafeShow(int x, int y)
     {
-        base.SafeShow(new Rectangle(x, y, 400, 50));
+        SafeShow(new Rectangle(x, y, 400, 50));
     }
 
     public override void SafeHide()

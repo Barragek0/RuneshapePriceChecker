@@ -20,7 +20,7 @@ public class DashboardLogSinkStressTests
     public void Emit_Concurrent_DoesNotCorrupt()
     {
         using var sink = new DashboardLogSink();
-        Parallel.For(0, 500, i => sink.Emit($"Thread {i % 10}"));
+        _ = Parallel.For(0, 500, i => sink.Emit($"Thread {i % 10}"));
         var snapshot = sink.Snapshot();
         Assert.NotEmpty(snapshot);
     }

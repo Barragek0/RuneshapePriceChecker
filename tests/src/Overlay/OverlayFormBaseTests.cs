@@ -65,7 +65,7 @@ public class OverlayFormBaseTests
         Assert.NotNull(cpProp);
 
         // Can't easily invoke CreateParams without a handle, but verify the form type is correct
-        Assert.IsType<TestOverlayForm>(form);
+        _ = Assert.IsType<TestOverlayForm>(form);
     }
 
     [Fact]

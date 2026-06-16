@@ -31,7 +31,9 @@ public class LeagueListServiceTests
     }
 
     private static TestHandler ErrorHandler()
-        => new("{}", HttpStatusCode.InternalServerError);
+    {
+        return new("{}", HttpStatusCode.InternalServerError);
+    }
 
     private static TestHandler MissingResultHandler()
     {
@@ -84,7 +86,7 @@ public class LeagueListServiceTests
         });
         var handler = new TestHandler(json, HttpStatusCode.OK);
         var leagues = await LeagueListService.FetchLeaguesAsync(handler, CancellationToken.None);
-        Assert.Single(leagues);
+        _ = Assert.Single(leagues);
         Assert.Equal("Standard", leagues[0]);
     }
 

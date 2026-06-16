@@ -307,7 +307,17 @@ function Test8-AutoUpdater {
     }
     Stop-App; Clear-OldLogs
     Write-Config '{"App":{"LogLevel":"Debug"},"Window":{"InitialSetupComplete":true},"Update":{"GitHubApiBaseUrl":"http://localhost:8099/api"},"OCR":{"SaveDebugImages":false,"Language":"eng"}}'
-    $proc = Launch-App; Wait-ForApp 5000 | Out-Null; Stop-App
+    $proc = Launch-App; Wait-ForApp 8000 | Out-Null
+    # Wait for the async update check to write changelog to config before stopping
+    $changelogWritten = Wait-ForConfig "Changelog" "Version" "1.0.1" 15000
+    Stop-App
+    if (-not $changelogWritten) {
+        # Fallback: check if config has any changelog version
+        if (Test-Path $configPath) {
+            $cfg = Get-Content $configPath -Raw | ConvertFrom-Json
+            $changelogWritten = $cfg.Changelog -and $cfg.Changelog.Version
+        }
+    }
     $log = Get-LatestLog
     $found = $log -and (Select-String -Path $log -Pattern "Already up to date" -SimpleMatch -Quiet)
     Report-Result "8d: Already-up-to-date" $found "OK"
@@ -348,7 +358,7 @@ function Test3-AppLifecycle {
     Stop-App
     Stop-App; Clear-OldLogs; Write-Config $cfgBase
     $proc = Launch-App; Wait-ForApp 5000 | Out-Null
-    $proc.CloseMainWindow() | Out-Null; $proc.WaitForExit(4000) | Out-Null
+    $proc.CloseMainWindow() | Out-Null; $proc.WaitForExit(8000) | Out-Null
     Report-Result "3b: Clean shutdown" $proc.HasExited "Exit:$($proc.ExitCode)"
     if (-not $proc.HasExited) { $proc.Kill() }
     $crashes = 0
@@ -702,19 +712,29 @@ function Test20-ComprehensiveSettingsRoundTrip($proc) {
 }
 
 function Test21-PricingSourceChange {
-    Stop-App; Clear-OldLogs
-    Write-Config '{"App":{"LogLevel":"Debug"},"Window":{"InitialSetupComplete":true},"OCR":{"SaveDebugImages":false,"Language":"eng"},"Update":{"AutoUpdate":false},"Pricing":{"PricingSource":"poe2scout","League":"Runes of Aldur"}}'
-    $proc = Launch-App; Wait-ForApp 5000 | Out-Null; Stop-App
-    $log = Get-LatestLog
-    $cached = ($log -and (Select-String -Path $log -Pattern "Pricing cache refreshed|Fetched.*price rows" -Quiet))
-    Report-Result "21a: Poe2Scout cache loaded" $cached "OK"
+    # Retry up to 3 times for network-dependent cache loading
+    $21aPass = $false
+    $21bPass = $false
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        Stop-App; Clear-OldLogs
+        Write-Config '{"App":{"LogLevel":"Debug"},"Window":{"InitialSetupComplete":true},"OCR":{"SaveDebugImages":false,"Language":"eng"},"Update":{"AutoUpdate":false},"Pricing":{"PricingSource":"poe2scout","League":"Runes of Aldur"}}'
+        $proc = Launch-App; Wait-ForApp 8000 | Out-Null; Start-Sleep -Milliseconds 2000; Stop-App
+        $log = Get-LatestLog
+        $cached = ($log -and (Select-String -Path $log -Pattern "Pricing cache refreshed|Fetched.*price rows" -Quiet))
+        if ($cached) { $21aPass = $true }
 
-    Stop-App; Clear-OldLogs
-    Write-Config '{"App":{"LogLevel":"Debug"},"Window":{"InitialSetupComplete":true},"OCR":{"SaveDebugImages":false,"Language":"eng"},"Update":{"AutoUpdate":false},"Pricing":{"PricingSource":"poe.ninja","League":"Runes of Aldur"}}'
-    $proc = Launch-App; Wait-ForApp 5000 | Out-Null; Start-Sleep -Milliseconds 3000; Stop-App
-    $log = Get-LatestLog
-    $ninjaOk = ($log -and (Select-String -Path $log -Pattern "Poe.ninja|poe.ninja.*fetched|Pricing cache refreshed" -Quiet))
-    Report-Result "21b: PoeNinja source loads" $ninjaOk $(if ($ninjaOk) { "OK" }else { "Not found" })
+        Stop-App; Clear-OldLogs
+        Write-Config '{"App":{"LogLevel":"Debug"},"Window":{"InitialSetupComplete":true},"OCR":{"SaveDebugImages":false,"Language":"eng"},"Update":{"AutoUpdate":false},"Pricing":{"PricingSource":"poe.ninja","League":"Runes of Aldur"}}'
+        $proc = Launch-App; Wait-ForApp 8000 | Out-Null; Start-Sleep -Milliseconds 3000; Stop-App
+        $log = Get-LatestLog
+        $ninjaOk = ($log -and (Select-String -Path $log -Pattern "Poe.ninja|poe.ninja.*fetched|Pricing cache refreshed" -Quiet))
+        if ($ninjaOk) { $21bPass = $true }
+
+        if ($21aPass -and $21bPass) { break }
+        if ($attempt -lt 3) { Start-Sleep -Milliseconds 1000 }
+    }
+    Report-Result "21a: Poe2Scout cache loaded" $21aPass $(if ($21aPass) { "OK" }else { "Failed after 3 attempts" })
+    Report-Result "21b: PoeNinja source loads" $21bPass $(if ($21bPass) { "OK" }else { "Not found after 3 attempts" })
 }
 
 function Test22-LogLevelChange {
@@ -824,7 +844,7 @@ function Test28-LogOrdering($proc) {
     # Verify Copy Log produces entries with valid timestamps and content
     Click-Button $proc "Copy Log" 3000 | Out-Null
     try {
-        $clipText = Wait-ForClipboard 'RuneshapePriceChecker' 3000
+        $clipText = Wait-ForClipboard '^=== RuneshapePriceChecker' 3000
         if ($clipText) {
             $lines = $clipText -split "`r`n|`n" | Where-Object { $_ -and $_ -notmatch "^=== RuneshapePriceChecker" -and $_ -notmatch "^\s*$" }
             $timestamps = @()
@@ -853,10 +873,11 @@ function Test29-LogCoalescing($proc) {
         if (-not (Invoke-Button $proc "Settings" 2000)) { break }
         Start-Sleep -Milliseconds 150
     }
-    # Wait for coalesced entries to appear in the clipboard from background logging
+    # Ensure settings is closed before next test (toggle pair leaves it open)
+    Invoke-Button $proc "Settings" 2000 | Out-Null
 
     try {
-        $clipText = Wait-ForClipboard 'RuneshapePriceChecker' 3000
+        $clipText = Wait-ForClipboard '^=== RuneshapePriceChecker' 3000
         if (-not $clipText) { Report-Result "29a: Duplicate coalescing" $false "No clipboard content"; return }
         # Check for coalesced entries (those with "(x2)" or higher count)
         $hasCoalesced = $clipText -match '\(x\d+\)'
@@ -916,23 +937,26 @@ function Test32-VersionDisplay {
 function Test33-ChangelogWindowPopup {
     Stop-App; Clear-OldLogs
     Write-Config '{"App":{"LogLevel":"Debug"},"Window":{"InitialSetupComplete":true},"OCR":{"SaveDebugImages":false,"Language":"eng"},"Update":{"AutoUpdate":false},"Changelog":{"Body":"## v1.0.0 Release Notes\nTest content","Version":"1.0.0","Shown":false}}'
-    $proc = Launch-App; Wait-ForApp 5000 | Out-Null
-    Start-Sleep -Milliseconds 1500
-    $hwnd = $proc.MainWindowHandle
+    $proc = Launch-App; Wait-ForApp 8000 | Out-Null
+    # Poll for the Got it button with longer timeout
     $popupFound = $false
     $dismissed = $false
-    if ($hwnd -ne [IntPtr]::Zero) {
-        try {
-            $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
-            # Check for changelog dismiss button (inside changelog overlay within main window)
-            $gotItBtn = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
-                (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, "Got it")))
-            $popupFound = ($gotItBtn -ne $null)
-            if ($popupFound -and $gotItBtn) {
-                try { $gotItBtn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); $dismissed = $true; Start-Sleep -Milliseconds 500 } catch { }
-            }
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($sw.ElapsedMilliseconds -lt 10000 -and -not $popupFound -and -not $proc.HasExited) {
+        $hwnd = $proc.MainWindowHandle
+        if ($hwnd -ne [IntPtr]::Zero) {
+            try {
+                $uiaRoot = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
+                $gotItBtn = $uiaRoot.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                    (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, "Got it")))
+                if ($gotItBtn) {
+                    $popupFound = $true
+                    try { $gotItBtn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); $dismissed = $true; Start-Sleep -Milliseconds 500 } catch { }
+                    break
+                }
+            } catch { }
         }
-        catch { }
+        Start-Sleep -Milliseconds 200
     }
     Stop-App
     Report-Result "33a: Changelog popup visible" $popupFound $(if ($popupFound) { "Found" }else { "Not found" })

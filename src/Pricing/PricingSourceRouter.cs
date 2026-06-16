@@ -15,8 +15,12 @@ public sealed class PricingSourceRouter(
             : serviceProvider.GetRequiredService<PoeNinjaClient>();
 
     public Task<IReadOnlyList<string>> FetchLeaguesAsync(CancellationToken cancellationToken)
-        => Current.FetchLeaguesAsync(cancellationToken);
+    {
+        return Current.FetchLeaguesAsync(cancellationToken);
+    }
 
     public Task<PricingSnapshot> FetchPricesAsync(string league, CancellationToken cancellationToken)
-        => Current.FetchPricesAsync(league, cancellationToken);
+    {
+        return Current.FetchPricesAsync(league, cancellationToken);
+    }
 }

@@ -234,7 +234,7 @@ public sealed class DebugOverlayService(
         while (true)
         {
             var continueClicked = new ManualResetEventSlim(false);
-            dashboard.SetOnSetupContinue(() => continueClicked.Set());
+            dashboard.SetOnSetupContinue(continueClicked.Set);
             logger.LogInformation("RunSetupFlow: showing Continue prompt in Dashboard");
             dashboard.ShowSetupPrompt();
 
@@ -247,10 +247,7 @@ public sealed class DebugOverlayService(
             using var overlayForm = new SetupOverlayForm(initialRect, gameBounds);
             var goBack = false;
 
-            overlayForm.SetupConfirmed += rect =>
-            {
-                SaveCustomOffsets(rect);
-            };
+            overlayForm.SetupConfirmed += SaveCustomOffsets;
             overlayForm.GoBackClicked += () => goBack = true;
             overlayForm.Disposed += (_, _) =>
             {
@@ -482,8 +479,8 @@ public sealed class DebugOverlayService(
         {
             if (m.Msg == 0x0020 && Cursor is not null)
             {
-                SetCursor(Cursor.Handle);
-                m.Result = (IntPtr)1;
+                _ = SetCursor(Cursor.Handle);
+                m.Result = 1;
                 return;
             }
             base.WndProc(ref m);
@@ -575,7 +572,7 @@ public sealed class DebugOverlayService(
             var defaultLineHeight = (int)DebugFont.GetHeight(e.Graphics) + 2;
             for (var i = 0; i < lines.Length; i++)
             {
-                var y = (i < rowY.Length ? rowY[i] : 6 + (i * defaultLineHeight));
+                var y = i < rowY.Length ? rowY[i] : 6 + (i * defaultLineHeight);
                 y = Math.Clamp(y, 0, Height - defaultLineHeight);
 
                 var x = debugX + 8;
@@ -650,7 +647,7 @@ public sealed class DebugOverlayService(
             if (InvokeRequired)
             {
                 _isHidden = false;
-                BeginInvoke(new Action<Rectangle, bool, int>(SafeShowFrame), frame, showOverlay, panelWidth);
+                _ = BeginInvoke(new Action<Rectangle, bool, int>(SafeShowFrame), frame, showOverlay, panelWidth);
                 return;
             }
 
@@ -690,7 +687,7 @@ public sealed class DebugOverlayService(
             {
                 if (_isHidden) return;
                 _isHidden = true;
-                BeginInvoke(new Action(SafeHide));
+                _ = BeginInvoke(new Action(SafeHide));
                 return;
             }
 
@@ -706,7 +703,7 @@ public sealed class DebugOverlayService(
 
             if (InvokeRequired)
             {
-                BeginInvoke(new Action(SafeClose));
+                _ = BeginInvoke(new Action(SafeClose));
                 return;
             }
 
@@ -732,7 +729,7 @@ public sealed class DebugOverlayService(
                 return;
             }
 
-            NativeMethods.SetWindowPos(
+            _ = NativeMethods.SetWindowPos(
                 Handle,
                 NativeMethods.HWND_TOPMOST,
                 Left,
@@ -740,20 +737,6 @@ public sealed class DebugOverlayService(
                 Width,
                 Height,
                 NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_NOOWNERZORDER | NativeMethods.SWP_NOSENDCHANGING);
-        }
-
-        private static void DrawMutedBand(Graphics graphics, int x, int y, int width, int height)
-        {
-            if (height <= 0 || width <= 0)
-            {
-                return;
-            }
-
-            using var pen = new Pen(Color.FromArgb(255, 45, 45, 45), 1);
-            for (var lineY = y; lineY < y + height; lineY += 3)
-            {
-                graphics.DrawLine(pen, x, lineY, x + width, lineY);
-            }
         }
 
         private static class NativeMethods
@@ -783,7 +766,7 @@ public sealed class DebugOverlayService(
 
             public static void ExcludeFromCapture(IntPtr hWnd)
             {
-                SetWindowDisplayAffinity(hWnd, WDA_EXCLUDEFROMCAPTURE);
+                _ = SetWindowDisplayAffinity(hWnd, WDA_EXCLUDEFROMCAPTURE);
             }
 
             [DllImport("user32.dll", SetLastError = true)]
@@ -793,7 +776,7 @@ public sealed class DebugOverlayService(
 
             public static void SetOwner(IntPtr hWnd, IntPtr ownerHandle)
             {
-                SetWindowLongPtr(hWnd, GWLP_HWNDPARENT, ownerHandle);
+                _ = SetWindowLongPtr(hWnd, GWLP_HWNDPARENT, ownerHandle);
             }
         }
     }

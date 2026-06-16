@@ -57,13 +57,13 @@ internal static partial class MarkdownRenderer
             {
                 Setters =
                 {
-                    new Setter(Hyperlink.ForegroundProperty, LinkBrush),
-                    new Setter(Hyperlink.TextDecorationsProperty, null)
+                    new Setter(TextElement.ForegroundProperty, LinkBrush),
+                    new Setter(Inline.TextDecorationsProperty, null)
                 },
                 Triggers =
                 {
-                    new Trigger { Property = Hyperlink.IsMouseOverProperty, Value = true,
-                        Setters = { new Setter(Hyperlink.ForegroundProperty, new SolidColorBrush(Color.FromRgb(0x7A, 0xBE, 0xFF))) } }
+                    new Trigger { Property = ContentElement.IsMouseOverProperty, Value = true,
+                        Setters = { new Setter(TextElement.ForegroundProperty, new SolidColorBrush(Color.FromRgb(0x7A, 0xBE, 0xFF))) } }
                 }
             });
         }
@@ -272,13 +272,13 @@ internal static partial class MarkdownRenderer
             if (block == header) { pastHeader = true; continue; }
             if (pastHeader && block.Tag is string t && t == tag)
             {
-                doc.Blocks.Remove(block);
+                _ = doc.Blocks.Remove(block);
                 expanded = true;
             }
             else if (pastHeader && !expanded)
             {
                 afterBlocks.Add(block);
-                doc.Blocks.Remove(block);
+                _ = doc.Blocks.Remove(block);
             }
         }
 
@@ -472,7 +472,7 @@ internal static partial class MarkdownRenderer
     {
         try
         {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+            _ = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
         }
         catch { }
     }

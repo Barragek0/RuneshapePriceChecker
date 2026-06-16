@@ -42,7 +42,7 @@ public sealed class SettingsController(
             logger.LogWarning("Settings file not found; file watching disabled.");
         }
 
-        stoppingToken.Register(() => _watcher?.Dispose());
+        _ = stoppingToken.Register(() => _watcher?.Dispose());
         return Task.CompletedTask;
     }
 

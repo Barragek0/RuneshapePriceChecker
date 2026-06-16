@@ -19,8 +19,8 @@ public class PricingSourceRouterTests
     public void Constructor_WithValidServices_DoesNotThrow()
     {
         var services = new ServiceCollection();
-        services.AddSingleton<Poe2ScoutClient>(_ => null!);
-        services.AddSingleton<PoeNinjaClient>(_ => null!);
+        _ = services.AddSingleton<Poe2ScoutClient>(_ => null!);
+        _ = services.AddSingleton<PoeNinjaClient>(_ => null!);
 
         var options = new StaticOptionsMonitor<PricingCacheOptions>(new PricingCacheOptions
         {
@@ -35,7 +35,7 @@ public class PricingSourceRouterTests
     public void FetchLeagues_DelegatesToCurrent()
     {
         var services = new ServiceCollection();
-        services.AddSingleton<IPricingSource>(new MockPricingSource());
+        _ = services.AddSingleton<IPricingSource>(new MockPricingSource());
 
         var options = new StaticOptionsMonitor<PricingCacheOptions>(new PricingCacheOptions
         {
@@ -51,11 +51,16 @@ public class PricingSourceRouterTests
     private sealed class MockPricingSource : IPricingSource
     {
         public Task<IReadOnlyList<string>> FetchLeaguesAsync(CancellationToken ct)
-            => Task.FromResult<IReadOnlyList<string>>(StandardLeague);
+        {
+            return Task.FromResult<IReadOnlyList<string>>(StandardLeague);
+        }
+
         public Task<PricingSnapshot> FetchPricesAsync(string league, CancellationToken ct)
-            => Task.FromResult(new PricingSnapshot(
-                new Dictionary<string, decimal>(),
-                new Dictionary<string, (decimal, decimal)>(),
-                0m, 0m));
+        {
+            return Task.FromResult(new PricingSnapshot(
+                        new Dictionary<string, decimal>(),
+                        new Dictionary<string, (decimal, decimal)>(),
+                        0m, 0m));
+        }
     }
 }

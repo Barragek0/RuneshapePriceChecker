@@ -44,7 +44,7 @@ public sealed class PoeNinjaClient(HttpClient httpClient, IOptionsMonitor<Pricin
                     var requestUri = new Uri(baseUri, requestPath);
 
                     using var response = await httpClient.GetAsync(requestUri, cancellationToken).ConfigureAwait(false);
-                    response.EnsureSuccessStatusCode();
+                    _ = response.EnsureSuccessStatusCode();
 
                     await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
                     using var document = await JsonDocument.ParseAsync(contentStream, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -218,7 +218,7 @@ public sealed class PoeNinjaClient(HttpClient httpClient, IOptionsMonitor<Pricin
         if (TryGetString(line, "name", out var name))
         {
             yield return name;
-            seen.Add(name);
+            _ = seen.Add(name);
         }
 
         if (TryGetString(line, "currencyTypeName", out var currencyTypeName) && seen.Add(currencyTypeName))
@@ -306,7 +306,7 @@ public sealed class PoeNinjaClient(HttpClient httpClient, IOptionsMonitor<Pricin
 
     Task<IReadOnlyList<string>> IPricingSource.FetchLeaguesAsync(CancellationToken cancellationToken)
     {
-        return Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+        return Task.FromResult<IReadOnlyList<string>>([]);
     }
 
 

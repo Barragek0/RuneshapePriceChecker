@@ -31,7 +31,7 @@ public sealed class Poe2ScoutClient(HttpClient httpClient, IOptionsMonitor<AppOp
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Failed to fetch POE2Scout leagues.");
-            return Array.Empty<string>();
+            return [];
         }
     }
 
@@ -185,7 +185,7 @@ public sealed class Poe2ScoutClient(HttpClient httpClient, IOptionsMonitor<AppOp
     private async Task<List<JsonElement>> FetchJsonArrayAsync(string url, CancellationToken ct)
     {
         var response = await httpClient.GetAsync(url, ct).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+        _ = response.EnsureSuccessStatusCode();
         var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         using var doc = JsonDocument.Parse(json);
 
@@ -223,9 +223,13 @@ public sealed class Poe2ScoutClient(HttpClient httpClient, IOptionsMonitor<AppOp
         return allItems;
     }
 
-    private static string? GetString(JsonElement el, string prop) =>
-        el.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+    private static string? GetString(JsonElement el, string prop)
+    {
+        return el.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+    }
 
-    private static decimal GetDecimal(JsonElement el, string prop) =>
-        el.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDecimal() : 0m;
+    private static decimal GetDecimal(JsonElement el, string prop)
+    {
+        return el.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDecimal() : 0m;
+    }
 }

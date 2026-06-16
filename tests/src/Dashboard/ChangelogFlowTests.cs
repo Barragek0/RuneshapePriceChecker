@@ -125,8 +125,10 @@ public class ChangelogFlowTests
         Assert.Null(vm.TryGetPendingChangelogVersion());
     }
 
-    private static string GetTempConfigPath() =>
-        Path.Combine(Path.GetTempPath(), $"rstest-changelog-{Guid.NewGuid():N}.json");
+    private static string GetTempConfigPath()
+    {
+        return Path.Combine(Path.GetTempPath(), $"rstest-changelog-{Guid.NewGuid():N}.json");
+    }
 
     private static void WriteChangelogToFile(string path, string version, bool shown = false)
     {
@@ -138,7 +140,7 @@ public class ChangelogFlowTests
                 ["Shown"] = shown
             }
         };
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        _ = Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }) + Environment.NewLine, Encoding.UTF8);
     }
 

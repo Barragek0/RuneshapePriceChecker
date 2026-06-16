@@ -13,7 +13,7 @@ public class AutoUpdaterExtractZipErrorTests : IDisposable
     {
         _tempDir = Path.Combine(Path.GetTempPath(), $"rstest-ziperr-{Guid.NewGuid():N}");
         _destDir = Path.Combine(_tempDir, "dest");
-        Directory.CreateDirectory(_destDir);
+        _ = Directory.CreateDirectory(_destDir);
     }
 
     public void Dispose()
@@ -61,7 +61,7 @@ public class AutoUpdaterExtractZipErrorTests : IDisposable
             var dp = Path.Combine(destDir, entry.FullName);
             if (entry.Name.Equals(selfExe, StringComparison.OrdinalIgnoreCase)) dp += ".new";
             var dd = Path.GetDirectoryName(dp)!;
-            if (!Directory.Exists(dd)) Directory.CreateDirectory(dd);
+            if (!Directory.Exists(dd)) _ = Directory.CreateDirectory(dd);
             entry.ExtractToFile(dp, true);
         }
     }

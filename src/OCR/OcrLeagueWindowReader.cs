@@ -45,9 +45,9 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         else
             _logger.LogInformation("OCR backend: {Backend}", effectiveBackend);
 
-        _options.OnChange((updated, _) =>
+        _ = _options.OnChange((updated, __) =>
         {
-            _engineManager.GetEngine(updated);
+            _ = _engineManager.GetEngine(updated);
             var effective = ResolveEffectiveOcrBackend(updated.OcrBackend);
             if (!string.Equals(_activeOcrBackend, effective, StringComparison.OrdinalIgnoreCase))
             {
@@ -98,7 +98,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
 
     private LeagueWindowSnapshot CreateEmptySnapshot(DateTimeOffset capturedAt)
     {
-        return new LeagueWindowSnapshot(Array.Empty<string>(), capturedAt, _runContext.RowYPositions, InterfaceDetected: _lastInterfaceDetected, CaptureMethod: ResolveStatusLine());
+        return new LeagueWindowSnapshot([], capturedAt, _runContext.RowYPositions, InterfaceDetected: _lastInterfaceDetected, CaptureMethod: ResolveStatusLine());
     }
 
     public LeagueWindowSnapshot ReadSnapshot()
@@ -150,19 +150,19 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
             _logger.LogWarning(
                 "OCR disabled: {Reason} Install Tesseract from https://github.com/UB-Mannheim/tesseract/wiki then restart RuneshapePriceChecker.",
                 ex.Message);
-            return new LeagueWindowSnapshot(Array.Empty<string>(), capturedAt, InterfaceDetected: _lastInterfaceDetected);
+            return new LeagueWindowSnapshot([], capturedAt, InterfaceDetected: _lastInterfaceDetected);
         }
         catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 2)
         {
             _logState |= OcrLogState.TesseractUnavailable;
             _logger.LogWarning(
                 "OCR disabled: Tesseract not found. Install from https://github.com/UB-Mannheim/tesseract/wiki then restart RuneshapePriceChecker.");
-            return new LeagueWindowSnapshot(Array.Empty<string>(), capturedAt, InterfaceDetected: _lastInterfaceDetected);
+            return new LeagueWindowSnapshot([], capturedAt, InterfaceDetected: _lastInterfaceDetected);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "OCR capture/recognition failed.");
-            return new LeagueWindowSnapshot(Array.Empty<string>(), capturedAt, InterfaceDetected: _lastInterfaceDetected);
+            return new LeagueWindowSnapshot([], capturedAt, InterfaceDetected: _lastInterfaceDetected);
         }
     }
 
@@ -290,8 +290,10 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         return _lastOcrText;
     }
 
-    private static bool IsWindowsOcrEnabled(OcrOptions options) =>
-        string.Equals(options.OcrBackend, "windows", StringComparison.OrdinalIgnoreCase) && _windowsOcrSupported;
+    private static bool IsWindowsOcrEnabled(OcrOptions options)
+    {
+        return string.Equals(options.OcrBackend, "windows", StringComparison.OrdinalIgnoreCase) && _windowsOcrSupported;
+    }
 
     private static readonly bool _windowsOcrSupported = Environment.OSVersion.Version.Build >= 17763;
 
@@ -425,7 +427,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
                 try
                 {
                     var dir = Path.Combine(AppContext.BaseDirectory, "ocr-debug");
-                    Directory.CreateDirectory(dir);
+                    _ = Directory.CreateDirectory(dir);
                     var path = Path.Combine(dir, "panel-check-fail.png");
                     OcrCaptureStrategy.SaveBitmapWithOverwrite(capturedBitmap, path);
                 }
@@ -458,7 +460,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
 
         try
         {
-            Directory.CreateDirectory(directory);
+            _ = Directory.CreateDirectory(directory);
             if (!_logState.HasFlag(OcrLogState.DebugDirectoryLogged))
             {
                 _logState |= OcrLogState.DebugDirectoryLogged;
@@ -504,7 +506,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         var directory = ResolveDebugImageDirectory(options);
         try
         {
-            Directory.CreateDirectory(directory);
+            _ = Directory.CreateDirectory(directory);
             if (!_logState.HasFlag(OcrLogState.DebugDirectoryLogged))
             {
                 _logState |= OcrLogState.DebugDirectoryLogged;
@@ -519,12 +521,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
 
     private OcrCaptureRegion ResolveCaptureRegion()
     {
-        var region = _windowResolutionProvider.CurrentCaptureRegion;
-        if (region is null)
-        {
-            throw new InvalidOperationException("No OCR capture region is available. Add/update the current resolution in OcrResolutionProfiles.");
-        }
-
+        var region = _windowResolutionProvider.CurrentCaptureRegion ?? throw new InvalidOperationException("No OCR capture region is available. Add/update the current resolution in OcrResolutionProfiles.");
         return region;
     }
 

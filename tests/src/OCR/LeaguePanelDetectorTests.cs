@@ -48,10 +48,8 @@ public class ListDetectorTests
         return bmp;
     }
 
-    private static Bitmap? _sharedBright;
-    private static Bitmap? _sharedDark;
-    private static Bitmap SharedBright => _sharedBright ??= CreateBrightBitmap();
-    private static Bitmap SharedDark => _sharedDark ??= CreateDarkBitmap();
+    private static Bitmap SharedBright => field ??= CreateBrightBitmap();
+    private static Bitmap SharedDark => field ??= CreateDarkBitmap();
 
     [Fact]
     public void Update_InitialState_IsNotOpen()
@@ -71,8 +69,8 @@ public class ListDetectorTests
     public void Update_ThreeBrightFrames_BecomesOpen()
     {
         var d = new LeaguePanelDetector();
-        d.Update(SharedBright, out _);
-        d.Update(SharedBright, out _);
+        _ = d.Update(SharedBright, out _);
+        _ = d.Update(SharedBright, out _);
         Assert.False(d.IsOpen); // 2 frames not enough
         Assert.True(d.Update(SharedBright, out _));
         Assert.True(d.IsOpen);
@@ -82,13 +80,13 @@ public class ListDetectorTests
     public void Update_ThreeDarkFramesAfterOpen_BecomesClosed()
     {
         var d = new LeaguePanelDetector();
-        d.Update(SharedBright, out _);
-        d.Update(SharedBright, out _);
-        d.Update(SharedBright, out _);
+        _ = d.Update(SharedBright, out _);
+        _ = d.Update(SharedBright, out _);
+        _ = d.Update(SharedBright, out _);
         Assert.True(d.IsOpen);
-        d.Update(SharedDark, out _);
+        _ = d.Update(SharedDark, out _);
         Assert.True(d.IsOpen);
-        d.Update(SharedDark, out _);
+        _ = d.Update(SharedDark, out _);
         Assert.True(d.IsOpen);
         Assert.False(d.Update(SharedDark, out _));
         Assert.False(d.IsOpen);
@@ -98,7 +96,7 @@ public class ListDetectorTests
     public void Update_DiagRecord_HasExpectedFields()
     {
         var d = new LeaguePanelDetector();
-        d.Update(SharedBright, out var diag);
+        _ = d.Update(SharedBright, out var diag);
         Assert.True(diag.TotalCount > 0);
         Assert.True(diag.AvgBrightness > 0);
         Assert.False(diag.PanelOpen);
@@ -108,12 +106,12 @@ public class ListDetectorTests
     public void Update_ResetStreakOnOppositeSignal()
     {
         var d = new LeaguePanelDetector();
-        d.Update(SharedBright, out _);
-        d.Update(SharedDark, out _); // resets bright streak
-        d.Update(SharedBright, out _);
-        d.Update(SharedBright, out _);
+        _ = d.Update(SharedBright, out _);
+        _ = d.Update(SharedDark, out _); // resets bright streak
+        _ = d.Update(SharedBright, out _);
+        _ = d.Update(SharedBright, out _);
         Assert.False(d.IsOpen); // only 2 consecutive bright after reset
-        d.Update(SharedBright, out _);
+        _ = d.Update(SharedBright, out _);
         Assert.True(d.IsOpen);
     }
 
@@ -121,17 +119,17 @@ public class ListDetectorTests
     public void Update_MultipleCycles_OpenCloseWorks()
     {
         var d = new LeaguePanelDetector();
-        d.Update(SharedBright, out _);
-        d.Update(SharedBright, out _);
-        d.Update(SharedBright, out _);
+        _ = d.Update(SharedBright, out _);
+        _ = d.Update(SharedBright, out _);
+        _ = d.Update(SharedBright, out _);
         Assert.True(d.IsOpen);
-        d.Update(SharedDark, out _);
-        d.Update(SharedDark, out _);
-        d.Update(SharedDark, out _);
+        _ = d.Update(SharedDark, out _);
+        _ = d.Update(SharedDark, out _);
+        _ = d.Update(SharedDark, out _);
         Assert.False(d.IsOpen);
-        d.Update(SharedBright, out _);
-        d.Update(SharedBright, out _);
-        d.Update(SharedBright, out _);
+        _ = d.Update(SharedBright, out _);
+        _ = d.Update(SharedBright, out _);
+        _ = d.Update(SharedBright, out _);
         Assert.True(d.IsOpen);
     }
 
@@ -139,7 +137,7 @@ public class ListDetectorTests
     public void Update_DarkBitmap_ProducesLowBrightness()
     {
         var d = new LeaguePanelDetector();
-        d.Update(SharedDark, out var diag);
+        _ = d.Update(SharedDark, out var diag);
         Assert.True(diag.AvgBrightness <= 140);
     }
 }

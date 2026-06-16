@@ -129,7 +129,7 @@ public sealed class DashboardViewModel(string configPath)
         {
             var configDir = Path.GetDirectoryName(_configPath);
             if (configDir is null) return null;
-            Directory.CreateDirectory(configDir);
+            _ = Directory.CreateDirectory(configDir);
 
             var existingJson = File.Exists(_configPath) ? File.ReadAllText(_configPath, Encoding.UTF8) : "{}";
             var root = JsonNode.Parse(existingJson) ?? new JsonObject();
@@ -264,7 +264,7 @@ public sealed class DashboardViewModel(string configPath)
             if (root?["Changelog"] is JsonNode changelog)
             {
                 changelog["Shown"] = true;
-                var newJson = root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+                var newJson = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
                 File.WriteAllText(_configPath, newJson + Environment.NewLine, Encoding.UTF8);
             }
         }
@@ -294,7 +294,7 @@ public sealed class DashboardViewModel(string configPath)
         {
             var configDir = Path.GetDirectoryName(_configPath);
             if (!string.IsNullOrEmpty(configDir) && !Directory.Exists(configDir))
-                Directory.CreateDirectory(configDir);
+                _ = Directory.CreateDirectory(configDir);
 
             JsonNode root;
             if (File.Exists(_configPath))

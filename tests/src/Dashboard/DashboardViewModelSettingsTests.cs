@@ -6,7 +6,10 @@ namespace RuneshapePriceChecker.Tests.Dashboard;
 
 public class DashboardViewModelSettingsTests
 {
-    private static string TempPath() => Path.Combine(Path.GetTempPath(), $"rstest-settings-{Guid.NewGuid():N}.json");
+    private static string TempPath()
+    {
+        return Path.Combine(Path.GetTempPath(), $"rstest-settings-{Guid.NewGuid():N}.json");
+    }
 
     [Fact]
     public void LogLevel_RoundTrip_PreservesValue()
@@ -136,7 +139,7 @@ public class DashboardViewModelSettingsTests
             var vm = new DashboardViewModel(path);
             vm.LoadSettings();
             mutate(vm);
-            vm.SaveSettings();
+            _ = vm.SaveSettings();
 
             var vm2 = new DashboardViewModel(path);
             vm2.LoadSettings();

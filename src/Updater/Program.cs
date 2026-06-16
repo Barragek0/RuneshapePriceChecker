@@ -11,7 +11,7 @@ using System.Text.RegularExpressions;
 
 if (!Console.IsOutputRedirected && !AttachConsole())
 {
-    AllocConsole();
+    _ = AllocConsole();
 }
 
 Console.Title = "RuneshapePriceChecker Updater";
@@ -41,7 +41,7 @@ else
     Log("Done.");
     Console.WriteLine();
     Console.WriteLine("Press any key to close...");
-    Console.ReadKey(intercept: true);
+    _ = Console.ReadKey(intercept: true);
 }
 
 static async Task RunLocalZipUpdateAsync(string zipPath, string newVersion, string installDir)
@@ -176,7 +176,7 @@ static async Task FinishUpdateAsync(string tempZip, string newVersion, string in
     else
     {
         Log($"Starting: {mainExePath}");
-        Process.Start(new ProcessStartInfo
+        _ = Process.Start(new ProcessStartInfo
         {
             FileName = mainExePath,
             WorkingDirectory = installDir,
@@ -199,7 +199,7 @@ static async Task<GitHubRelease?> FetchLatestReleaseAsync(string owner, string r
         return null;
     }
 
-    response.EnsureSuccessStatusCode();
+    _ = response.EnsureSuccessStatusCode();
 
     var json = await response.Content.ReadFromJsonAsync<JsonElement>();
     if (json.ValueKind != JsonValueKind.Array) return null;
@@ -311,7 +311,7 @@ static async Task CloseMainProcessAsync(string exeName)
 
     foreach (var proc in processes)
     {
-        try { if (!proc.HasExited) proc.CloseMainWindow(); } catch { }
+        try { if (!proc.HasExited) _ = proc.CloseMainWindow(); } catch { }
     }
 
     var waited = 0;
@@ -330,7 +330,7 @@ static async Task CloseMainProcessAsync(string exeName)
     Log("Force-killing main app...");
     foreach (var proc in processes)
     {
-        try { if (!proc.HasExited) { proc.Kill(); proc.WaitForExit(3000); } } catch { }
+        try { if (!proc.HasExited) { proc.Kill(); _ = proc.WaitForExit(3000); } } catch { }
     }
     Log("Main app terminated.");
 }
@@ -357,7 +357,7 @@ static void ExtractZip(string zipPath, string destinationDir)
         }
 
         var destDir = Path.GetDirectoryName(destPath)!;
-        if (!Directory.Exists(destDir)) Directory.CreateDirectory(destDir);
+        if (!Directory.Exists(destDir)) _ = Directory.CreateDirectory(destDir);
 
         var extracted = false;
         for (var retry = 0; retry < 5; retry++)
@@ -401,6 +401,6 @@ static extern bool AllocConsole();
 [return: MarshalAs(UnmanagedType.Bool)]
 static extern bool AttachConsole(uint dwProcessId = uint.MaxValue);
 
-sealed record UpdaterArgs(string? DownloadUrl, string? LocalZipPath, string? NewVersion, string RepoOwner, string RepoName);
-sealed record GitHubRelease(string TagName, List<GitHubAsset>? Assets);
-sealed record GitHubAsset(string? Name, string? BrowserDownloadUrl);
+internal sealed record UpdaterArgs(string? DownloadUrl, string? LocalZipPath, string? NewVersion, string RepoOwner, string RepoName);
+internal sealed record GitHubRelease(string TagName, List<GitHubAsset>? Assets);
+internal sealed record GitHubAsset(string? Name, string? BrowserDownloadUrl);

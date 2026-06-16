@@ -7,7 +7,9 @@ public sealed class DashboardService(DashboardLogSink sink) : IDisposable
     public static Action<IProgress<int>>? UpdateTrigger { get; set; }
     private static readonly ManualResetEventSlim ChangelogDismissedEvent = new(false);
     public static Task WaitForChangelogDismissedAsync(CancellationToken ct)
-        => Task.Run(() => ChangelogDismissedEvent.Wait(ct), ct);
+    {
+        return Task.Run(() => ChangelogDismissedEvent.Wait(ct), ct);
+    }
 
     private readonly DashboardLogSink _sink = sink;
     private Thread? _wpfThread;
@@ -36,7 +38,7 @@ public sealed class DashboardService(DashboardLogSink sink) : IDisposable
         _wpfThread.SetApartmentState(ApartmentState.STA);
         _wpfThread.Start();
 
-        _windowReady.Wait(TimeSpan.FromSeconds(10));
+        _ = _windowReady.Wait(TimeSpan.FromSeconds(10));
     }
 
     private void RunWpfApp()
@@ -46,17 +48,16 @@ public sealed class DashboardService(DashboardLogSink sink) : IDisposable
         app.DispatcherUnhandledException += (_, e) =>
         {
             _sink.Emit($"Dashboard error: {e.Exception.GetType().Name}: {e.Exception.Message}", "red");
-            _window?.Dispatcher.InvokeAsync(() => _window.SetStatus($"Error: {e.Exception.Message}", "red"));
+            _ = _window?.Dispatcher.InvokeAsync(() => _window.SetStatus($"Error: {e.Exception.Message}", "red"))!;
             e.Handled = true;
         };
 
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
         {
-            var ex = e.ExceptionObject as Exception;
-            var type = ex?.GetType().Name ?? e.ExceptionObject.GetType().Name;
-            var msg = ex?.Message ?? e.ExceptionObject.ToString();
+            var msg = e.ExceptionObject?.ToString() ?? "Unknown fatal error";
+            var type = e.ExceptionObject?.GetType().Name ?? "Unknown";
             _sink.Emit($"Fatal error: {type}: {msg}", "red");
-            _window?.Dispatcher.InvokeAsync(() => _window.SetStatus($"Fatal: {msg}", "red"));
+            _ = _window?.Dispatcher.InvokeAsync(() => _window.SetStatus($"Fatal: {msg}", "red"))!;
         };
 
         TaskScheduler.UnobservedTaskException += (_, e) =>
@@ -65,7 +66,7 @@ public sealed class DashboardService(DashboardLogSink sink) : IDisposable
             var type = inner?.GetType().Name ?? e.Exception.GetType().Name;
             var msg = inner?.Message ?? e.Exception.Message;
             _sink.Emit($"Task error: {type}: {msg}", "red");
-            _window?.Dispatcher.InvokeAsync(() => _window.SetStatus($"Error: {msg}", "red"));
+            _ = _window?.Dispatcher.InvokeAsync(() => _window.SetStatus($"Error: {msg}", "red"))!;
             e.SetObserved();
         };
 
@@ -73,8 +74,8 @@ public sealed class DashboardService(DashboardLogSink sink) : IDisposable
 
         _window.SetUpdateTrigger(p => UpdateTrigger?.Invoke(p));
 
-        _window.ChangelogShown += () => ChangelogDismissedEvent.Reset();
-        _window.ChangelogDismissed += () => ChangelogDismissedEvent.Set();
+        _window.ChangelogShown += ChangelogDismissedEvent.Reset;
+        _window.ChangelogDismissed += ChangelogDismissedEvent.Set;
 
         _window.Loaded += (_, _) =>
         {
@@ -90,14 +91,14 @@ public sealed class DashboardService(DashboardLogSink sink) : IDisposable
         };
 
         _windowReady.Set();
-        app.Run(_window);
+        _ = app.Run(_window);
     }
 
     public void Stop()
     {
         try
         {
-            _window?.Dispatcher.InvokeAsync(_window.Close, DispatcherPriority.Send);
+            _ = (_window?.Dispatcher.InvokeAsync(_window.Close, DispatcherPriority.Send));
         }
         catch (TaskCanceledException) { }
     }
@@ -111,66 +112,66 @@ public sealed class DashboardService(DashboardLogSink sink) : IDisposable
             return;
         _lastStatusText = text;
         _lastStatusColor = color;
-        _window?.Dispatcher.InvokeAsync(() => _window.SetStatus(text, color));
+        _ = (_window?.Dispatcher.InvokeAsync(() => _window.SetStatus(text, color)));
     }
 
     public void LogError(string message)
     {
-        _window?.Dispatcher.InvokeAsync(() => _window.LogError(message));
+        _ = (_window?.Dispatcher.InvokeAsync(() => _window.LogError(message)));
     }
 
     public void SetOnSetupContinue(Action callback)
     {
-        _window?.Dispatcher.InvokeAsync(() => _window.SetOnSetupContinue(callback));
+        _ = (_window?.Dispatcher.InvokeAsync(() => _window.SetOnSetupContinue(callback)));
     }
 
     public void ShowSetupPrompt()
     {
-        _window?.Dispatcher.InvokeAsync(_window.ShowSetupPrompt);
+        _ = (_window?.Dispatcher.InvokeAsync(_window.ShowSetupPrompt));
     }
 
     public void HideSetupPrompt()
     {
-        _window?.Dispatcher.InvokeAsync(_window.HideSetupPrompt);
+        _ = (_window?.Dispatcher.InvokeAsync(_window.HideSetupPrompt));
     }
 
     public void ShowUpdateButton()
     {
-        _window?.Dispatcher.InvokeAsync(_window.ShowUpdateButton);
+        _ = (_window?.Dispatcher.InvokeAsync(_window.ShowUpdateButton));
     }
 
     public void HideUpdateButton()
     {
-        _window?.Dispatcher.InvokeAsync(_window.HideUpdateButton);
+        _ = (_window?.Dispatcher.InvokeAsync(_window.HideUpdateButton));
     }
 
     public void ShowUpdateOverlay()
     {
-        _window?.Dispatcher.InvokeAsync(_window.ShowUpdateOverlay);
+        _ = (_window?.Dispatcher.InvokeAsync(_window.ShowUpdateOverlay));
     }
 
     public void HideUpdateOverlay()
     {
-        _window?.Dispatcher.InvokeAsync(_window.HideUpdateOverlay);
+        _ = (_window?.Dispatcher.InvokeAsync(_window.HideUpdateOverlay));
     }
 
     public void BringToFront()
     {
-        _window?.Dispatcher.InvokeAsync(_window.BringToFront);
+        _ = (_window?.Dispatcher.InvokeAsync(_window.BringToFront));
     }
 
     public void SetUpdateProgress(int percent)
     {
-        _window?.Dispatcher.InvokeAsync(() => _window.SetUpdateProgress(percent));
+        _ = (_window?.Dispatcher.InvokeAsync(() => _window.SetUpdateProgress(percent)));
     }
 
     public void SetReRunSetupTrigger(Action trigger)
     {
-        _window?.Dispatcher.InvokeAsync(() => _window.SetReRunSetupTrigger(() =>
+        _ = (_window?.Dispatcher.InvokeAsync(() => _window.SetReRunSetupTrigger(() =>
         {
             ResetInitialSetupComplete();
             trigger();
-        }));
+        })));
     }
 
     private static void ResetInitialSetupComplete()

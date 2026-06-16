@@ -358,7 +358,7 @@ public sealed class PricingOverlayRenderer(
         private readonly Font _font = new("Segoe UI", 21f, FontStyle.Bold, GraphicsUnit.Pixel);
         private readonly object _stateSync = new();
         private IReadOnlyList<OverlayRowEntry> _entries = [];
-        private OcrCaptureRegion _captureRegion = new(0, 0, 1, 1);
+
         private volatile bool _isHidden = true;
 
         public PriceOverlayForm()
@@ -380,8 +380,8 @@ public sealed class PricingOverlayRenderer(
         {
             if (m.Msg == 0x0020 && Cursor is not null)
             {
-                SetCursor(Cursor.Handle);
-                m.Result = (IntPtr)1;
+                _ = SetCursor(Cursor.Handle);
+                m.Result = 1;
                 return;
             }
             base.WndProc(ref m);
@@ -413,7 +413,7 @@ public sealed class PricingOverlayRenderer(
             if (InvokeRequired)
             {
                 _isHidden = false;
-                BeginInvoke(new Action<OcrCaptureRegion, IReadOnlyList<OverlayRowEntry>>(SafeShow), captureRegion, entries);
+                _ = BeginInvoke(new Action<OcrCaptureRegion, IReadOnlyList<OverlayRowEntry>>(SafeShow), captureRegion, entries);
                 return;
             }
 
@@ -421,7 +421,6 @@ public sealed class PricingOverlayRenderer(
 
             lock (_stateSync)
             {
-                _captureRegion = captureRegion;
                 _entries = entries;
             }
 
@@ -448,7 +447,7 @@ public sealed class PricingOverlayRenderer(
 
             if (InvokeRequired)
             {
-                BeginInvoke(new Action(SafeClose));
+                _ = BeginInvoke(new Action(SafeClose));
                 return;
             }
 
@@ -466,7 +465,7 @@ public sealed class PricingOverlayRenderer(
             {
                 if (_isHidden) return;
                 _isHidden = true;
-                BeginInvoke(new Action(SafeHide));
+                _ = BeginInvoke(new Action(SafeHide));
                 return;
             }
 
@@ -593,7 +592,7 @@ public sealed class PricingOverlayRenderer(
                 return;
             }
 
-            NativeMethods.SetWindowPos(
+            _ = NativeMethods.SetWindowPos(
                 Handle,
                 NativeMethods.HWND_TOPMOST,
                 Left,

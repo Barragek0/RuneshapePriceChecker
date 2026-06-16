@@ -55,7 +55,7 @@ if (!createdNew && !suppressWarning)
         foreach (var proc in Process.GetProcessesByName(selfName))
         {
             if (proc.Id == Environment.ProcessId) continue;
-            try { proc.Kill(); proc.WaitForExit(3000); } catch { }
+            try { proc.Kill(); _ = proc.WaitForExit(3000); } catch { }
         }
 
         Thread.Sleep(500);
@@ -71,8 +71,7 @@ if (!createdNew && !suppressWarning)
 }
 
 var dashboardSink = new DashboardLogSink();
-var configPath = Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json");
-var dashboardLoggerProvider = new DashboardLoggerProvider(dashboardSink, configPath);
+var dashboardLoggerProvider = new DashboardLoggerProvider(dashboardSink);
 var dashboardService = new DashboardService(dashboardSink);
 var hostCts = new CancellationTokenSource();
 dashboardService.SetOnWindowClosed(hostCts.Cancel);
@@ -107,22 +106,22 @@ var host = Host.CreateDefaultBuilder(args)
     })
     .ConfigureAppConfiguration(config =>
     {
-        config.SetBasePath(AppContext.BaseDirectory);
-        config.AddJsonFile("config/appsettings.json", optional: false, reloadOnChange: true);
-        config.AddCommandLine(args);
+        _ = config.SetBasePath(AppContext.BaseDirectory);
+        _ = config.AddJsonFile("config/appsettings.json", optional: false, reloadOnChange: true);
+        _ = config.AddCommandLine(args);
     })
     .ConfigureServices((context, services) =>
     {
-        services.Configure<AppOptions>(context.Configuration.GetSection("App"));
-        services.Configure<UpdateOptions>(context.Configuration.GetSection("Update"));
-        services.Configure<WindowOptions>(context.Configuration.GetSection("Window"));
+        _ = services.Configure<AppOptions>(context.Configuration.GetSection("App"));
+        _ = services.Configure<UpdateOptions>(context.Configuration.GetSection("Update"));
+        _ = services.Configure<WindowOptions>(context.Configuration.GetSection("Window"));
 
-        services.AddHostedService<UpdateChecker>();
+        _ = services.AddHostedService<UpdateChecker>();
 
-        services.AddSingleton(dashboardSink);
-        services.AddSingleton(dashboardService);
+        _ = services.AddSingleton(dashboardSink);
+        _ = services.AddSingleton(dashboardService);
 
-        services.AddOptions<PricingCacheOptions>()
+        _ = services.AddOptions<PricingCacheOptions>()
             .Bind(context.Configuration.GetSection("Pricing"))
             .Validate(options =>
                 !string.IsNullOrWhiteSpace(options.PricingSource) &&
@@ -136,22 +135,22 @@ var host = Host.CreateDefaultBuilder(args)
                  string.Equals(options.DisplayCurrency, "exalt", StringComparison.OrdinalIgnoreCase)),
                 "Pricing configuration is invalid. Check appsettings.json:Pricing values.")
             .ValidateOnStart();
-        services.AddOptions<OcrOptions>()
+        _ = services.AddOptions<OcrOptions>()
             .Bind(context.Configuration.GetSection("OCR"));
-        services.PostConfigure<OcrOptions>(options =>
+        _ = services.PostConfigure<OcrOptions>(options =>
         {
             options.TesseractDataPath = resolvedTesseractDataPath;
         });
 
-        services.AddHttpClient<PoeNinjaClient>(client =>
+        _ = services.AddHttpClient<PoeNinjaClient>(client =>
         {
             client.Timeout = TimeSpan.FromSeconds(10);
         });
-        services.AddHttpClient<Poe2ScoutClient>(client =>
+        _ = services.AddHttpClient<Poe2ScoutClient>(client =>
         {
             client.Timeout = TimeSpan.FromSeconds(10);
         });
-        services.AddHttpClient("GitHub", client =>
+        _ = services.AddHttpClient("GitHub", client =>
         {
             client.Timeout = TimeSpan.FromSeconds(60);
             client.DefaultRequestHeaders.UserAgent.Add(new System.Net.Http.Headers.ProductInfoHeaderValue("RuneshapePriceChecker", "1.0"));
@@ -162,27 +161,27 @@ var host = Host.CreateDefaultBuilder(args)
                 client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
         });
 
-        services.AddSingleton<IPricingSource, PricingSourceRouter>();
+        _ = services.AddSingleton<IPricingSource, PricingSourceRouter>();
 
-        services.AddSingleton<Poe2WindowResolutionService>();
-        services.AddSingleton<IPoe2WindowResolutionProvider>(sp => sp.GetRequiredService<Poe2WindowResolutionService>());
+        _ = services.AddSingleton<Poe2WindowResolutionService>();
+        _ = services.AddSingleton<IPoe2WindowResolutionProvider>(sp => sp.GetRequiredService<Poe2WindowResolutionService>());
 
-        services.AddSingleton<ILeagueWindowReader, OcrLeagueWindowReader>();
-        services.AddSingleton<IOverlayRenderer, PricingOverlayRenderer>();
-        services.AddHttpClient<ItemNameTranslator>(client =>
+        _ = services.AddSingleton<ILeagueWindowReader, OcrLeagueWindowReader>();
+        _ = services.AddSingleton<IOverlayRenderer, PricingOverlayRenderer>();
+        _ = services.AddHttpClient<ItemNameTranslator>(client =>
         {
             client.Timeout = TimeSpan.FromSeconds(30);
         });
-        services.AddSingleton<ItemNameTranslator>();
+        _ = services.AddSingleton<ItemNameTranslator>();
 
-        services.AddSingleton<IPricingCache, InMemoryPricingCache>();
+        _ = services.AddSingleton<IPricingCache, InMemoryPricingCache>();
 
-        services.AddHostedService(sp => sp.GetRequiredService<Poe2WindowResolutionService>());
-        services.AddHostedService<SettingsController>();
-        services.AddSingleton<DebugOverlayService>();
-        services.AddHostedService(sp => sp.GetRequiredService<DebugOverlayService>());
-        services.AddHostedService<PricingCacheRefreshWorker>();
-        services.AddHostedService<LeaguePricingWorker>();
+        _ = services.AddHostedService(sp => sp.GetRequiredService<Poe2WindowResolutionService>());
+        _ = services.AddHostedService<SettingsController>();
+        _ = services.AddSingleton<DebugOverlayService>();
+        _ = services.AddHostedService(sp => sp.GetRequiredService<DebugOverlayService>());
+        _ = services.AddHostedService<PricingCacheRefreshWorker>();
+        _ = services.AddHostedService<LeaguePricingWorker>();
     })
     .ConfigureLogging((context, logging) =>
     {
@@ -190,18 +189,18 @@ var host = Host.CreateDefaultBuilder(args)
         var minLevel = Enum.TryParse<LogLevel>(logLevelStr, ignoreCase: true, out var parsed)
             ? parsed : LogLevel.Information;
 
-        logging.ClearProviders();
-        logging.AddProvider(dashboardLoggerProvider);
-        logging.AddProvider(new FileLogProvider());
-        logging.AddSimpleConsole(options =>
+        _ = logging.ClearProviders();
+        _ = logging.AddProvider(dashboardLoggerProvider);
+        _ = logging.AddProvider(new FileLogProvider());
+        _ = logging.AddSimpleConsole(options =>
         {
             options.TimestampFormat = "HH:mm:ss.fff ";
             options.SingleLine = true;
         });
-        logging.SetMinimumLevel(minLevel);
-        logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
-        logging.AddFilter("Microsoft.Extensions.Http.DefaultHttpClientFactory", LogLevel.Warning);
-        logging.AddFilter("Microsoft.Hosting.Lifetime", LogLevel.Error);
+        _ = logging.SetMinimumLevel(minLevel);
+        _ = logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
+        _ = logging.AddFilter("Microsoft.Extensions.Http.DefaultHttpClientFactory", LogLevel.Warning);
+        _ = logging.AddFilter("Microsoft.Hosting.Lifetime", LogLevel.Error);
     })
     .Build();
 

@@ -28,9 +28,9 @@ public class PriceRowLayoutTests
     public void Build_EmptySnapshot_ReturnsEmpty()
     {
         var snapshot = new LeagueWindowSnapshot(
-            Array.Empty<string>(),
+            [],
             DateTimeOffset.UtcNow,
-            Array.Empty<int>(),
+            [],
             InterfaceDetected: true,
             CaptureMethod: null);
 
@@ -58,9 +58,9 @@ public class PriceRowLayoutTests
         };
 
         var result = PriceRowLayout.Build(snapshot, prices, rows, TestOptions);
-        Assert.Single(result);
+        _ = Assert.Single(result);
         Assert.Equal(100, result[0].RowY);
-        Assert.Single(result[0].Segments);
+        _ = Assert.Single(result[0].Segments);
     }
 
     [Fact]
@@ -80,7 +80,7 @@ public class PriceRowLayoutTests
         };
 
         var result = PriceRowLayout.Build(snapshot, prices, rows, TestOptions);
-        Assert.Single(result);
+        _ = Assert.Single(result);
         Assert.True(result[0].Segments.Count >= 2, "Range price should produce multiple segments");
     }
 
@@ -120,8 +120,8 @@ public class PriceRowLayoutTests
         };
 
         var result = PriceRowLayout.Build(snapshot, prices, rows, TestOptions);
-        Assert.Single(result);
-        Assert.Single(result[0].Segments); // Falls back to single segment
+        _ = Assert.Single(result);
+        _ = Assert.Single(result[0].Segments); // Falls back to single segment
     }
 
     [Fact]
@@ -138,7 +138,7 @@ public class PriceRowLayoutTests
         };
 
         var result = PriceRowLayout.Build(snapshot, prices, rows, TestOptions);
-        Assert.Single(result);
+        _ = Assert.Single(result);
         Assert.True(result[0].Segments.Count >= 3);
     }
 
@@ -156,8 +156,8 @@ public class PriceRowLayoutTests
         };
 
         var result = PriceRowLayout.Build(snapshot, prices, rows, TestOptions);
-        Assert.Single(result);
-        Assert.Single(result[0].Segments); // Falls back — separator " -" not found
+        _ = Assert.Single(result);
+        _ = Assert.Single(result[0].Segments); // Falls back — separator " -" not found
     }
 
     [Fact]
@@ -174,7 +174,7 @@ public class PriceRowLayoutTests
         };
 
         var result = PriceRowLayout.Build(snapshot, prices, rows, TestOptions);
-        Assert.Single(result);
+        _ = Assert.Single(result);
         Assert.True(result[0].Segments.Count >= 3);
     }
 
@@ -192,7 +192,7 @@ public class PriceRowLayoutTests
         };
 
         var result = PriceRowLayout.Build(snapshot, prices, rows, TestOptions);
-        Assert.Single(result);
+        _ = Assert.Single(result);
     }
 
     [Fact]

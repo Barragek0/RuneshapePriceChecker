@@ -20,7 +20,7 @@ public class UpdateCheckerRepairTests : IDisposable
     {
         _tempDir = Path.Combine(Path.GetTempPath(), $"rstest-repair-{Guid.NewGuid():N}");
         _installDir = Path.Combine(_tempDir, "install");
-        Directory.CreateDirectory(_installDir);
+        _ = Directory.CreateDirectory(_installDir);
     }
 
     public void Dispose()

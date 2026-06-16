@@ -16,7 +16,7 @@ public class SettingsControllerTests : IDisposable
     {
         _tempDir = Path.Combine(Path.GetTempPath(), $"rstest-sc-{Guid.NewGuid():N}");
         _configDir = Path.Combine(_tempDir, "config");
-        Directory.CreateDirectory(_configDir);
+        _ = Directory.CreateDirectory(_configDir);
         _configPath = Path.Combine(_configDir, "appsettings.json");
     }
 
@@ -46,7 +46,7 @@ public class SettingsControllerTests : IDisposable
         var refreshMethod = typeof(SettingsController).GetMethod("RefreshConfiguration",
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
         Assert.NotNull(refreshMethod);
-        refreshMethod!.Invoke(controller, null);
+        _ = refreshMethod!.Invoke(controller, null);
     }
 
     [Fact]
@@ -61,7 +61,7 @@ public class SettingsControllerTests : IDisposable
         var refreshMethod = typeof(SettingsController).GetMethod("RefreshConfiguration",
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
         Assert.NotNull(refreshMethod);
-        refreshMethod!.Invoke(controller, null);
+        _ = refreshMethod!.Invoke(controller, null);
     }
 
     [Fact]
@@ -83,7 +83,7 @@ public class SettingsControllerTests : IDisposable
 
         // ResolveSettingsPath looks in config/, base dir, and cwd for appsettings.json
         // In the test environment, at least one of these may exist
-        method!.Invoke(null, null);
+        _ = method!.Invoke(null, null);
         // Result may be null or a valid path — either is acceptable
         // Just verify the method doesn't throw
     }
@@ -108,10 +108,4 @@ public class SettingsControllerTests : IDisposable
             .Build();
     }
 
-    private static void SetBaseDirectory(string path)
-    {
-        var field = typeof(AppContext).GetField("_baseDirectory",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-        field?.SetValue(null, path);
-    }
 }

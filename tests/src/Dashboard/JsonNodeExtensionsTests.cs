@@ -46,7 +46,7 @@ public class JsonNodeExtensionsTests
     {
         // GetValue<string>() on an integer node throws InvalidOperationException
         var node = JsonNode.Parse("""{"key":42}""");
-        Assert.Throws<InvalidOperationException>(() => node.Str("key", "fallback"));
+        _ = Assert.Throws<InvalidOperationException>(() => node.Str("key", "fallback"));
     }
 
     // ── Val ──
@@ -76,7 +76,7 @@ public class JsonNodeExtensionsTests
     {
         // GetValue<int>() on a string node throws InvalidOperationException
         var node = JsonNode.Parse("""{"key":"hello"}""");
-        Assert.Throws<InvalidOperationException>(() => node.Val("key", 99));
+        _ = Assert.Throws<InvalidOperationException>(() => node.Val("key", 99));
     }
 
     // ── ValOrNull ──

@@ -169,7 +169,7 @@ internal sealed class SetupOverlayForm : OverlayFormBase
         catch { exampleImage?.Dispose(); exampleImage = null; }
 
         var exampleX = Math.Max(
-            (_captureRect.X - _formOriginX) + _captureRect.Width + 80,
+            _captureRect.X - _formOriginX + _captureRect.Width + 80,
             (int)(_screenBounds.Width * 0.375));
         var exampleY = y;
 
@@ -274,7 +274,7 @@ internal sealed class SetupOverlayForm : OverlayFormBase
             {
                 var newX = _dragStartRect.X + dx;
                 var newW = _dragStartRect.Width - dx;
-                if (newX < _gameBounds.X) { newW -= (_gameBounds.X - newX); newX = _gameBounds.X; }
+                if (newX < _gameBounds.X) { newW -= _gameBounds.X - newX; newX = _gameBounds.X; }
                 if (newW < 20) { newX = _dragStartRect.Right - 20; newW = 20; }
                 newRect = new Rectangle(newX, newRect.Y, newW, newRect.Height);
             }
@@ -290,7 +290,7 @@ internal sealed class SetupOverlayForm : OverlayFormBase
             {
                 var newY = _dragStartRect.Y + dy;
                 var newH = _dragStartRect.Height - dy;
-                if (newY < _gameBounds.Y) { newH -= (_gameBounds.Y - newY); newY = _gameBounds.Y; }
+                if (newY < _gameBounds.Y) { newH -= _gameBounds.Y - newY; newY = _gameBounds.Y; }
                 if (newH < 20) { newY = _dragStartRect.Bottom - 20; newH = 20; }
                 newRect = new Rectangle(newRect.X, newY, newRect.Width, newH);
             }
@@ -312,8 +312,8 @@ internal sealed class SetupOverlayForm : OverlayFormBase
         {
             var edge = HitTest(boxRect, e.Location);
             Cursor = edge != 0
-                ? ((edge == 1 || edge == 2) ? Cursors.SizeWE :
-                   (edge == 4 || edge == 8) ? Cursors.SizeNS :
+                ? ((edge is 1 or 2) ? Cursors.SizeWE :
+                   (edge is 4 or 8) ? Cursors.SizeNS :
                    Cursors.SizeAll)
                 : boxRect.Contains(e.Location)
                     ? Cursors.SizeAll
@@ -333,24 +333,27 @@ internal sealed class SetupOverlayForm : OverlayFormBase
         var x = Math.Max(20, _captureRect.X - _formOriginX);
         var y = Math.Max(20, _captureRect.Y - _formOriginY - TopBarHeight - 20);
 
-        _titleLabel?.Location = new Point(x, y);
-        _hintLabel?.Location = new Point(x, y + 24);
-        _confirmBtn?.Location = new Point(x, y + 50);
-        _backBtn?.Location = new Point(x + 190, y + 50);
+        _ = (_titleLabel?.Location = new Point(x, y));
+        _ = (_hintLabel?.Location = new Point(x, y + 24));
+        _ = (_confirmBtn?.Location = new Point(x, y + 50));
+        _ = (_backBtn?.Location = new Point(x + 190, y + 50));
 
         var exampleX = Math.Max(
-            (_captureRect.X - _formOriginX) + _captureRect.Width + 80,
+            _captureRect.X - _formOriginX + _captureRect.Width + 80,
             (int)(_screenBounds.Width * 0.375));
 
-        _exampleLabel?.Location = new Point(exampleX, y);
-        _exampleBox?.Location = new Point(exampleX, y + 20);
+        _ = (_exampleLabel?.Location = new Point(exampleX, y));
+        _ = (_exampleBox?.Location = new Point(exampleX, y + 20));
     }
 
-    private Rectangle GetBoxRect() => new(
+    private Rectangle GetBoxRect()
+    {
+        return new(
         _captureRect.X - _formOriginX,
         _captureRect.Y - _formOriginY,
         _captureRect.Width,
         _captureRect.Height);
+    }
 
     private static int HitTest(Rectangle rect, Point pt)
     {

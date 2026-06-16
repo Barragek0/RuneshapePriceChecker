@@ -279,32 +279,7 @@ public static class ItemNameParser
         return match.Success ? match.Groups["name"].Value.Trim() : name;
     }
 
-    private static void AddAccessoryFamilyVariants(HashSet<string> candidateSet, string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return;
-        }
 
-        var toAccessoriesPlural = value
-            .Replace("JEWELLERY", "ACCESSORIES", StringComparison.OrdinalIgnoreCase)
-            .Replace("JEWELRY", "ACCESSORIES", StringComparison.OrdinalIgnoreCase)
-            .Replace("RINGS", "ACCESSORIES", StringComparison.OrdinalIgnoreCase)
-            .Replace("RING", "ACCESSORY", StringComparison.OrdinalIgnoreCase)
-            .Replace("AMULETS", "ACCESSORIES", StringComparison.OrdinalIgnoreCase)
-            .Replace("AMULET", "ACCESSORY", StringComparison.OrdinalIgnoreCase);
-
-        var toAccessoriesSingular = toAccessoriesPlural
-            .Replace("ACCESSORIES", "ACCESSORY", StringComparison.OrdinalIgnoreCase);
-
-        var toJewellery = value
-            .Replace("ACCESSORIES", "JEWELLERY", StringComparison.OrdinalIgnoreCase)
-            .Replace("ACCESSORY", "JEWELLERY", StringComparison.OrdinalIgnoreCase);
-
-        candidateSet.Add($"UNIQUE {toAccessoriesPlural}");
-        candidateSet.Add($"UNIQUE {toAccessoriesSingular}");
-        candidateSet.Add($"UNIQUE {toJewellery}");
-    }
 
     internal static readonly string[] UniqueCategoryKeywords =
     [

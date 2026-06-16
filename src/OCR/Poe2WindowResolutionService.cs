@@ -29,12 +29,10 @@ public sealed record WindowCaptureContext(
     int ClientHeight);
 
 public sealed class Poe2WindowResolutionService(
-    IOptionsMonitor<OcrOptions> options,
     IOptionsMonitor<WindowOptions> windowOptions,
     ILogger<Poe2WindowResolutionService> logger) : BackgroundService, IPoe2WindowResolutionProvider
 {
     private sealed record Poe2WindowCandidate(IntPtr WindowHandle, uint ProcessId);
-    private readonly IOptionsMonitor<OcrOptions> _options = options;
     private readonly IOptionsMonitor<WindowOptions> _windowOptions = windowOptions;
 
     private volatile OcrCaptureRegion? _currentCaptureRegion;
@@ -285,7 +283,7 @@ public sealed class Poe2WindowResolutionService(
 
         try
         {
-            MessageBox.Show(
+            _ = MessageBox.Show(
                 message,
                 "RuneshapePriceChecker - UI Brightness Too Low",
                 MessageBoxButtons.OK,
@@ -313,7 +311,7 @@ public sealed class Poe2WindowResolutionService(
 
         try
         {
-            MessageBox.Show(
+            _ = MessageBox.Show(
                 message,
                 "RuneshapePriceChecker - Fullscreen Detected",
                 MessageBoxButtons.OK,

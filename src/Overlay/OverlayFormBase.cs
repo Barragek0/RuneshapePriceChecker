@@ -22,7 +22,6 @@ internal class OverlayFormBase : Form
     protected override bool ShowWithoutActivation => true;
 
     private const int WM_SETCURSOR = 0x0020;
-    private const int HTCLIENT = 1;
 
     protected override void WndProc(ref Message m)
     {
@@ -30,8 +29,8 @@ internal class OverlayFormBase : Form
         {
             if (Cursor is not null)
             {
-                SetCursor(Cursor.Handle);
-                m.Result = (IntPtr)1;
+                _ = SetCursor(Cursor.Handle);
+                m.Result = 1;
                 return;
             }
         }
@@ -60,7 +59,7 @@ internal class OverlayFormBase : Form
         if (InvokeRequired)
         {
             IsHidden = false;
-            BeginInvoke(new Action<Rectangle>(SafeShow), bounds);
+            _ = BeginInvoke(new Action<Rectangle>(SafeShow), bounds);
             return;
         }
 
@@ -84,7 +83,7 @@ internal class OverlayFormBase : Form
         {
             if (IsHidden) return;
             IsHidden = true;
-            BeginInvoke(new Action(SafeHide));
+            _ = BeginInvoke(new Action(SafeHide));
             return;
         }
 
@@ -97,7 +96,7 @@ internal class OverlayFormBase : Form
 
         if (InvokeRequired)
         {
-            BeginInvoke(new Action(SafeClose));
+            _ = BeginInvoke(new Action(SafeClose));
             return;
         }
 
@@ -113,7 +112,7 @@ internal class OverlayFormBase : Form
     protected void PinTopMost()
     {
         if (!IsHandleCreated) return;
-        NativeMethods.SetWindowPos(
+        _ = NativeMethods.SetWindowPos(
             Handle,
             NativeMethods.HWND_TOPMOST,
             Left, Top, Width, Height,

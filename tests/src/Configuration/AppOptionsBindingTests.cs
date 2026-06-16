@@ -170,7 +170,7 @@ public class AppOptionsBindingTests
             ["PricingCache:RedThreshold"] = "not-a-number"
         });
 
-        Assert.Throws<InvalidOperationException>(() =>
+        _ = Assert.Throws<InvalidOperationException>(() =>
             config.GetSection("PricingCache").Get<PricingCacheOptions>());
     }
 

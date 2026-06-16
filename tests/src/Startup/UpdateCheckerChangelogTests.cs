@@ -54,7 +54,7 @@ public class UpdateCheckerChangelogTests : IDisposable
     public void WriteChangelog_OverwritesExistingChangelog()
     {
         var configDir = Path.GetDirectoryName(_configPath)!;
-        Directory.CreateDirectory(configDir);
+        _ = Directory.CreateDirectory(configDir);
         var existingJson = """
         {
             "Changelog": {
@@ -86,7 +86,7 @@ public class UpdateCheckerChangelogTests : IDisposable
     public void WriteChangelog_DoesNotCorruptExistingSettings()
     {
         var configDir = Path.GetDirectoryName(_configPath)!;
-        Directory.CreateDirectory(configDir);
+        _ = Directory.CreateDirectory(configDir);
         var existingJson = """
         {
             "App": {
@@ -140,6 +140,6 @@ public class UpdateCheckerChangelogTests : IDisposable
         var method = typeof(UpdateChecker).GetMethod("WriteChangelogToSettings",
             BindingFlags.NonPublic | BindingFlags.Instance);
         Assert.NotNull(method);
-        method!.Invoke(checker, null);
+        _ = method!.Invoke(checker, null);
     }
 }

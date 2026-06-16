@@ -97,7 +97,7 @@ internal static class OcrImagePreprocessor
         for (var y = 0; y < height; y++)
         {
             var rowOffset = y * stride;
-            var keepRow = y * width;
+            _ = y * width;
             for (var x = 0; x < width; x++)
             {
                 var idx = rowOffset + x * 3;
@@ -394,7 +394,7 @@ internal static class OcrImagePreprocessor
             var cropH = maxY - minY + 1;
 
             // Only crop if it saves at least 20% of area
-            if (cropW * cropH >= (width * height) * 0.8)
+            if (cropW * cropH >= width * height * 0.8)
                 return null;
 
             return new Rectangle(minX, minY, cropW, cropH);
@@ -412,80 +412,6 @@ internal static class OcrImagePreprocessor
         g.DrawImage(source,
             new Rectangle(0, 0, crop.Width, crop.Height),
             crop,
-            GraphicsUnit.Pixel);
-        return result;
-    }
-
-    private static (int y0, int y1)[] FindRowBounds(Bitmap binarized)
-    {
-        var w = binarized.Width;
-        var h = binarized.Height;
-        var rect = new Rectangle(0, 0, w, h);
-        var data = binarized.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
-        try
-        {
-            var stride = data.Stride;
-            var len = Math.Abs(stride) * h;
-            var bytes = new byte[len];
-            Marshal.Copy(data.Scan0, bytes, 0, len);
-
-            // Count black pixels per row
-            var blackCounts = new int[h];
-            for (var y = 0; y < h; y++)
-            {
-                var row = y * stride;
-                var count = 0;
-                for (var x = 0; x < w; x++)
-                    if (bytes[row + x * 3] < 128) count++;
-                blackCounts[y] = count;
-            }
-
-            // Find contiguous bands of black pixels (rows with >2% black pixels)
-            var threshold = Math.Max(1, w / 50); // ~2% of width
-            var rows = new List<(int, int)>();
-            var inBand = false;
-            var bandStart = 0;
-
-            for (var y = 0; y < h; y++)
-            {
-                if (blackCounts[y] >= threshold)
-                {
-                    if (!inBand) { inBand = true; bandStart = y; }
-                }
-                else if (inBand)
-                {
-                    inBand = false;
-                    var bandHeight = y - bandStart;
-                    if (bandHeight >= 4) // skip noise bands
-                        rows.Add((bandStart, y));
-                }
-            }
-            if (inBand)
-            {
-                var bandHeight = h - bandStart;
-                if (bandHeight >= 4) rows.Add((bandStart, h));
-            }
-
-            return [.. rows];
-        }
-        finally
-        {
-            binarized.UnlockBits(data);
-        }
-    }
-
-    private static Bitmap ExtractRowBitmap(Bitmap upscaled, int y0, int rowHeight, int upscaleFactor)
-    {
-        var w = upscaled.Width;
-        var margin = upscaleFactor; // small vertical margin
-        var extractY = Math.Max(0, y0 - margin);
-        var extractH = Math.Min(upscaled.Height - extractY, rowHeight + margin * 2);
-        var result = new Bitmap(w, extractH, PixelFormat.Format24bppRgb);
-        using var g = Graphics.FromImage(result);
-        g.Clear(Color.White);
-        g.DrawImage(upscaled,
-            new Rectangle(0, 0, w, extractH),
-            new Rectangle(0, extractY, w, extractH),
             GraphicsUnit.Pixel);
         return result;
     }
@@ -706,7 +632,7 @@ internal static class OcrImagePreprocessor
                     var ny = (y + dy) * width;
                     for (var dx = -1; dx <= 1; dx++)
                     {
-                        if (source[ny + (x + dx)] == 0) blackCount++;
+                        if (source[ny + x + dx] == 0) blackCount++;
                     }
                 }
 

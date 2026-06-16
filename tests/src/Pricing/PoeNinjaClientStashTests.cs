@@ -58,7 +58,14 @@ public class PoeNinjaClientStashTests
     private sealed class NinjaOptionsMonitor<T>(IOptions<T> options) : IOptionsMonitor<T> where T : class
     {
         public T CurrentValue => options.Value;
-        public T Get(string? name) => options.Value;
-        public IDisposable? OnChange(Action<T, string?> listener) => null;
+        public T Get(string? name)
+        {
+            return options.Value;
+        }
+
+        public IDisposable? OnChange(Action<T, string?> listener)
+        {
+            return null;
+        }
     }
 }

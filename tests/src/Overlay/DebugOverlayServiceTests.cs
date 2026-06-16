@@ -42,14 +42,28 @@ public class DebugOverlayServiceTests
     private sealed class MockOcrOptionsMonitor(IOptions<OcrOptions> options) : IOptionsMonitor<OcrOptions>
     {
         public OcrOptions CurrentValue => options.Value;
-        public OcrOptions Get(string? name) => options.Value;
-        public IDisposable? OnChange(Action<OcrOptions, string?> listener) => null;
+        public OcrOptions Get(string? name)
+        {
+            return options.Value;
+        }
+
+        public IDisposable? OnChange(Action<OcrOptions, string?> listener)
+        {
+            return null;
+        }
     }
 
     private sealed class MockWindowOptionsMonitor(IOptions<WindowOptions> options) : IOptionsMonitor<WindowOptions>
     {
         public WindowOptions CurrentValue => options.Value;
-        public WindowOptions Get(string? name) => options.Value;
-        public IDisposable? OnChange(Action<WindowOptions, string?> listener) => null;
+        public WindowOptions Get(string? name)
+        {
+            return options.Value;
+        }
+
+        public IDisposable? OnChange(Action<WindowOptions, string?> listener)
+        {
+            return null;
+        }
     }
 }

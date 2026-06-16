@@ -23,8 +23,6 @@ internal sealed class UpdateChecker(
 {
     private string? _downloadUrl;
     private string? _localZipPath;
-    private string? _latestVersion;
-    private string? _changelogBody;
     private string? _changelogVersion;
     private CancellationToken _stoppingToken;
 
@@ -123,7 +121,7 @@ internal sealed class UpdateChecker(
         File.WriteAllText(scriptPath, script);
         try
         {
-            Process.Start(new ProcessStartInfo
+            _ = Process.Start(new ProcessStartInfo
             {
                 FileName = "powershell.exe",
                 Arguments = $"-ExecutionPolicy Bypass -WindowStyle Hidden -File \"{scriptPath}\"",
@@ -224,7 +222,6 @@ internal sealed class UpdateChecker(
 
             if (latestVersion == currentVersion && !string.IsNullOrWhiteSpace(latest.Body))
             {
-                _changelogBody = latest.Body;
                 _changelogVersion = latestVersionText;
                 WriteChangelogIfNotAlreadyShown();
             }
@@ -250,8 +247,6 @@ internal sealed class UpdateChecker(
             _downloadUrl = zipAsset.BrowserDownloadUrl;
         }
 
-        _latestVersion = latestVersionText;
-        _changelogBody = latest.Body;
         _changelogVersion = latestVersionText;
         dashboard.ShowUpdateButton();
 
@@ -303,7 +298,7 @@ internal sealed class UpdateChecker(
             {
                 using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
                 using var response = await http.GetAsync(_downloadUrl, HttpCompletionOption.ResponseHeadersRead);
-                response.EnsureSuccessStatusCode();
+                _ = response.EnsureSuccessStatusCode();
 
                 var total = response.Content.Headers.ContentLength ?? -1;
                 await using var stream = await response.Content.ReadAsStreamAsync();
@@ -352,7 +347,10 @@ internal sealed class UpdateChecker(
         }
     }
 
-    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task StopAsync(CancellationToken cancellationToken)
+    {
+        return Task.CompletedTask;
+    }
 
     private async Task RepairUpdaterIfNeededAsync(
         GitHubAsset? zipAsset, string expectedVersionText, string installDir)
@@ -366,8 +364,7 @@ internal sealed class UpdateChecker(
             return;
         }
 
-        Version? expectedVersion = null;
-        _ = TryParseVersion(expectedVersionText, out expectedVersion);
+        _ = TryParseVersion(expectedVersionText, out Version? expectedVersion);
 
         Version? diskVersion = null;
         try
@@ -539,7 +536,7 @@ internal sealed class UpdateChecker(
             throw new RateLimitExceededException(resetTime, remaining);
         }
 
-        response.EnsureSuccessStatusCode();
+        _ = response.EnsureSuccessStatusCode();
 
         var json = await response.Content.ReadFromJsonAsync<JsonElement>();
         if (json.ValueKind != JsonValueKind.Array) return null;
@@ -588,7 +585,7 @@ internal sealed class UpdateChecker(
             var configPath = Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json");
             var configDir = Path.GetDirectoryName(configPath);
             if (!string.IsNullOrEmpty(configDir) && !Directory.Exists(configDir))
-                Directory.CreateDirectory(configDir);
+                _ = Directory.CreateDirectory(configDir);
 
             System.Text.Json.Nodes.JsonNode root;
             if (File.Exists(configPath))
@@ -611,7 +608,7 @@ internal sealed class UpdateChecker(
             if (!string.IsNullOrWhiteSpace(_changelogVersion))
                 changelog["Version"] = _changelogVersion;
 
-            var jsonResult = root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+            var jsonResult = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(configPath, jsonResult + Environment.NewLine, System.Text.Encoding.UTF8);
         }
         catch (Exception ex)

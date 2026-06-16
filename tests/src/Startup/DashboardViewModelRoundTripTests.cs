@@ -14,7 +14,7 @@ public class DashboardViewModelRoundTripTests
         {
             var vm = new DashboardViewModel(path);
             vm.LoadSettings();
-            vm.SaveSettings();
+            _ = vm.SaveSettings();
 
             Assert.True(File.Exists(path));
             var vm2 = new DashboardViewModel(path);
@@ -32,7 +32,7 @@ public class DashboardViewModelRoundTripTests
         try
         {
             var vm = new DashboardViewModel(path);
-            vm.SaveSettings();
+            _ = vm.SaveSettings();
             Assert.True(File.Exists(path));
         }
         finally { try { Directory.Delete(dir, true); } catch { } }

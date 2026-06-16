@@ -11,14 +11,18 @@ public class InMemoryPricingCacheConstructionTests
 {
     private sealed class MockPricingSource : IPricingSource
     {
-        public Task<IReadOnlyList<string>> FetchLeaguesAsync(CancellationToken ct) =>
-            Task.FromResult<IReadOnlyList<string>>([]);
+        public Task<IReadOnlyList<string>> FetchLeaguesAsync(CancellationToken ct)
+        {
+            return Task.FromResult<IReadOnlyList<string>>([]);
+        }
 
-        public Task<PricingSnapshot> FetchPricesAsync(string league, CancellationToken ct) =>
-            Task.FromResult(new PricingSnapshot(
+        public Task<PricingSnapshot> FetchPricesAsync(string league, CancellationToken ct)
+        {
+            return Task.FromResult(new PricingSnapshot(
                 new Dictionary<string, decimal>(),
                 new Dictionary<string, (decimal, decimal)>(),
                 0m, 0m));
+        }
     }
 
     [Fact]

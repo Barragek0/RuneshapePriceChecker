@@ -32,16 +32,16 @@ public sealed class CompactConsoleFormatter(IOptionsMonitor<SimpleConsoleFormatt
 
         if (!string.IsNullOrEmpty(options.TimestampFormat))
         {
-            builder.Append(DateTimeOffset.Now.ToString(options.TimestampFormat, CultureInfo.InvariantCulture));
+            _ = builder.Append(DateTimeOffset.Now.ToString(options.TimestampFormat, CultureInfo.InvariantCulture));
         }
 
-        builder.Append(GetLogLevelText(logEntry.LogLevel));
-        builder.Append(" | ");
-        builder.AppendLine(message);
+        _ = builder.Append(GetLogLevelText(logEntry.LogLevel));
+        _ = builder.Append(" | ");
+        _ = builder.AppendLine(message);
 
         if (logEntry.Exception is not null)
         {
-            builder.AppendLine(logEntry.Exception.ToString());
+            _ = builder.AppendLine(logEntry.Exception.ToString());
         }
 
         var originalColor = Console.ForegroundColor;
@@ -65,6 +65,8 @@ public sealed class CompactConsoleFormatter(IOptionsMonitor<SimpleConsoleFormatt
         }
     }
 
+    // IDE0051: Used via reflection by tests
+#pragma warning disable IDE0051
     private static string ShortenCategory(string category)
     {
         if (category.StartsWith("RuneshapePriceChecker.", StringComparison.Ordinal))
@@ -84,6 +86,7 @@ public sealed class CompactConsoleFormatter(IOptionsMonitor<SimpleConsoleFormatt
 
         return category;
     }
+#pragma warning restore IDE0051
 
     private static string GetLogLevelText(LogLevel level)
     {

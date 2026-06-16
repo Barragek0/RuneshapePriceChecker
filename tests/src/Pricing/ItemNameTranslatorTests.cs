@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Http;
-using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using RuneshapePriceChecker.Pricing;
 using Xunit;
@@ -154,7 +153,7 @@ public sealed class ItemNameTranslatorTests
     [Fact]
     public async Task LoadAsync_ApiError_DoesNotThrow()
     {
-        var handler = new FakeHttpMessageHandler("not json", System.Net.HttpStatusCode.InternalServerError);
+        var handler = new FakeHttpMessageHandler("not json", HttpStatusCode.InternalServerError);
         var t = CreateTranslator(handler);
         t.SetLanguage("de");
         await t.LoadAsync("de", CancellationToken.None);
@@ -196,16 +195,10 @@ public sealed class ItemNameTranslatorTests
 /// <summary>
 /// Fake HttpMessageHandler that returns a fixed JSON response.
 /// </summary>
-public sealed class FakeHttpMessageHandler : HttpMessageHandler
+public sealed class FakeHttpMessageHandler(string responseBody, HttpStatusCode statusCode = HttpStatusCode.OK) : HttpMessageHandler
 {
-    private readonly string _responseBody;
-    private readonly HttpStatusCode _statusCode;
-
-    public FakeHttpMessageHandler(string responseBody, HttpStatusCode statusCode = HttpStatusCode.OK)
-    {
-        _responseBody = responseBody;
-        _statusCode = statusCode;
-    }
+    private readonly string _responseBody = responseBody;
+    private readonly HttpStatusCode _statusCode = statusCode;
 
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
@@ -220,11 +213,9 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
 /// <summary>
 /// HttpMessageHandler that counts how many times it's invoked.
 /// </summary>
-public sealed class CountingHandler : HttpMessageHandler
+public sealed class CountingHandler(Action onSend) : HttpMessageHandler
 {
-    private readonly Action _onSend;
-
-    public CountingHandler(Action onSend) => _onSend = onSend;
+    private readonly Action _onSend = onSend;
 
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {

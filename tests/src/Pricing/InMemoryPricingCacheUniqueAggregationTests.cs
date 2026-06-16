@@ -147,15 +147,6 @@ public class InMemoryPricingCacheUniqueAggregationTests
         Assert.NotEqual("...", quote.Label);
     }
 
-    private static void AssertRangeIsValid(InMemoryPricingCache cache, string itemName)
-    {
-        var quote = cache.TryGetPriceQuote(itemName);
-        Assert.NotNull(quote);
-        Assert.True(quote!.IsRange);
-        Assert.True(quote.RepresentativeChaosValue > 0m, $"{itemName} should have positive price");
-        Assert.False(quote.Label.StartsWith("N/A", StringComparison.Ordinal), $"{itemName} label should not be N/A");
-    }
-
     private InMemoryPricingCache CreateCache(PricingSnapshot snapshot)
     {
         var source = new SnapshotPricingSource(snapshot);
@@ -256,23 +247,16 @@ public class InMemoryPricingCacheUniqueAggregationTests
         );
     }
 
-    private static void AddUnique(
-        Dictionary<string, (decimal, decimal)> ranges,
-        Dictionary<string, string> baseTypes,
-        string name, string baseType, decimal price)
-    {
-        var normalized = InMemoryPricingCache.Normalize(name);
-        ranges[normalized] = (price, price);
-        if (!string.IsNullOrWhiteSpace(baseType))
-            baseTypes[normalized] = baseType;
-    }
-
     private sealed class SnapshotPricingSource(PricingSnapshot snapshot) : IPricingSource
     {
-        public Task<IReadOnlyList<string>> FetchLeaguesAsync(CancellationToken ct) =>
-            Task.FromResult<IReadOnlyList<string>>([]);
+        public Task<IReadOnlyList<string>> FetchLeaguesAsync(CancellationToken ct)
+        {
+            return Task.FromResult<IReadOnlyList<string>>([]);
+        }
 
-        public Task<PricingSnapshot> FetchPricesAsync(string league, CancellationToken ct) =>
-            Task.FromResult(snapshot);
+        public Task<PricingSnapshot> FetchPricesAsync(string league, CancellationToken ct)
+        {
+            return Task.FromResult(snapshot);
+        }
     }
 }

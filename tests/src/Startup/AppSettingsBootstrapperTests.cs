@@ -13,11 +13,15 @@ public class AppSettingsBootstrapperTests
     private static readonly MethodInfo RenameKeyMethod = typeof(AppSettingsBootstrapper)
         .GetMethod("RenameKey", BindingFlags.NonPublic | BindingFlags.Static)!;
 
-    private static bool DeepMergeDefaults(JsonNode existing, JsonNode defaults) =>
-        (bool)DeepMergeDefaultsMethod.Invoke(null, [existing, defaults])!;
+    private static bool DeepMergeDefaults(JsonNode existing, JsonNode defaults)
+    {
+        return (bool)DeepMergeDefaultsMethod.Invoke(null, [existing, defaults])!;
+    }
 
-    private static bool RenameKey(JsonNode node, string oldKey, string newKey) =>
-        (bool)RenameKeyMethod.Invoke(null, [node, oldKey, newKey])!;
+    private static bool RenameKey(JsonNode node, string oldKey, string newKey)
+    {
+        return (bool)RenameKeyMethod.Invoke(null, [node, oldKey, newKey])!;
+    }
 
     // ── DeepMergeDefaults ──
 
@@ -63,7 +67,7 @@ public class AppSettingsBootstrapperTests
         var existing = JsonNode.Parse("""{"App":{"LogLevel":"Debug"}}""")!;
         var defaults = JsonNode.Parse("""{"App":{"LogLevel":"Info"}}""")!;
 
-        DeepMergeDefaults(existing, defaults);
+        _ = DeepMergeDefaults(existing, defaults);
 
         Assert.Equal("Debug", existing["App"]!["LogLevel"]!.GetValue<string>());
     }

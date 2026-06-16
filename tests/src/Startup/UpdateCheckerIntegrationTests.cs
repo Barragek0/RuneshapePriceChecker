@@ -44,7 +44,7 @@ public class UpdateCheckerIntegrationTests
         Assert.NotNull(release);
         Assert.Equal("v1.2.3", release!.TagName);
         Assert.NotNull(release.Assets);
-        Assert.Single(release.Assets);
+        _ = Assert.Single(release.Assets);
         Assert.Equal("RuneshapePriceChecker.zip", release.Assets![0].Name);
         Assert.NotNull(release.Assets[0].BrowserDownloadUrl);
     }
@@ -160,7 +160,7 @@ public class UpdateCheckerIntegrationTests
         handler.AddErrorResponse("/repos/Barragek0/RuneshapePriceChecker/releases?per_page=10", HttpStatusCode.InternalServerError);
 
         var checker = CreateChecker(handler);
-        await Assert.ThrowsAsync<HttpRequestException>(() =>
+        _ = await Assert.ThrowsAsync<HttpRequestException>(() =>
             InvokeFetchLatestReleaseAsync(checker, "Barragek0", "RuneshapePriceChecker", true));
     }
 
@@ -190,7 +190,7 @@ public class UpdateCheckerIntegrationTests
         Assert.NotNull(release);
         Assert.Equal("v1.0.0", release!.TagName);
         Assert.NotNull(release.Assets);
-        Assert.Single(release.Assets!);
+        _ = Assert.Single(release.Assets!);
     }
 
     [Fact]
@@ -215,7 +215,7 @@ public class UpdateCheckerIntegrationTests
 
         Assert.NotNull(release);
         Assert.NotNull(release!.Assets);
-        Assert.Single(release.Assets!);
+        _ = Assert.Single(release.Assets!);
         Assert.Null(release.Assets![0].Size);
     }
 

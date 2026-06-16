@@ -14,7 +14,7 @@ public class DashboardViewModelSaveExpandedTests
         {
             var vm = new DashboardViewModel(path);
             vm.LoadSettings();
-            vm.SaveSettings();
+            _ = vm.SaveSettings();
             Assert.True(File.Exists(path));
 
             var vm2 = new DashboardViewModel(path);

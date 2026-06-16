@@ -130,7 +130,7 @@ internal static class TesseractBootstrapper
                 try { File.Delete(targetFile); } catch { }
             }
 
-            Directory.CreateDirectory(tessDataDir);
+            _ = Directory.CreateDirectory(tessDataDir);
             using var fileStream = File.Create(targetFile);
             resourceStream.CopyTo(fileStream);
 
@@ -145,7 +145,7 @@ internal static class TesseractBootstrapper
     private static void ExtractEmbeddedNativeDlls()
     {
         var runtimesDir = Path.Combine(AppContext.BaseDirectory, RuntimesSubDir);
-        Directory.CreateDirectory(runtimesDir);
+        _ = Directory.CreateDirectory(runtimesDir);
         ExtractEmbeddedFile("tesseract50.dll", runtimesDir);
         ExtractEmbeddedFile("leptonica-1.82.0.dll", runtimesDir);
     }
@@ -212,7 +212,7 @@ internal static class TesseractBootstrapper
             var url = $"{TessDataBestBaseUrl}{language}.traineddata";
             LogInfo($"Downloading {language}.traineddata...");
 
-            Directory.CreateDirectory(Path.GetDirectoryName(targetFile)!);
+            _ = Directory.CreateDirectory(Path.GetDirectoryName(targetFile)!);
 
             using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
             using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);

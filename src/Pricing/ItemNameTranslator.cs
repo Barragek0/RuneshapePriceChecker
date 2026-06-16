@@ -83,10 +83,10 @@ public sealed class ItemNameTranslator(HttpClient httpClient, ILogger<ItemNameTr
             logger.LogInformation("ItemNameTranslator: fetching item names for '{Lang}' from {Url}...", language, url);
 
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.AcceptLanguage.TryParseAdd(language);
+            _ = request.Headers.AcceptLanguage.TryParseAdd(language);
 
             using var response = await httpClient.SendAsync(request, ct).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
+            _ = response.EnsureSuccessStatusCode();
 
             var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             ParseItems(json);

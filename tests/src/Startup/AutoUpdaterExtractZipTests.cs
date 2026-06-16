@@ -13,8 +13,8 @@ public class AutoUpdaterExtractZipTests : IDisposable
     {
         _tempDir = Path.Combine(Path.GetTempPath(), $"rstest-zip-{Guid.NewGuid():N}");
         _destDir = Path.Combine(_tempDir, "dest");
-        Directory.CreateDirectory(_tempDir);
-        Directory.CreateDirectory(_destDir);
+        _ = Directory.CreateDirectory(_tempDir);
+        _ = Directory.CreateDirectory(_destDir);
     }
 
     public void Dispose()
@@ -44,7 +44,7 @@ public class AutoUpdaterExtractZipTests : IDisposable
     public void ExtractZip_PreservesExistingAppsettings()
     {
         var existingConfigPath = Path.Combine(_destDir, "appsettings.json");
-        Directory.CreateDirectory(Path.GetDirectoryName(existingConfigPath)!);
+        _ = Directory.CreateDirectory(Path.GetDirectoryName(existingConfigPath)!);
         File.WriteAllText(existingConfigPath, """{"App":{"LogLevel":"Debug"}}""");
 
         var zipPath = CreateTestZip(new Dictionary<string, string>
@@ -113,10 +113,10 @@ public class AutoUpdaterExtractZipTests : IDisposable
         var zipPath = Path.Combine(_tempDir, "test.zip");
         using (var archive = ZipFile.Open(zipPath, ZipArchiveMode.Create))
         {
-            archive.CreateEntry("subdir/");
+            _ = archive.CreateEntry("subdir/");
             var fileEntry = archive.CreateEntry("subdir/file.txt");
-            using (var sw = new StreamWriter(fileEntry.Open()))
-                sw.Write("content");
+            using var sw = new StreamWriter(fileEntry.Open());
+            sw.Write("content");
         }
 
         ExtractZip(zipPath, _destDir, "Updater.exe");
@@ -203,7 +203,7 @@ public class AutoUpdaterExtractZipTests : IDisposable
                 destPath += ".new";
 
             var destDir = Path.GetDirectoryName(destPath)!;
-            if (!Directory.Exists(destDir)) Directory.CreateDirectory(destDir);
+            if (!Directory.Exists(destDir)) _ = Directory.CreateDirectory(destDir);
 
             var extracted = false;
             for (var retry = 0; retry < 5; retry++)

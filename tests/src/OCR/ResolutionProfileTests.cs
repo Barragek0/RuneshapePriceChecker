@@ -93,6 +93,6 @@ public class ResolutionProfileTests
     public void Anchors_Symmetric(Profile p)
     {
         var (leftX, rightX, _, _, _, _, _, _, _, _, _) = ComputeAnchors(p.CaptureW, p.CaptureH);
-        Assert.Equal(leftX, (p.CaptureW - 1) - rightX);
+        Assert.Equal(leftX, p.CaptureW - 1 - rightX);
     }
 }

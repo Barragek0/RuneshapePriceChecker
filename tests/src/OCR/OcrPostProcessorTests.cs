@@ -16,7 +16,7 @@ public class OcrTextPostProcessorTests
     public void ExtractLikelyItemNames_SingleLine_ReturnsNormalizedItem()
     {
         var result = OcrTextPostProcessor.ExtractLikelyItemNames("1x Chaos Orb");
-        Assert.Single(result);
+        _ = Assert.Single(result);
         Assert.Contains("Chaos Orb", result[0]);
     }
 
@@ -58,7 +58,7 @@ public class OcrTextPostProcessorTests
     public void ExtractLikelyItemNames_SpecialChars_Normalized()
     {
         var result = OcrTextPostProcessor.ExtractLikelyItemNames("1x It`em�Nam'e!");
-        Assert.Single(result);
+        _ = Assert.Single(result);
         Assert.Contains("It'em'Nam", result[0]);
     }
 }

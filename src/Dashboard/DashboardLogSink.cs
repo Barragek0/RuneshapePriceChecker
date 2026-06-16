@@ -16,7 +16,7 @@ public sealed class DashboardLogSink : IDisposable
     public DashboardLogSink()
     {
         _flushTimer = new Timer(_ => Flush(), null, Timeout.Infinite, Timeout.Infinite);
-        _flushTimer.Change(FlushIntervalMs, FlushIntervalMs);
+        _ = _flushTimer.Change(FlushIntervalMs, FlushIntervalMs);
     }
 
     public void Emit(string message, string color = "default", LogLevel logLevel = LogLevel.Information)
@@ -31,14 +31,14 @@ public sealed class DashboardLogSink : IDisposable
                 {
                     _recent.Remove(node);
                     var updated = node.Value with { Count = node.Value.Count + 1, Timestamp = now };
-                    _recent.AddFirst(updated);
+                    _ = _recent.AddFirst(updated);
                     _pending.Add(updated);
                     return;
                 }
             }
 
             var entry = new LogEntry(now, message, color, 1, logLevel);
-            _recent.AddFirst(entry);
+            _ = _recent.AddFirst(entry);
             while (_recent.Count > MaxEntries)
                 _recent.RemoveLast();
 

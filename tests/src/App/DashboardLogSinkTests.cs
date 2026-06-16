@@ -30,7 +30,7 @@ public class DashboardLogSinkTests : IDisposable
         // The flush timer fires asynchronously; we may not get it immediately.
         // Snapshot should contain the entry though.
         var snapshot = _sink.Snapshot();
-        Assert.Single(snapshot);
+        _ = Assert.Single(snapshot);
         Assert.Equal("Test message", snapshot[0].Message);
     }
 
@@ -42,7 +42,7 @@ public class DashboardLogSinkTests : IDisposable
         _sink.Emit("Duplicate");
 
         var snapshot = _sink.Snapshot();
-        Assert.Single(snapshot);
+        _ = Assert.Single(snapshot);
         Assert.Equal(3, snapshot[0].Count);
         Assert.Equal("Duplicate", snapshot[0].Message);
     }
@@ -120,7 +120,7 @@ public class DashboardLogSinkTests : IDisposable
                     for (var j = 0; j < 100; j++)
                     {
                         _sink.Emit($"Thread{i}-Msg{j}");
-                        _sink.Snapshot();
+                        _ = _sink.Snapshot();
                     }
                 }
                 catch (Exception ex) { exceptions.Add(ex); }

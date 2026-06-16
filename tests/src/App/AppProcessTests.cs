@@ -34,8 +34,8 @@ public class AppProcessTests : IDisposable
                     CreateNoWindow = true
                 }
             };
-            _appProcess.Start();
-            _appProcess.WaitForInputIdle(5000);
+            _ = _appProcess.Start();
+            _ = _appProcess.WaitForInputIdle(5000);
         }
     }
 

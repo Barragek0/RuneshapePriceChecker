@@ -9,7 +9,7 @@ namespace RuneshapePriceChecker.Configuration;
 /// </summary>
 public static class Poe2ConfigFile
 {
-    private static readonly string ConfigPath = System.IO.Path.Combine(
+    private static readonly string ConfigPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
         "My Games", "Path of Exile 2", "poe2_Production_Config.ini");
 

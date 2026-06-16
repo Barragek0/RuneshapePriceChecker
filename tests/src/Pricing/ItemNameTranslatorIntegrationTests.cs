@@ -1,4 +1,3 @@
-using System.Net;
 using System.Net.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -194,7 +193,9 @@ public sealed class ItemNameTranslatorIntegrationTests
 public sealed class FakePricingSource : IPricingSource
 {
     public Task<IReadOnlyList<string>> FetchLeaguesAsync(CancellationToken cancellationToken)
-        => Task.FromResult<IReadOnlyList<string>>(["Test League"]);
+    {
+        return Task.FromResult<IReadOnlyList<string>>(["Test League"]);
+    }
 
     public Task<PricingSnapshot> FetchPricesAsync(string league, CancellationToken cancellationToken)
     {
@@ -219,11 +220,16 @@ public sealed class FakePricingSource : IPricingSource
     }
 }
 
-public sealed class FakeOptionsMonitor<T> : IOptionsMonitor<T> where T : class, new()
+public sealed class FakeOptionsMonitor<T>(T value) : IOptionsMonitor<T> where T : class, new()
 {
-    private readonly T _value;
-    public FakeOptionsMonitor(T value) => _value = value;
-    public T CurrentValue => _value;
-    public T Get(string? name) => _value;
-    public IDisposable? OnChange(Action<T, string?> listener) => null;
+    public T CurrentValue { get; } = value;
+    public T Get(string? name)
+    {
+        return CurrentValue;
+    }
+
+    public IDisposable? OnChange(Action<T, string?> listener)
+    {
+        return null;
+    }
 }

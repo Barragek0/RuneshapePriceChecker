@@ -30,7 +30,7 @@ public sealed class LeaguePricingWorker(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var latestSnapshot = new LeagueWindowSnapshot(Array.Empty<string>(), DateTimeOffset.UtcNow);
+        var latestSnapshot = new LeagueWindowSnapshot([], DateTimeOffset.UtcNow);
         var hasCompletedSnapshot = false;
         Task<LeagueWindowSnapshot>? inFlightSnapshotTask = null;
         var lastOcrStart = 0L;
@@ -107,11 +107,11 @@ public sealed class LeaguePricingWorker(
 
                 var snapshot = hasCompletedSnapshot
                     ? latestSnapshot
-                    : new LeagueWindowSnapshot(Array.Empty<string>(), DateTimeOffset.UtcNow);
+                    : new LeagueWindowSnapshot([], DateTimeOffset.UtcNow);
 
                 if (ocrOptions.CurrentValue.HideDebugOverlayWhenInterfaceNotDetected && !snapshot.InterfaceDetected)
                 {
-                    snapshot = new LeagueWindowSnapshot(Array.Empty<string>(), DateTimeOffset.UtcNow, InterfaceDetected: false);
+                    snapshot = new LeagueWindowSnapshot([], DateTimeOffset.UtcNow, InterfaceDetected: false);
                     debugOverlay.ForceHide();
                 }
 
@@ -221,7 +221,7 @@ public sealed class LeaguePricingWorker(
         if (region is null || ctx is null || snapshot.RowYPositions is not { Count: > 0 } rowYs)
             return [];
 
-        var cursorPos = System.Windows.Forms.Cursor.Position;
+        var cursorPos = Cursor.Position;
         var relX = cursorPos.X - ctx.ClientX - region.X;
         var relY = cursorPos.Y - ctx.ClientY - region.Y;
 
@@ -237,7 +237,7 @@ public sealed class LeaguePricingWorker(
             var rowTop = rowYs[i] - 4;
             var rowBottom = (i + 1 < rowYs.Count) ? rowYs[i + 1] + 4 : region.Height;
             if (boxBottom >= rowTop && relY <= rowBottom)
-                result.Add(i);
+                _ = result.Add(i);
         }
         return result;
     }

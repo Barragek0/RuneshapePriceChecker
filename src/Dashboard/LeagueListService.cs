@@ -9,7 +9,9 @@ public sealed class LeagueListService
     private static readonly string[] FallbackLeagues = ["Runes of Aldur", "Standard"];
 
     public static Task<IReadOnlyList<string>> FetchLeaguesAsync(CancellationToken ct = default)
-        => FetchLeaguesAsync(null, ct);
+    {
+        return FetchLeaguesAsync(null, ct);
+    }
 
     internal static async Task<IReadOnlyList<string>> FetchLeaguesAsync(HttpMessageHandler? handler, CancellationToken ct = default)
     {

@@ -7,15 +7,10 @@ namespace RuneshapePriceChecker.OCR;
 
 public sealed record CaptureResult(Bitmap Bitmap, string Method);
 
-internal sealed partial class OcrCaptureStrategy
+internal sealed partial class OcrCaptureStrategy(ILogger<OcrCaptureStrategy> logger)
 {
-    private readonly ILogger<OcrCaptureStrategy> _logger;
+    private readonly ILogger<OcrCaptureStrategy> _logger = logger;
     private bool _windowCaptureUnavailableLogged;
-
-    public OcrCaptureStrategy(ILogger<OcrCaptureStrategy> logger)
-    {
-        _logger = logger;
-    }
 
     public CaptureResult Capture(OcrCaptureRegion region, WindowCaptureContext? context, OcrOptions options)
     {

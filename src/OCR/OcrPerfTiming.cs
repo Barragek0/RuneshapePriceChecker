@@ -39,7 +39,10 @@ internal sealed class OcrPerfTiming
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public long RecordStart(Slot slot) => _sw.ElapsedTicks;
+    public long RecordStart(Slot slot)
+    {
+        return _sw.ElapsedTicks;
+    }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void RecordEnd(Slot slot, long startTicks)
@@ -72,13 +75,13 @@ internal sealed class OcrPerfTiming
     public string GetAndResetReport()
     {
         var sb = new System.Text.StringBuilder(256);
-        sb.Append(CultureInfo.InvariantCulture, $"OCR perf (avg ms): ");
+        _ = sb.Append(CultureInfo.InvariantCulture, $"OCR perf (avg ms): ");
         var freq = Stopwatch.Frequency;
         for (var i = 0; i < (int)Slot.Count; i++)
         {
             if (_counts[i] == 0) continue;
             var avgMs = _accum[i] * 1000L / freq / _counts[i];
-            sb.Append(CultureInfo.InvariantCulture, $"{(Slot)i}={avgMs}ms ");
+            _ = sb.Append(CultureInfo.InvariantCulture, $"{(Slot)i}={avgMs}ms ");
             _accum[i] = 0;
             _counts[i] = 0;
         }
@@ -88,6 +91,9 @@ internal sealed class OcrPerfTiming
 
     internal readonly struct TimedRegion(OcrPerfTiming owner, Slot slot, long startTicks) : IDisposable
     {
-        public void Dispose() => owner.Record(slot, startTicks);
+        public void Dispose()
+        {
+            owner.Record(slot, startTicks);
+        }
     }
 }

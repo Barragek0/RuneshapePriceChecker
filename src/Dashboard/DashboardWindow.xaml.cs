@@ -21,10 +21,9 @@ public sealed partial class DashboardWindow : Window
     private readonly double _baseWindowWidth = 520;
     private readonly double _baseWindowHeight = 691;
     private bool _loading;
-    private bool _changelogVisible;
     private bool _setupPending;
     private bool _settingsVisible;
-    private System.Windows.Threading.DispatcherTimer? _moveResizeTimer;
+    private DispatcherTimer? _moveResizeTimer;
     private DateTime _statusLockedUntil = DateTime.MinValue;
 
     public ObservableCollection<LogEntryViewModel> LogEntries => _vm.LogEntries;
@@ -32,7 +31,7 @@ public sealed partial class DashboardWindow : Window
     public event Action? ChangelogShown;
     public event Action? ChangelogDismissed;
 
-    internal bool IsChangelogVisible => _changelogVisible;
+    internal bool IsChangelogVisible { get; private set; }
 
     public DashboardWindow(DashboardLogSink sink)
     {
@@ -104,8 +103,8 @@ public sealed partial class DashboardWindow : Window
             _headless = true;
     }
 
-    private bool _suppressActivation;
-    private bool _headless;
+    private readonly bool _suppressActivation;
+    private readonly bool _headless;
 
     private static bool HasArg(string arg)
     {
@@ -131,7 +130,7 @@ public sealed partial class DashboardWindow : Window
         {
             Loaded += (_, _) =>
             {
-                Dispatcher.BeginInvoke(new Action(async () =>
+                _ = Dispatcher.BeginInvoke(new Action(async () =>
                 {
                     for (var i = 0; i < 20; i++)
                     {
@@ -172,7 +171,7 @@ public sealed partial class DashboardWindow : Window
     {
         Dispatcher.Invoke(() =>
         {
-            _changelogVisible = true;
+            IsChangelogVisible = true;
             var title = $"## v{version} Changelog\n\n";
             ChangelogViewer.Document = MarkdownRenderer.Render(title + body);
             RefreshContentArea();
@@ -182,7 +181,7 @@ public sealed partial class DashboardWindow : Window
 
     private void ChangelogClose_Click(object sender, RoutedEventArgs e)
     {
-        _changelogVisible = false;
+        IsChangelogVisible = false;
         RefreshContentArea();
         ChangelogDismissed?.Invoke();
     }
@@ -282,10 +281,13 @@ public sealed partial class DashboardWindow : Window
 
     private bool IsLogVisibleToUser =>
         SetupPromptSection.Visibility != Visibility.Visible &&
-        !_changelogVisible &&
+        !IsChangelogVisible &&
         !_settingsVisible;
 
-    public void SetOnSetupContinue(Action callback) => _vm.OnSetupContinue = callback;
+    public void SetOnSetupContinue(Action callback)
+    {
+        _vm.OnSetupContinue = callback;
+    }
 
     public void ShowSetupPrompt()
     {
@@ -304,7 +306,7 @@ public sealed partial class DashboardWindow : Window
         SettingsSection.Visibility = Visibility.Collapsed;
         LogSection.Visibility = Visibility.Collapsed;
 
-        if (_changelogVisible)
+        if (IsChangelogVisible)
         {
             ChangelogSection.Visibility = Visibility.Visible;
             return;
@@ -325,7 +327,10 @@ public sealed partial class DashboardWindow : Window
         LogSection.Visibility = Visibility.Visible;
     }
 
-    private void SetupContinue_Click(object sender, RoutedEventArgs e) => _vm.OnSetupContinue?.Invoke();
+    private void SetupContinue_Click(object sender, RoutedEventArgs e)
+    {
+        _vm.OnSetupContinue?.Invoke();
+    }
 
     private void Window_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
@@ -439,7 +444,19 @@ public sealed partial class DashboardWindow : Window
     {
         try
         {
+            // Use pre-populated changelog body from config if available (avoids network call)
             var configPath = Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json");
+            if (File.Exists(configPath))
+            {
+                var cfgJson = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(configPath));
+                var cfgBody = cfgJson?["Changelog"]?["Body"]?.GetValue<string>();
+                if (!string.IsNullOrWhiteSpace(cfgBody))
+                {
+                    ShowChangelog(version, cfgBody);
+                    return;
+                }
+            }
+
             var owner = "Barragek0";
             var repo = "RuneshapePriceChecker";
             var apiBase = "https://api.github.com";
@@ -505,14 +522,29 @@ public sealed partial class DashboardWindow : Window
         UpdateBadge.Background = (Brush)FindResource("DarkGreenBgBrush");
     }
 
-    public void SetUpdateTrigger(Action<IProgress<int>> trigger) => _vm.OnUpdateTriggered = trigger;
-    public void ShowUpdateButton() => Dispatcher.Invoke(() =>
+    public void SetUpdateTrigger(Action<IProgress<int>> trigger)
     {
-        if (UpdateProgressPanel.Visibility == Visibility.Visible) return;
-        UpdateBadge.Visibility = Visibility.Visible;
-    });
-    public void HideUpdateButton() => Dispatcher.Invoke(() => UpdateBadge.Visibility = Visibility.Collapsed);
-    public void SetReRunSetupTrigger(Action trigger) => _vm.OnReRunSetup = trigger;
+        _vm.OnUpdateTriggered = trigger;
+    }
+
+    public void ShowUpdateButton()
+    {
+        Dispatcher.Invoke(() =>
+        {
+            if (UpdateProgressPanel.Visibility == Visibility.Visible) return;
+            UpdateBadge.Visibility = Visibility.Visible;
+        });
+    }
+
+    public void HideUpdateButton()
+    {
+        _ = Dispatcher.Invoke(() => UpdateBadge.Visibility = Visibility.Collapsed);
+    }
+
+    public void SetReRunSetupTrigger(Action trigger)
+    {
+        _vm.OnReRunSetup = trigger;
+    }
 
     public void ShowUpdateOverlay()
     {
@@ -544,10 +576,10 @@ public sealed partial class DashboardWindow : Window
 
     private void StartSpinner()
     {
-        var animation = new System.Windows.Media.Animation.DoubleAnimation(0, 360,
+        var animation = new DoubleAnimation(0, 360,
             new Duration(TimeSpan.FromSeconds(1.2)))
         {
-            RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever
+            RepeatBehavior = RepeatBehavior.Forever
         };
         SpinnerRotate.BeginAnimation(RotateTransform.AngleProperty, animation);
     }
@@ -561,10 +593,10 @@ public sealed partial class DashboardWindow : Window
     private void StartChangelogSpinner()
     {
         ChangelogSpinner.Visibility = Visibility.Visible;
-        var animation = new System.Windows.Media.Animation.DoubleAnimation(0, 360,
+        var animation = new DoubleAnimation(0, 360,
             new Duration(TimeSpan.FromSeconds(1)))
         {
-            RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever
+            RepeatBehavior = RepeatBehavior.Forever
         };
         ChangelogSpinnerRotate.BeginAnimation(RotateTransform.AngleProperty, animation);
     }
@@ -578,7 +610,7 @@ public sealed partial class DashboardWindow : Window
 
     private void ToggleSettings()
     {
-        if (!_settingsVisible) _changelogVisible = false;
+        if (!_settingsVisible) IsChangelogVisible = false;
         _settingsVisible = !_settingsVisible;
         RefreshContentArea();
     }
@@ -627,9 +659,9 @@ public sealed partial class DashboardWindow : Window
     {
         if (_suppressActivation) return;
         Topmost = true;
-        Activate();
-        Dispatcher.BeginInvoke(new Action(() => Topmost = false),
-            System.Windows.Threading.DispatcherPriority.Background);
+        _ = Activate();
+        _ = Dispatcher.BeginInvoke(new Action(() => Topmost = false),
+            DispatcherPriority.Background);
     }
 
     private void CopyLog_Click(object sender, RoutedEventArgs e)
@@ -654,7 +686,7 @@ public sealed partial class DashboardWindow : Window
 
         try
         {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            _ = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
                 FileName = "cmd",
                 Arguments = $"/c \"timeout /t 1 /nobreak >nul && start \"\" \"{exePath}\" --App:SuppressAlreadyRunningWarning=true\"",
@@ -664,7 +696,7 @@ public sealed partial class DashboardWindow : Window
         }
         catch { }
 
-        Application.Current.Dispatcher.BeginInvoke(() => Application.Current.Shutdown());
+        _ = Application.Current.Dispatcher.BeginInvoke(() => Application.Current.Shutdown());
     }
 
     private async Task LoadLeaguesAsync()
@@ -677,7 +709,7 @@ public sealed partial class DashboardWindow : Window
             {
                 LeagueCombo.Items.Clear();
                 foreach (var league in leagues)
-                    LeagueCombo.Items.Add(league);
+                    _ = LeagueCombo.Items.Add(league);
 
                 for (var i = 0; i < LeagueCombo.Items.Count; i++)
                 {
@@ -688,7 +720,7 @@ public sealed partial class DashboardWindow : Window
                     }
                 }
 
-                LeagueCombo.Items.Add(_vm.CurrentLeague);
+                _ = LeagueCombo.Items.Add(_vm.CurrentLeague);
                 LeagueCombo.SelectedIndex = LeagueCombo.Items.Count - 1;
             });
         }
@@ -696,7 +728,7 @@ public sealed partial class DashboardWindow : Window
         {
             await Dispatcher.InvokeAsync(() =>
             {
-                LeagueCombo.Items.Add(_vm.CurrentLeague);
+                _ = LeagueCombo.Items.Add(_vm.CurrentLeague);
                 LeagueCombo.SelectedIndex = 0;
             });
         }
@@ -801,14 +833,14 @@ public sealed partial class DashboardWindow : Window
         ScheduleMoveResizeSave();
     }
 
-    private void TooltipIcon_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
+    private void TooltipIcon_MouseLeave(object sender, MouseEventArgs e)
     {
         // Force tooltip to close immediately when mouse leaves the icon
-        if (sender is System.Windows.DependencyObject d)
+        if (sender is DependencyObject d)
         {
-            System.Windows.Controls.ToolTipService.SetIsEnabled(d, false);
-            _ = Dispatcher.InvokeAsync(() => System.Windows.Controls.ToolTipService.SetIsEnabled(d, true),
-                System.Windows.Threading.DispatcherPriority.Background);
+            ToolTipService.SetIsEnabled(d, false);
+            _ = Dispatcher.InvokeAsync(() => ToolTipService.SetIsEnabled(d, true),
+                DispatcherPriority.Background);
         }
     }
 
@@ -820,9 +852,9 @@ public sealed partial class DashboardWindow : Window
     private void ScheduleMoveResizeSave()
     {
         _moveResizeTimer?.Stop();
-        _moveResizeTimer ??= new System.Windows.Threading.DispatcherTimer(
+        _moveResizeTimer ??= new DispatcherTimer(
             TimeSpan.FromMilliseconds(600),
-            System.Windows.Threading.DispatcherPriority.Background,
+            DispatcherPriority.Background,
             (_, _) =>
             {
                 _moveResizeTimer?.Stop();
@@ -847,7 +879,7 @@ public sealed partial class DashboardWindow : Window
         target.Tag = "invalid";
         target.BorderBrush = new SolidColorBrush(Color.FromRgb(0xF8, 0x71, 0x71));
         target.BorderThickness = new Thickness(1);
-        target.Focus();
+        _ = target.Focus();
     }
 
     private void ClearValidation()
@@ -860,8 +892,8 @@ public sealed partial class DashboardWindow : Window
     private static void ClearValidationFor(Control target)
     {
         target.Tag = null;
-        target.ClearValue(Control.BorderBrushProperty);
-        target.ClearValue(Control.BorderThicknessProperty);
+        target.ClearValue(BorderBrushProperty);
+        target.ClearValue(BorderThicknessProperty);
     }
 
     private void CurrencyChaos_Checked(object sender, RoutedEventArgs e) { if (!_loading) CurrencyExaltCheck.IsChecked = false; }
@@ -925,7 +957,7 @@ public sealed partial class DashboardWindow : Window
         LanguageCombo.Items.Clear();
         foreach (var (code, name) in TesseractLanguageNames)
         {
-            LanguageCombo.Items.Add(new ComboBoxItem { Content = name, Tag = code });
+            _ = LanguageCombo.Items.Add(new ComboBoxItem { Content = name, Tag = code });
         }
         LanguageCombo.SelectedIndex = 0;
         for (var i = 0; i < LanguageCombo.Items.Count; i++)
@@ -945,12 +977,12 @@ public sealed partial class DashboardWindow : Window
         OcrBackendCombo.Items.Clear();
         if (_windowsOcrSupported)
         {
-            OcrBackendCombo.Items.Add("Windows");
-            OcrBackendCombo.Items.Add("Tesseract");
+            _ = OcrBackendCombo.Items.Add("Windows");
+            _ = OcrBackendCombo.Items.Add("Tesseract");
         }
         else
         {
-            OcrBackendCombo.Items.Add("Tesseract");
+            _ = OcrBackendCombo.Items.Add("Tesseract");
             OcrBackendCombo.ToolTip = "Windows OCR requires Windows 10 build 1809 or later. Only Tesseract is available on this system.";
             OcrBackendCombo.IsEnabled = false;
         }
@@ -960,17 +992,17 @@ public sealed partial class DashboardWindow : Window
     private void PopulatePricingSourceCombo()
     {
         PricingSourceCombo.Items.Clear();
-        PricingSourceCombo.Items.Add("poe2scout");
-        PricingSourceCombo.Items.Add("poe.ninja");
+        _ = PricingSourceCombo.Items.Add("poe2scout");
+        _ = PricingSourceCombo.Items.Add("poe.ninja");
         PricingSourceCombo.SelectedIndex = 0;
     }
 
     private void PopulateLogLevelCombo()
     {
         LogLevelCombo.Items.Clear();
-        LogLevelCombo.Items.Add(new ComboBoxItem { Content = "Trace", Tag = "Trace" });
-        LogLevelCombo.Items.Add(new ComboBoxItem { Content = "Debug", Tag = "Debug" });
-        LogLevelCombo.Items.Add(new ComboBoxItem { Content = "Information", Tag = "Information" });
+        _ = LogLevelCombo.Items.Add(new ComboBoxItem { Content = "Trace", Tag = "Trace" });
+        _ = LogLevelCombo.Items.Add(new ComboBoxItem { Content = "Debug", Tag = "Debug" });
+        _ = LogLevelCombo.Items.Add(new ComboBoxItem { Content = "Information", Tag = "Information" });
         LogLevelCombo.SelectedIndex = 2; // Information
     }
 }
@@ -983,26 +1015,11 @@ public sealed class LogEntryViewModel : INotifyPropertyChanged
     public Brush? ForegroundBrush { get; set; }
     public Microsoft.Extensions.Logging.LogLevel LogLevel { get; set; }
 
-    private string _timestampText = "";
-    public string TimestampText
-    {
-        get => _timestampText;
-        set { _timestampText = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TimestampText))); }
-    }
+    public string TimestampText { get; set { field = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TimestampText))); } } = "";
 
-    private string _messageText = "";
-    public string MessageText
-    {
-        get => _messageText;
-        set { _messageText = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(MessageText))); }
-    }
+    public string MessageText { get; set { field = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(MessageText))); } } = "";
 
-    private string _countText = "";
-    public string CountText
-    {
-        get => _countText;
-        set { _countText = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CountText))); }
-    }
+    public string CountText { get; set { field = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CountText))); } } = "";
 
     public event PropertyChangedEventHandler? PropertyChanged;
 

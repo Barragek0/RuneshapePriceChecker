@@ -142,7 +142,7 @@ public class Poe2ScoutClientTests
         var client = CreateClient(handler);
         var snapshot = await client.FetchPricesAsync("Standard", CancellationToken.None);
 
-        Assert.Single(snapshot.ExactPrices);
+        _ = Assert.Single(snapshot.ExactPrices);
         Assert.True(snapshot.ExactPrices.ContainsKey("Chaos Orb"));
     }
 
@@ -168,7 +168,7 @@ public class Poe2ScoutClientTests
         var client = CreateClient(handler);
         var snapshot = await client.FetchPricesAsync("Standard", CancellationToken.None);
 
-        Assert.Single(snapshot.ExactPrices);
+        _ = Assert.Single(snapshot.ExactPrices);
         Assert.True(snapshot.ExactPrices.ContainsKey("Valid Item"));
         Assert.False(snapshot.ExactPrices.ContainsKey("ZeroPrice Item"));
     }
@@ -246,8 +246,15 @@ public class Poe2ScoutClientTests
     private sealed class WrappedOptionsMonitor(IOptions<AppOptions> options) : IOptionsMonitor<AppOptions>
     {
         public AppOptions CurrentValue => options.Value;
-        public AppOptions Get(string? name) => options.Value;
-        public IDisposable? OnChange(Action<AppOptions, string?> listener) => null;
+        public AppOptions Get(string? name)
+        {
+            return options.Value;
+        }
+
+        public IDisposable? OnChange(Action<AppOptions, string?> listener)
+        {
+            return null;
+        }
     }
 }
 

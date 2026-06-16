@@ -42,7 +42,7 @@ public class UpdateCheckerFullFlowTests
         Assert.NotNull(release);
         Assert.Equal("v2.0.0", release!.TagName);
         Assert.NotNull(release.Assets);
-        Assert.Single(release.Assets!);
+        _ = Assert.Single(release.Assets!);
         Assert.Equal("RuneshapePriceChecker.zip", release.Assets![0].Name);
         Assert.NotNull(release.Assets[0].BrowserDownloadUrl);
         Assert.Contains("example.com", release.Assets[0].BrowserDownloadUrl);
@@ -57,7 +57,7 @@ public class UpdateCheckerFullFlowTests
         var checker = CreateChecker(handler);
 
         // First attempt fails
-        await Assert.ThrowsAsync<HttpRequestException>(() =>
+        _ = await Assert.ThrowsAsync<HttpRequestException>(() =>
             InvokeFetchLatestReleaseAsync(checker, "Barragek0", "RuneshapePriceChecker", true));
     }
 
