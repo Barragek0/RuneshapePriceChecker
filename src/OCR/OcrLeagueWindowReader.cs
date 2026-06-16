@@ -1,3 +1,4 @@
+using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using RuneshapePriceChecker.App.Dashboard;
 using RuneshapePriceChecker.Configuration;
@@ -19,6 +20,8 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
     private readonly DashboardService _dashboard;
     private readonly OcrCaptureStrategy _captureStrategy;
     private readonly TesseractEngineManager _engineManager;
+    private WindowsOcrEngine? _windowsOcrEngine;
+    private string? _activeOcrBackend;
 
     public OcrLeagueWindowReader(
         IOptionsMonitor<OcrOptions> options,
@@ -36,7 +39,25 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         _captureStrategy = new OcrCaptureStrategy(loggerFactory.CreateLogger<OcrCaptureStrategy>());
         _engineManager = new TesseractEngineManager(loggerFactory.CreateLogger<TesseractEngineManager>());
 
-        _options.OnChange((updated, _) => { _engineManager.GetEngine(updated); });
+        var effectiveBackend = ResolveEffectiveOcrBackend(_options.CurrentValue.OcrBackend);
+        if (!_windowsOcrSupported && string.Equals(_options.CurrentValue.OcrBackend, "windows", StringComparison.OrdinalIgnoreCase))
+            _logger.LogWarning("Windows build {Build} < 17763 — OCR backend falling back to Tesseract.", Environment.OSVersion.Version.Build);
+        else
+            _logger.LogInformation("OCR backend: {Backend}", effectiveBackend);
+
+        _options.OnChange((updated, _) =>
+        {
+            _engineManager.GetEngine(updated);
+            var effective = ResolveEffectiveOcrBackend(updated.OcrBackend);
+            if (!string.Equals(_activeOcrBackend, effective, StringComparison.OrdinalIgnoreCase))
+            {
+                var previous = _activeOcrBackend;
+                _activeOcrBackend = null; // force engine re-init on next cycle
+                _lastOcrText = "";        // force non-cached snapshot
+                if (previous is not null) // only log actual switches, not initial load
+                    _logger.LogInformation("OCR backend changed to: {Backend}", effective);
+            }
+        });
     }
 
     [Flags]
@@ -50,13 +71,18 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         TesseractExecutionConfirmed = 1 << 4
     }
 
-    private sealed record OcrRunContext(string CaptureMethod, int[] RowYPositions);
+    private sealed record OcrRunContext(string CaptureMethod, int[] RowYPositions, long FrameHash);
 
     private OcrLogState _logState;
-    private OcrRunContext _runContext = new(string.Empty, []);
+    private OcrRunContext _runContext = new(string.Empty, [], 0);
+    private string _lastOcrText = "";
+    private int[] _lastOcrRowYPositions = [];
+    private Rectangle? _lastCropBounds;
+    private LeagueWindowSnapshot? _lastSnapshot;
     private bool _lastInterfaceDetected = true;
     private DateTimeOffset _lastDebugImageSavedAtUtc = DateTimeOffset.MinValue;
     private readonly LeaguePanelDetector _listDetector = new();
+    private readonly OcrPerfTiming _perf = new();
 
     public void Warmup()
     {
@@ -86,33 +112,37 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
 
         try
         {
-            var rawText = CaptureAndRecognize(out var attemptedRecognition);
+            var rawText = CaptureAndRecognize(out var attemptedRecognition, out var fromCache);
             if (!attemptedRecognition)
             {
+                _lastSnapshot = null;
                 return CreateEmptySnapshot(capturedAt);
             }
 
-            if (_appOptions.CurrentValue.LogLevel <= LogLevel.Debug && !_logState.HasFlag(OcrLogState.TesseractExecutionConfirmed))
+            if (fromCache && _lastSnapshot is not null)
+            {
+                return _lastSnapshot;
+            }
+
+            if (!fromCache && _appOptions.CurrentValue.LogLevel <= LogLevel.Debug && !_logState.HasFlag(OcrLogState.TesseractExecutionConfirmed))
             {
                 _logState |= OcrLogState.TesseractExecutionConfirmed;
                 _logger.LogDebug("OCR engine confirmed: tesseract executed successfully.");
             }
 
             var lines = OcrTextPostProcessor.ExtractLikelyItemNames(rawText);
-            if (_appOptions.CurrentValue.LogLevel <= LogLevel.Debug)
+            if (!fromCache && _appOptions.CurrentValue.LogLevel <= LogLevel.Debug)
             {
                 var yPositions = _runContext.RowYPositions;
                 var items = lines.Count == 0
                     ? "<none>"
-                    : string.Join(" | ", lines.Select((line, i) =>
-                        i < yPositions.Length
-                            ? $"{line} @Y={yPositions[i]}"
-                            : line));
+                    : string.Join(" | ", BuildItemDebugStrings(lines, yPositions));
                 _logger.LogDebug("OCR detected {Count} items: {Items}", lines.Count, items);
             }
 
             _dashboard.SetStatus("Scanning league panel", "green");
-            return new LeagueWindowSnapshot(lines, capturedAt, _runContext.RowYPositions, InterfaceDetected: true, CaptureMethod: ResolveStatusLine());
+            _lastSnapshot = new LeagueWindowSnapshot(lines, capturedAt, _runContext.RowYPositions, InterfaceDetected: true, CaptureMethod: ResolveStatusLine(), CropBounds: _lastCropBounds);
+            return _lastSnapshot;
         }
         catch (FileNotFoundException ex)
         {
@@ -136,9 +166,11 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         }
     }
 
-    private string CaptureAndRecognize(out bool attemptedRecognition)
+    private string CaptureAndRecognize(out bool attemptedRecognition, out bool fromCache)
     {
         attemptedRecognition = false;
+        fromCache = false;
+        var t0 = _perf.RecordStart(OcrPerfTiming.Slot.Total);
         var options = _options.CurrentValue;
         if (options.SaveDebugImages)
         {
@@ -180,6 +212,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         var region = ResolveCaptureRegion();
         ValidateRegion(region);
 
+        using var _ = _perf.Measure(OcrPerfTiming.Slot.Capture);
         var captureResult = _captureStrategy.Capture(region, _windowResolutionProvider.CurrentWindowCaptureContext, options);
         using var capturedBitmap = captureResult.Bitmap;
         var captureMethod = captureResult.Method;
@@ -191,9 +224,26 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
 
         _runContext = _runContext with { CaptureMethod = captureMethod };
 
-        if (!TryDetectPanelOpen(capturedBitmap, options, region))
+        using (_perf.Measure(OcrPerfTiming.Slot.AnchorCheck))
         {
-            return string.Empty;
+            if (!TryDetectPanelOpen(capturedBitmap, options, region))
+            {
+                _runContext = _runContext with { FrameHash = 0 };
+                return string.Empty;
+            }
+        }
+
+        using (_perf.Measure(OcrPerfTiming.Slot.FrameHash))
+        {
+            if (TrySkipOcrViaFrameDifferencing(capturedBitmap))
+            {
+                attemptedRecognition = true;
+                fromCache = true;
+                _runContext = _runContext with { RowYPositions = _lastOcrRowYPositions };
+                _perf.RecordEnd(OcrPerfTiming.Slot.CacheHit, t0);
+                LogPerfIfDue();
+                return _lastOcrText;
+            }
         }
 
         var debugContext = options.SaveDebugImages
@@ -201,10 +251,131 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
             : null;
 
         attemptedRecognition = true;
-        var engine = _engineManager.GetEngine(options);
-        var result = OcrImagePreprocessor.Process(capturedBitmap, engine, options, debugContext?.DirectoryPath);
-        _runContext = _runContext with { RowYPositions = result.RowYPositions };
-        return result.Text;
+
+        if (IsWindowsOcrEnabled(options))
+        {
+            EnsureWindowsOcrEngine();
+            using var masked = OcrImagePreprocessor.KeepBlackAndNeighbors(capturedBitmap);
+            using var preprocessed = OcrImagePreprocessor.PreprocessForOcr(masked, options);
+            var crop = OcrImagePreprocessor.FindContentBounds(preprocessed);
+            using var cropped = crop.HasValue
+                ? OcrImagePreprocessor.CropBitmap(preprocessed, crop.Value)
+                : (Bitmap)preprocessed.Clone();
+
+            var rawText = _windowsOcrEngine!.Recognize(cropped, out var rowYs, 1, _perf);
+            if (crop.HasValue)
+            {
+                var cropY = crop.Value.Y;
+                for (var i = 0; i < rowYs.Length; i++) rowYs[i] += cropY;
+            }
+
+            var lines = OcrImagePreprocessor.SplitAndTrim(rawText);
+            _lastOcrText = string.Join(Environment.NewLine, lines);
+            _lastOcrRowYPositions = rowYs;
+            _lastCropBounds = crop;
+            _runContext = _runContext with { RowYPositions = rowYs };
+        }
+        else
+        {
+            var engine = _engineManager.GetEngine(options);
+            var result = OcrImagePreprocessor.Process(capturedBitmap, engine, options, debugContext?.DirectoryPath, _perf);
+            _lastOcrText = result.Text;
+            _lastOcrRowYPositions = result.RowYPositions;
+            _lastCropBounds = result.CropBounds;
+            _runContext = _runContext with { RowYPositions = result.RowYPositions };
+        }
+
+        _perf.RecordEnd(OcrPerfTiming.Slot.Total, t0);
+        LogPerfFullOcrIfDue();
+        return _lastOcrText;
+    }
+
+    private static bool IsWindowsOcrEnabled(OcrOptions options) =>
+        string.Equals(options.OcrBackend, "windows", StringComparison.OrdinalIgnoreCase) && _windowsOcrSupported;
+
+    private static readonly bool _windowsOcrSupported = Environment.OSVersion.Version.Build >= 17763;
+
+    private static string ResolveEffectiveOcrBackend(string configuredBackend)
+    {
+        if (string.Equals(configuredBackend, "windows", StringComparison.OrdinalIgnoreCase) && !_windowsOcrSupported)
+            return "tesseract"; // fallback: Windows build too old for WinRT OCR
+        return configuredBackend;
+    }
+
+    private void EnsureWindowsOcrEngine()
+    {
+        var backend = ResolveEffectiveOcrBackend(_options.CurrentValue.OcrBackend);
+        if (_activeOcrBackend == backend && _windowsOcrEngine is not null)
+            return;
+
+        _windowsOcrEngine?.Dispose();
+        _windowsOcrEngine = new WindowsOcrEngine();
+        _activeOcrBackend = backend;
+        _logger.LogInformation("OCR backend: Windows.Media.Ocr");
+    }
+
+    private void LogPerfIfDue()
+    {
+        if (_perf.ShouldLog() && _logger.IsEnabled(LogLevel.Debug))
+        {
+            var report = _perf.GetAndResetReport();
+            if (report.Length > "OCR perf (avg us): ".Length)
+                _logger.LogDebug("{Report}", report);
+        }
+    }
+
+    private void LogPerfFullOcrIfDue()
+    {
+        if (_perf.ShouldLogFullOcr() && _logger.IsEnabled(LogLevel.Debug))
+            _logger.LogDebug("{Report}", _perf.GetAndResetReport());
+    }
+
+    private bool TrySkipOcrViaFrameDifferencing(Bitmap bitmap)
+    {
+        var hash = ComputeFastFrameHash(bitmap);
+        if (hash == 0) return false;
+        if (hash == _runContext.FrameHash && _lastOcrText.Length > 0)
+            return true;
+        _runContext = _runContext with { FrameHash = hash };
+        return false;
+    }
+
+    private static long ComputeFastFrameHash(Bitmap bitmap)
+    {
+        var rect = new Rectangle(0, 0, bitmap.Width, bitmap.Height);
+        BitmapData data;
+        try { data = bitmap.LockBits(rect, ImageLockMode.ReadOnly, bitmap.PixelFormat); }
+        catch { return 0; }
+
+        try
+        {
+            var bpp = Image.GetPixelFormatSize(bitmap.PixelFormat) / 8;
+            if (bpp < 3) return 0;
+            var stride = Math.Abs(data.Stride);
+            var rowBytes = new byte[stride];
+
+            unchecked
+            {
+                long hash = 17;
+                const int stepX = 8;
+                const int stepY = 4;
+                for (var y = 0; y < data.Height; y += stepY)
+                {
+                    Marshal.Copy(data.Scan0 + y * stride, rowBytes, 0, stride);
+                    for (var x = 0; x < data.Width; x += stepX)
+                    {
+                        var idx = x * bpp;
+                        if (idx + 2 < stride)
+                            hash = hash * 31 + rowBytes[idx] + rowBytes[idx + 1] + rowBytes[idx + 2];
+                    }
+                }
+                return hash;
+            }
+        }
+        finally
+        {
+            bitmap.UnlockBits(data);
+        }
     }
 
     private bool IsPoe2ForegroundNow()
@@ -229,17 +400,23 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
     {
         bool panelOpen = _listDetector.Update(capturedBitmap, out var diag);
 
-        var pxFormat = capturedBitmap.PixelFormat.ToString();
-        _logger.LogDebug(
-            "Panel check: region=({RegX},{RegY} {RegW}x{RegH}) scanX={ScanX0}-{ScanX1} scanY={ScanY} fmt={Fmt} open={Open}",
-            region.X, region.Y, region.Width, region.Height,
-            region.X + (int)(region.Width * LeaguePanelDetector.LeftFraction),
-            region.X + (int)(region.Width * LeaguePanelDetector.RightFraction),
-            region.Y + (int)(region.Height * LeaguePanelDetector.TopRowFraction),
-            pxFormat, diag.PanelOpen);
-        _logger.LogTrace(
-            "Panel check diagnostics: bri={Brightness} black={Black}/{Total} minSum={MinSum}",
-            diag.AvgBrightness, diag.BlackCount, diag.TotalCount, diag.MinSum);
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            var pxFormat = capturedBitmap.PixelFormat.ToString();
+            _logger.LogDebug(
+                "Panel check: region=({RegX},{RegY} {RegW}x{RegH}) scanX={ScanX0}-{ScanX1} scanY={ScanY} fmt={Fmt} open={Open}",
+                region.X, region.Y, region.Width, region.Height,
+                region.X + (int)(region.Width * LeaguePanelDetector.LeftFraction),
+                region.X + (int)(region.Width * LeaguePanelDetector.RightFraction),
+                region.Y + (int)(region.Height * LeaguePanelDetector.TopRowFraction),
+                pxFormat, diag.PanelOpen);
+        }
+        if (_logger.IsEnabled(LogLevel.Trace))
+        {
+            _logger.LogTrace(
+                "Panel check diagnostics: bri={Brightness} black={Black}/{Total} minSum={MinSum}",
+                diag.AvgBrightness, diag.BlackCount, diag.TotalCount, diag.MinSum);
+        }
 
         if (!panelOpen)
         {
@@ -362,6 +539,14 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
     public void Dispose()
     {
         _engineManager.Dispose();
+    }
+
+    private static string[] BuildItemDebugStrings(IReadOnlyList<string> lines, int[] yPositions)
+    {
+        var result = new string[lines.Count];
+        for (var i = 0; i < lines.Count; i++)
+            result[i] = i < yPositions.Length ? $"{lines[i]} @Y={yPositions[i]}" : lines[i];
+        return result;
     }
 
     private static class NativeMethods

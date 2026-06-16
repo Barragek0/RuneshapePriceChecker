@@ -1,4 +1,5 @@
 using System.Drawing.Imaging;
+using System.Globalization;
 using System.Runtime.InteropServices;
 
 namespace RuneshapePriceChecker.OCR;
@@ -7,18 +8,22 @@ internal sealed partial class NativeTesseractEngine : IDisposable
 {
     private IntPtr _handle;
 
-    public NativeTesseractEngine(string tesseractDataPath, string language)
+    public NativeTesseractEngine(string tesseractDataPath, string language, int engineMode = 2)
     {
         _handle = NativeMethods.TessBaseAPICreate();
         if (_handle == IntPtr.Zero)
             throw new InvalidOperationException("Failed to create Tesseract engine handle.");
 
+        _ = NativeMethods.TessBaseAPISetVariable(_handle, "tessedit_ocr_engine_mode", engineMode.ToString(CultureInfo.InvariantCulture));
+        _ = NativeMethods.TessBaseAPISetVariable(_handle, "preserve_interword_spaces", "1");
+        _ = NativeMethods.TessBaseAPISetVariable(_handle, "debug_file", "nul");
+        _ = NativeMethods.TessBaseAPISetVariable(_handle, "load_system_dawg", "false");
+        _ = NativeMethods.TessBaseAPISetVariable(_handle, "load_freq_dawg", "false");
+        _ = NativeMethods.TessBaseAPISetVariable(_handle, "classify_enable_learning", "0");
+
         var result = NativeMethods.TessBaseAPIInit3(_handle, tesseractDataPath, language);
         if (result != 0)
             throw new InvalidOperationException($"Tesseract init failed (code {result}). datapath='{tesseractDataPath}' language='{language}'");
-
-        _ = NativeMethods.TessBaseAPISetVariable(_handle, "preserve_interword_spaces", "1");
-        _ = NativeMethods.TessBaseAPISetVariable(_handle, "debug_file", "nul");
     }
 
     public void SetPageSegMode(int mode)
@@ -26,12 +31,14 @@ internal sealed partial class NativeTesseractEngine : IDisposable
         NativeMethods.TessBaseAPISetPageSegMode(_handle, mode);
     }
 
-    public string Recognize(Bitmap bitmap, out int[] wordYPositions, int upscaleFactor)
+    /// <summary>Recognize a single line of text (PSM 7). Returns text only — no TSV parsing needed.</summary>
+    public string RecognizeSingleLine(Bitmap rowBitmap)
     {
         var pix = IntPtr.Zero;
         try
         {
-            pix = CreatePixFromBitmap(bitmap);
+            pix = CreatePixFromBitmap(rowBitmap);
+            NativeMethods.TessBaseAPISetPageSegMode(_handle, 7); // PSM_SINGLE_LINE
             NativeMethods.TessBaseAPISetImage2(_handle, pix);
             _ = NativeMethods.TessBaseAPIRecognize(_handle, IntPtr.Zero);
 
@@ -40,7 +47,39 @@ internal sealed partial class NativeTesseractEngine : IDisposable
             if (textPtr != IntPtr.Zero)
                 NativeMethods.TessDeleteText(textPtr);
 
-            wordYPositions = ExtractWordYPositionsFromTsv(upscaleFactor);
+            return text.TrimEnd('\r', '\n');
+        }
+        finally
+        {
+            if (pix != IntPtr.Zero)
+                NativeMethods.pixDestroy(ref pix);
+        }
+    }
+
+    public string Recognize(Bitmap bitmap, out int[] wordYPositions, int upscaleFactor, OcrPerfTiming? perf = null)
+    {
+        var pix = IntPtr.Zero;
+        try
+        {
+            IntPtr localPix;
+            using (perf?.Measure(OcrPerfTiming.Slot.PixEncode))
+                localPix = CreatePixFromBitmap(bitmap);
+            pix = localPix;
+
+            using (perf?.Measure(OcrPerfTiming.Slot.Recognize))
+            {
+                NativeMethods.TessBaseAPISetImage2(_handle, pix);
+                _ = NativeMethods.TessBaseAPIRecognize(_handle, IntPtr.Zero);
+            }
+
+            var textPtr = NativeMethods.TessBaseAPIGetUTF8Text(_handle);
+            var text = textPtr != IntPtr.Zero ? Marshal.PtrToStringAnsi(textPtr) ?? string.Empty : string.Empty;
+            if (textPtr != IntPtr.Zero)
+                NativeMethods.TessDeleteText(textPtr);
+
+            using (perf?.Measure(OcrPerfTiming.Slot.TsvParse))
+                wordYPositions = ExtractWordYPositionsFromTsv(upscaleFactor);
+
             return text;
         }
         finally
@@ -52,33 +91,110 @@ internal sealed partial class NativeTesseractEngine : IDisposable
 
     private int[] ExtractWordYPositionsFromTsv(int upscaleFactor)
     {
-        var positions = new List<int>();
         var tsvPtr = NativeMethods.TessBaseAPIGetTSVText(_handle, 0);
         if (tsvPtr == IntPtr.Zero)
-            return [.. positions];
+            return [];
 
         var tsv = Marshal.PtrToStringAnsi(tsvPtr) ?? string.Empty;
         NativeMethods.TessDeleteText(tsvPtr);
 
-        var lines = tsv.Split('\n');
-        for (var i = 1; i < lines.Length; i++)
+        return ParseWordYPositions(tsv, upscaleFactor);
+    }
+
+    private static int[] ParseWordYPositions(ReadOnlySpan<char> tsv, int upscaleFactor)
+    {
+        // Skip past header line
+        var idx = tsv.IndexOf('\n');
+        if (idx < 0 || idx >= tsv.Length - 1) return [];
+        var pos = idx + 1;
+
+        // Pre-count word entries to avoid List<T> reallocation
+        var wordCount = 0;
+        for (var i = pos; i < tsv.Length; i++)
+            if (tsv[i] == '\n' && i + 1 < tsv.Length && tsv[i + 1] == '4')
+                wordCount++;
+        if (wordCount == 0) return [];
+
+        var positions = new int[wordCount];
+        var count = 0;
+        while (pos < tsv.Length)
         {
-            var cols = lines[i].Split('\t');
-            if (cols.Length < 12 || cols[0] != "4")
-                continue;
-            if (int.TryParse(cols[7], out var top) && int.TryParse(cols[9], out _))
-                positions.Add((top - 12) / upscaleFactor);
+            var end = pos;
+            while (end < tsv.Length && tsv[end] != '\n') end++;
+
+            var line = tsv[pos..end];
+            if (!line.IsEmpty && line[0] == '4')
+            {
+                var col = 0;
+                var fieldStart = 0;
+                for (var i = 0; i <= line.Length; i++)
+                {
+                    if (i != line.Length && line[i] != '\t') continue;
+                    if (col == 7 && int.TryParse(line[fieldStart..i], out var top))
+                    {
+                        positions[count++] = (top - 12) / upscaleFactor;
+                        break;
+                    }
+                    col++;
+                    fieldStart = i + 1;
+                    if (col > 7) break;
+                }
+            }
+
+            pos = end + 1;
         }
 
-        return [.. positions];
+        if (count == positions.Length) return positions;
+        return positions.AsSpan(0, count).ToArray();
     }
 
     private static IntPtr CreatePixFromBitmap(Bitmap bitmap)
     {
-        using var ms = new MemoryStream();
-        bitmap.Save(ms, ImageFormat.Png);
-        var pngBytes = ms.ToArray();
-        return NativeMethods.pixReadMem(pngBytes, pngBytes.Length);
+        // Write BMP bytes directly from LockBits data, bypassing GDI+ encoding.
+        // BMP format: 14-byte file header + 40-byte DIB header + packed pixel rows.
+        var width = bitmap.Width;
+        var height = bitmap.Height;
+        var rect = new Rectangle(0, 0, width, height);
+        var data = bitmap.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+        try
+        {
+            var stride = data.Stride;
+            var rowBytes = width * 3;
+            var padBytes = stride - rowBytes; // DWORD padding
+            var pixelDataSize = stride * height;
+            var fileSize = 54 + pixelDataSize;
+
+            var bmpBytes = new byte[fileSize];
+
+            // BITMAPFILEHEADER
+            bmpBytes[0] = (byte)'B';
+            bmpBytes[1] = (byte)'M';
+            BitConverter.TryWriteBytes(bmpBytes.AsSpan(2), fileSize);
+            BitConverter.TryWriteBytes(bmpBytes.AsSpan(10), 54);
+
+            // BITMAPINFOHEADER
+            BitConverter.TryWriteBytes(bmpBytes.AsSpan(14), 40);
+            BitConverter.TryWriteBytes(bmpBytes.AsSpan(18), width);
+            BitConverter.TryWriteBytes(bmpBytes.AsSpan(22), height);
+            bmpBytes[26] = 1; // planes
+            bmpBytes[28] = 24; // bpp
+            BitConverter.TryWriteBytes(bmpBytes.AsSpan(34), pixelDataSize);
+
+            // Copy rows from bottom to top (BMP order)
+            var srcPtr = data.Scan0;
+            for (var y = height - 1; y >= 0; y--)
+            {
+                var srcRow = IntPtr.Add(srcPtr, y * stride);
+                var dstOffset = 54 + (height - 1 - y) * stride;
+                Marshal.Copy(srcRow, bmpBytes, dstOffset, stride);
+            }
+
+            return NativeMethods.pixReadMem(bmpBytes, bmpBytes.Length);
+        }
+        finally
+        {
+            bitmap.UnlockBits(data);
+        }
     }
 
     public void Dispose()

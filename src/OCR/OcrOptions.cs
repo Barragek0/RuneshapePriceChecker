@@ -32,4 +32,11 @@ public sealed class OcrOptions
     public bool HideDebugOverlayWhenInterfaceNotDetected { get; set; }
     public bool ShowPricingOverlay { get; set; } = true;
     public bool ShowBanner { get; set; } = true;
+
+    /// <summary>Tesseract OCR engine mode: 0=Legacy, 1=LSTM+Legacy, 2=LSTM only (default).</summary>
+    [Range(0, 2)]
+    public int OcrEngineMode { get; set; } = 2;
+
+    /// <summary>OCR backend: "windows" (default) or "tesseract". Windows.Media.Ocr is faster but requires Win10 1809+.</summary>
+    public string OcrBackend { get; set; } = "windows";
 }

@@ -1,10 +1,10 @@
 using System.Diagnostics;
-using System.Globalization;
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RuneshapePriceChecker.Configuration;
+using StructLinq;
 
 namespace RuneshapePriceChecker.OCR;
 
@@ -103,9 +103,8 @@ public sealed class Poe2WindowResolutionService(
         _isPoe2WindowForeground = isForegroundByWindowFamily || isForegroundByTitle || isForegroundByProcess;
         LogForegroundStateIfChanged(_isPoe2WindowForeground);
 
-        var configInfo = ReadPoe2ConfigInfo();
-        ShowFullscreenWarningPopupIfNeeded(configInfo.IsFullscreen);
-        ShowUiBrightnessWarningPopupIfNeeded(configInfo.UiBrightness);
+        ShowFullscreenWarningPopupIfNeeded(Poe2ConfigFile.IsFullscreen);
+        ShowUiBrightnessWarningPopupIfNeeded(Poe2ConfigFile.UiBrightness);
 
         var handle = foregroundCandidate?.WindowHandle ?? candidates[0].WindowHandle;
 
@@ -249,17 +248,17 @@ public sealed class Poe2WindowResolutionService(
     {
         return
         [
-            .. Process
-                .GetProcesses()
-                .Where(p => p.MainWindowHandle != IntPtr.Zero)
-                .Where(p => !string.IsNullOrWhiteSpace(p.MainWindowTitle))
-                .Where(p => p.MainWindowTitle.Equals("Path of Exile 2", StringComparison.OrdinalIgnoreCase))
+            .. Process.GetProcesses()
+                .ToStructEnumerable()
+                .Where(p => p.MainWindowHandle != IntPtr.Zero, _ => _)
+                .Where(p => !string.IsNullOrWhiteSpace(p.MainWindowTitle), _ => _)
+                .Where(p => p.MainWindowTitle.Equals("Path of Exile 2", StringComparison.OrdinalIgnoreCase), _ => _)
                 .Select(p =>
                 {
                     var processId = (uint)p.Id;
                     return new Poe2WindowCandidate(p.MainWindowHandle, processId);
-                })
-                .OrderByDescending(p => p.WindowHandle)
+                }, _ => _)
+                .ToArray()
         ];
     }
 
@@ -325,71 +324,6 @@ public sealed class Poe2WindowResolutionService(
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Failed to display fullscreen warning popup.");
-        }
-    }
-
-    private readonly record struct Poe2ConfigInfo(string? ResolutionKey, bool IsFullscreen, float? UiBrightness);
-
-    private static Poe2ConfigInfo ReadPoe2ConfigInfo()
-    {
-        try
-        {
-            var configPath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                "My Games",
-                "Path of Exile 2",
-                "poe2_production_Config.ini");
-
-            if (!File.Exists(configPath))
-                return default;
-
-            int? width = null;
-            int? height = null;
-            var fullscreen = false;
-            float? uiBrightness = null;
-
-            foreach (var line in File.ReadLines(configPath))
-            {
-                var trimmed = line.Trim();
-
-                if (trimmed.StartsWith("resolution_width=", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (int.TryParse(trimmed.AsSpan(trimmed.IndexOf('=') + 1), out var w))
-                        width = w;
-                }
-                else if (trimmed.StartsWith("resolution_height=", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (int.TryParse(trimmed.AsSpan(trimmed.IndexOf('=') + 1), out var h))
-                        height = h;
-                }
-                else if (trimmed.StartsWith("ui_brigthness=", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (float.TryParse(
-                        trimmed.AsSpan(trimmed.IndexOf('=') + 1),
-                        NumberStyles.Float,
-                        CultureInfo.InvariantCulture,
-                        out var brightness))
-                    {
-                        uiBrightness = brightness;
-                    }
-                }
-                else if (trimmed.Equals("fullscreen=true", StringComparison.OrdinalIgnoreCase))
-                {
-                    fullscreen = true;
-                }
-            }
-
-            var resolutionKey = width.HasValue && height.HasValue
-                ? $"{width}x{height}"
-                : null;
-
-            return new Poe2ConfigInfo(resolutionKey, fullscreen, uiBrightness);
-        }
-        catch (Exception ex)
-        {
-            // Config file may be locked during game startup; gracefully fall back.
-            System.Diagnostics.Debug.WriteLine($"Failed to read PoE2 config: {ex.Message}");
-            return default;
         }
     }
 

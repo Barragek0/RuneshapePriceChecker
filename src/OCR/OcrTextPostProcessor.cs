@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using RuneshapePriceChecker.Pricing;
+using StructLinq;
 
 namespace RuneshapePriceChecker.OCR;
 
@@ -10,14 +11,19 @@ internal static class OcrTextPostProcessor
 
     public static IReadOnlyList<string> ExtractLikelyItemNames(string rawText)
     {
-        var lines = rawText
+        return rawText
             .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+            .ToStructEnumerable()
             .Select(NormalizeOcrLine)
-            .Where(line => line.Length >= 3)
-            .Where(line => line.Any(char.IsLetter))
+            .Where(line => line.Length >= 3 && ContainsLetter(line))
             .ToArray();
+    }
 
-        return lines;
+    private static bool ContainsLetter(string s)
+    {
+        foreach (var c in s)
+            if (char.IsLetter(c)) return true;
+        return false;
     }
 
     private static string NormalizeOcrLine(string line)

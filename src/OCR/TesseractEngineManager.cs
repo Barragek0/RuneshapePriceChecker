@@ -66,7 +66,7 @@ internal sealed class TesseractEngineManager(ILogger<TesseractEngineManager> log
             logger.LogInformation("Tesseract: creating engine for {Lang}...", language);
             try
             {
-                _engine = new NativeTesseractEngine(tessDataPath, language);
+                _engine = new NativeTesseractEngine(tessDataPath, language, options.OcrEngineMode);
             }
             catch (InvalidOperationException ex) when (ex.Message.Contains("Tesseract init failed"))
             {
@@ -81,7 +81,7 @@ internal sealed class TesseractEngineManager(ILogger<TesseractEngineManager> log
                         throw new InvalidOperationException(
                             $"Tesseract {language} language data repair failed.", ex);
 
-                    _engine = new NativeTesseractEngine(tessDataPath, language);
+                    _engine = new NativeTesseractEngine(tessDataPath, language, options.OcrEngineMode);
                 }
             }
 
