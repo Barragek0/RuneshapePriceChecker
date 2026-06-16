@@ -496,7 +496,8 @@ public sealed class PricingOverlayRenderer(
             e.Graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
             foreach (var entry in entries)
             {
-                var y = Math.Max(0, entry.RowY + ((entry.RowHeight - (int)_font.GetHeight(e.Graphics)) / 2));
+                var offset = (entry.RowHeight - _font.GetHeight(e.Graphics)) / 2f;
+                var y = Math.Max(0f, entry.RowY + offset);
                 var x = 2f;
                 foreach (var segment in entry.Segments)
                 {

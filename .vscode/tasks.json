@@ -68,6 +68,21 @@
             "group": "test",
             "problemMatcher": [],
             "detail": "Runs 3-way OCR backend comparison: v1.0.0 baseline vs v1.0.1 tesseract vs v1.0.1 windows (9 runs, ~3 min). Requires PoE2 running."
+        },
+        {
+            "label": "Run Pre-Release Tests",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "tests\\pre-release-tests.ps1",
+                "-All"
+            ],
+            "group": "test",
+            "problemMatcher": [],
+            "detail": "Runs the full pre-release test suite (80 tests). Output is clean PASS/FAIL lines."
         }
     ]
 }

@@ -18,6 +18,7 @@ public sealed class PricingCacheRefreshWorker(
 {
     private readonly IOptionsMonitor<PricingCacheOptions> _options = options;
     private string? _lastPricingSource;
+    private string? _lastLeague;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -25,10 +26,13 @@ public sealed class PricingCacheRefreshWorker(
 
         _options.OnChange((updated, _) =>
         {
-            if (string.Equals(updated.PricingSource, _lastPricingSource, StringComparison.OrdinalIgnoreCase))
+            var sourceChanged = !string.Equals(updated.PricingSource, _lastPricingSource, StringComparison.OrdinalIgnoreCase);
+            var leagueChanged = !string.Equals(updated.League, _lastLeague, StringComparison.OrdinalIgnoreCase);
+            if (!sourceChanged && !leagueChanged)
                 return;
 
             _lastPricingSource = updated.PricingSource;
+            _lastLeague = updated.League;
             try { refreshCts.Cancel(); }
             catch (ObjectDisposedException) { }
         });
@@ -42,6 +46,7 @@ public sealed class PricingCacheRefreshWorker(
                 await cache.RefreshAsync(stoppingToken).ConfigureAwait(false);
                 ((InMemoryPricingCache)cache).SetOcrLanguage(ocrOptions.CurrentValue.Language);
                 _lastPricingSource = _options.CurrentValue.PricingSource;
+                _lastLeague = _options.CurrentValue.League;
                 logger.LogInformation("Pricing cache refreshed at {Timestamp}", DateTimeOffset.UtcNow);
 
                 delay = _options.CurrentValue.RefreshInterval;

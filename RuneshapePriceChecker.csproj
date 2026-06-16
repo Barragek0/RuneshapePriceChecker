@@ -96,11 +96,14 @@
   <!-- Release pipeline: Build -> Test -> Zip -> Installer -->
 
   <Target Name="Test" AfterTargets="Publish" Condition="'$(Configuration)' == 'Release' and '$(DesignTimeBuild)' != 'true' and '$(SkipTest)' != 'true'">
-    <!-- Launch tests in a separate process tree to avoid MSBuild file handle inheritance -->
-    <Exec Command="cmd /c &quot;dotnet build tests\Tests.csproj -c Release --nologo &amp;&amp; dotnet test tests\Tests.csproj -c Release --no-build --nologo&quot;" IgnoreExitCode="true">
+    <Exec Command="dotnet build tests\Tests.csproj -c Release --nologo" ConsoleToMSBuild="true" IgnoreExitCode="true">
+      <Output TaskParameter="ExitCode" PropertyName="_TestBuildCode" />
+    </Exec>
+    <Error Condition="$(_TestBuildCode) != 0" Text="Test project build failed (exit code $(_TestBuildCode))" />
+    <Exec Command="dotnet test tests\Tests.csproj -c Release --no-build --nologo --verbosity normal" ConsoleToMSBuild="true" IgnoreExitCode="true">
       <Output TaskParameter="ExitCode" PropertyName="_TestExitCode" />
     </Exec>
-    <Error Condition="$(_TestExitCode) != 0" Text="xUnit tests failed" />
+    <Error Condition="$(_TestExitCode) != 0" Text="xUnit tests failed (exit code $(_TestExitCode)). See output above for details." />
   </Target>
 
   <Target Name="Zip" AfterTargets="Test" Condition="'$(Configuration)' == 'Release' and '$(DesignTimeBuild)' != 'true'">

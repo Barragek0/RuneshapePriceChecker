@@ -6,10 +6,9 @@ scripts/*
 !scripts/perf-test-config.json
 tests/*/bin/
 tests/*/obj/
-tests/pre-release-tests.ps1
+tests/releases/
 native/
 tesseract/
-tmp/
 perf-logs/
 .vs/
 *.user
@@ -18,9 +17,7 @@ perf-logs/
 *.log
 appsettings.json
 appsettings.release.json
-docs/
 .github/plans/
 .github/prompts/
 .github/performance/
 .github/release-notes/
-releases/

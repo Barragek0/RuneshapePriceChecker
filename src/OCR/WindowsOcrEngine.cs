@@ -47,11 +47,10 @@ internal sealed class WindowsOcrEngine : IDisposable
             }
             lineTexts[i] = string.Join(" ", words);
 
-            // Use the vertical center of the line's word bounding rects (more consistent across engines than top-of-first-word)
-            var yCenter = line.Words.Count > 0
-                ? (int)((ySum / line.Words.Count + hSum / line.Words.Count / 2) / upscaleFactor)
+            var yTop = line.Words.Count > 0
+                ? (int)((ySum / line.Words.Count - 6) / upscaleFactor)
                 : 0;
-            positions.Add(yCenter);
+            positions.Add(yTop);
         }
 
         wordYPositions = [.. positions];

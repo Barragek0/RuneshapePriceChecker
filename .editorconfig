@@ -1,11 +1,81 @@
 [*.cs]
 
-# Code style: surface all IDE diagnostics as build warnings
-dotnet_diagnostic.IDE*.severity = warning
-
-# Exceptions: rules we don't want
-dotnet_diagnostic.IDE0130.severity = none  # Namespace does not match folder structure
-dotnet_diagnostic.IDE0160.severity = none  # Convert to block scoped namespace
+# Code style: surface IDE diagnostics as build warnings
+dotnet_diagnostic.IDE0001.severity = warning  # Simplify name
+dotnet_diagnostic.IDE0002.severity = warning  # Simplify member access
+dotnet_diagnostic.IDE0003.severity = warning  # Remove 'this' qualification
+dotnet_diagnostic.IDE0004.severity = warning  # Remove unnecessary cast
+dotnet_diagnostic.IDE0005.severity = warning  # Remove unnecessary usings
+dotnet_diagnostic.IDE0011.severity = warning  # Add braces
+dotnet_diagnostic.IDE0016.severity = warning  # Use 'throw' expression
+dotnet_diagnostic.IDE0017.severity = warning  # Simplify object initialization
+dotnet_diagnostic.IDE0018.severity = warning  # Simplify variable declaration
+dotnet_diagnostic.IDE0019.severity = warning  # Use pattern matching
+dotnet_diagnostic.IDE0020.severity = warning  # Use pattern matching
+dotnet_diagnostic.IDE0021.severity = warning  # Expression body for constructors
+dotnet_diagnostic.IDE0022.severity = warning  # Expression body for methods
+dotnet_diagnostic.IDE0023.severity = warning  # Expression body for operators
+dotnet_diagnostic.IDE0024.severity = warning  # Expression body for operators
+dotnet_diagnostic.IDE0025.severity = warning  # Expression body for properties
+dotnet_diagnostic.IDE0026.severity = warning  # Expression body for indexers
+dotnet_diagnostic.IDE0027.severity = warning  # Expression body for accessors
+dotnet_diagnostic.IDE0028.severity = warning  # Simplify collection initialization
+dotnet_diagnostic.IDE0029.severity = warning  # Simplify conditional expression
+dotnet_diagnostic.IDE0030.severity = warning  # Simplify null check
+dotnet_diagnostic.IDE0031.severity = warning  # Use null propagation
+dotnet_diagnostic.IDE0032.severity = warning  # Use auto-implemented properties
+dotnet_diagnostic.IDE0034.severity = warning  # Simplify 'default' expression
+dotnet_diagnostic.IDE0035.severity = warning  # Remove unreachable code
+dotnet_diagnostic.IDE0036.severity = warning  # Order modifiers
+dotnet_diagnostic.IDE0037.severity = warning  # Use inferred member name
+dotnet_diagnostic.IDE0039.severity = warning  # Use local function instead of lambda
+dotnet_diagnostic.IDE0040.severity = warning  # Add accessibility modifiers
+dotnet_diagnostic.IDE0041.severity = warning  # Use 'is null' check
+dotnet_diagnostic.IDE0044.severity = warning  # Make field readonly
+dotnet_diagnostic.IDE0045.severity = warning  # Use conditional expression for assignment
+dotnet_diagnostic.IDE0046.severity = warning  # Use conditional expression for return
+dotnet_diagnostic.IDE0047.severity = warning  # Remove unnecessary parentheses
+dotnet_diagnostic.IDE0051.severity = warning  # Remove unused private members
+dotnet_diagnostic.IDE0052.severity = warning  # Remove unread private members
+dotnet_diagnostic.IDE0056.severity = warning  # Use index operator
+dotnet_diagnostic.IDE0057.severity = warning  # Use range operator
+dotnet_diagnostic.IDE0058.severity = warning  # Remove unused expression value
+dotnet_diagnostic.IDE0059.severity = warning  # Remove unnecessary value assignment
+dotnet_diagnostic.IDE0060.severity = warning  # Remove unused parameter
+dotnet_diagnostic.IDE0061.severity = warning  # Expression body for local functions
+dotnet_diagnostic.IDE0062.severity = warning  # Make local function static
+dotnet_diagnostic.IDE0063.severity = warning  # Use 'using' statement
+dotnet_diagnostic.IDE0065.severity = warning  # Place using directives outside namespace
+dotnet_diagnostic.IDE0066.severity = warning  # Use 'switch' expression
+dotnet_diagnostic.IDE0070.severity = warning  # Use 'System.HashCode.Combine'
+dotnet_diagnostic.IDE0071.severity = warning  # Simplify interpolation
+dotnet_diagnostic.IDE0074.severity = warning  # Use coalesce expression
+dotnet_diagnostic.IDE0075.severity = warning  # Simplify conditional expression
+dotnet_diagnostic.IDE0078.severity = warning  # Use pattern matching
+dotnet_diagnostic.IDE0080.severity = warning  # Remove unnecessary suppression
+dotnet_diagnostic.IDE0082.severity = warning  # Convert typeof to nameof
+dotnet_diagnostic.IDE0090.severity = warning  # Use 'new(...)'
+dotnet_diagnostic.IDE0100.severity = warning  # Remove unnecessary equality operator
+dotnet_diagnostic.IDE0130.severity = none     # Namespace does not match folder structure
+dotnet_diagnostic.IDE0150.severity = warning  # Use null check pattern
+dotnet_diagnostic.IDE0160.severity = none     # Convert to block scoped namespace
+dotnet_diagnostic.IDE0161.severity = warning  # Use file-scoped namespace
+dotnet_diagnostic.IDE0170.severity = warning  # Use property pattern
+dotnet_diagnostic.IDE0180.severity = warning  # Use tuple to swap
+dotnet_diagnostic.IDE0200.severity = warning  # Use lambda expression
+dotnet_diagnostic.IDE0220.severity = warning  # Use explicit tuple name
+dotnet_diagnostic.IDE0250.severity = warning  # Make struct 'readonly'
+dotnet_diagnostic.IDE0251.severity = warning  # Make member 'readonly'
+dotnet_diagnostic.IDE0270.severity = warning  # Use coalesce expression for null check
+dotnet_diagnostic.IDE0280.severity = warning  # Use 'nameof'
+dotnet_diagnostic.IDE0290.severity = warning  # Use primary constructor
+dotnet_diagnostic.IDE0300.severity = warning  # Use collection expression
+dotnet_diagnostic.IDE0301.severity = warning  # Use collection expression
+dotnet_diagnostic.IDE0302.severity = warning  # Use collection expression
+dotnet_diagnostic.IDE0303.severity = warning  # Use collection expression
+dotnet_diagnostic.IDE0304.severity = warning  # Use collection expression
+dotnet_diagnostic.IDE0305.severity = warning  # Use collection expression
+dotnet_diagnostic.IDE1005.severity = warning  # Use conditional delegate call
 
 # DashboardViewModel uses JSON keys that don't match property names by design
 [src/Dashboard/DashboardViewModel.cs]

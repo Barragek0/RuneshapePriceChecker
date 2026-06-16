@@ -60,6 +60,6 @@ public class ChangelogWiringTests
         var file = Path.Combine(RepoRoot, "src", "Dashboard", "DashboardWindow.xaml.cs");
         var content = File.ReadAllText(file);
         Assert.Contains("ShowChangelogPreview", content);
-        Assert.Contains("--ShowChangelog", content);
+        Assert.Contains("--App:ShowChangelog=true", content);
     }
 }

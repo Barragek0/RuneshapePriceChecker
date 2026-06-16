@@ -4,12 +4,12 @@ using System.Globalization;
 using System.IO;
 using System.Net.Http;
 using System.Reflection;
-using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 
 namespace RuneshapePriceChecker.App.Dashboard;
@@ -41,6 +41,7 @@ public sealed partial class DashboardWindow : Window
         _vm = new DashboardViewModel(configPath);
         DataContext = this;
         InitializeComponent();
+        Opacity = 0;
         InitializeScale();
         LogList.DataContext = this;
 
@@ -66,15 +67,15 @@ public sealed partial class DashboardWindow : Window
 
         CheckPendingChangelog();
 
-        if (HasCommandLineArg("--ShowChangelog"))
+        if (HasArg("--App:ShowChangelog=true"))
         {
             Loaded += (_, _) => ShowChangelogPreview();
         }
 
-        if (HasCommandLineArg("--App:ForceUpdateAvailable=true") || _vm.ConfigHasFlag("App", "ForceUpdateAvailable"))
+        if (HasArg("--App:ForceUpdateAvailable=true") || _vm.ConfigHasFlag("App", "ForceUpdateAvailable"))
             ShowUpdateButton();
 
-        if (HasCommandLineArg("--App:AutoApplyUpdate=true") || _vm.ConfigHasFlag("App", "AutoApplyUpdate"))
+        if (HasArg("--App:AutoApplyUpdate=true") || _vm.ConfigHasFlag("App", "AutoApplyUpdate"))
         {
             ShowUpdateButton();
             Loaded += async (_, _) =>
@@ -93,15 +94,26 @@ public sealed partial class DashboardWindow : Window
             };
         }
 
-        if (HasCommandLineArg("--App:TestMode=true"))
+        if (HasArg("--App:TestMode=true"))
             TestModeIndicator.Visibility = Visibility.Visible;
+
+        if (HasArg("--App:SuppressActivation=true"))
+            _suppressActivation = true;
+
+        if (HasArg("--App:Headless=true"))
+            _headless = true;
     }
 
-    private static bool HasCommandLineArg(string arg)
+    private bool _suppressActivation;
+    private bool _headless;
+
+    private static bool HasArg(string arg)
     {
         foreach (var a in Environment.GetCommandLineArgs())
+        {
             if (string.Equals(a, arg, StringComparison.OrdinalIgnoreCase))
                 return true;
+        }
         return false;
     }
 
@@ -211,6 +223,8 @@ public sealed partial class DashboardWindow : Window
             { OcrBackendCombo.SelectedIndex = i; break; }
         }
         _loading = false;
+        HideDebugOverlayCheck.Visibility = _vm.DebugOverlay ? Visibility.Visible : Visibility.Collapsed;
+        SaveDebugImagesCheck.Visibility = _vm.DebugOverlay ? Visibility.Visible : Visibility.Collapsed;
         ValidateThresholds();
     }
 
@@ -337,21 +351,9 @@ public sealed partial class DashboardWindow : Window
     {
         RestoreWindowPosition();
         var handle = new WindowInteropHelper(this).Handle;
-
-        // Prevent white flash by painting window background dark before first render
-        SetClassLong(handle, GCL_HBRBACKGROUND, CreateSolidBrush(0x001D1A23));
-
         var source = HwndSource.FromHwnd(handle);
         source?.AddHook(WndProc);
     }
-
-    private const int GCL_HBRBACKGROUND = -10;
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr SetClassLong(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
-
-    [DllImport("gdi32.dll")]
-    private static extern IntPtr CreateSolidBrush(uint crColor);
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
@@ -387,28 +389,15 @@ public sealed partial class DashboardWindow : Window
             }
 
             const int border = 6;
-            const int HTLEFT = 10;
-            const int HTRIGHT = 11;
             const int HTTOP = 12;
-            const int HTTOPLEFT = 13;
-            const int HTTOPRIGHT = 14;
             const int HTBOTTOM = 15;
-            const int HTBOTTOMLEFT = 16;
-            const int HTBOTTOMRIGHT = 17;
 
             var atTop = point.Y <= border;
             var atBottom = point.Y >= Height - border;
-            var atLeft = point.X <= border;
-            var atRight = point.X >= Width - border;
 
-            if (atTop && atLeft) { handled = true; return HTTOPLEFT; }
-            if (atTop && atRight) { handled = true; return HTTOPRIGHT; }
-            if (atBottom && atLeft) { handled = true; return HTBOTTOMLEFT; }
-            if (atBottom && atRight) { handled = true; return HTBOTTOMRIGHT; }
+            // Width is fixed (500px), so only allow vertical resize via top/bottom edges
             if (atTop) { handled = true; return HTTOP; }
             if (atBottom) { handled = true; return HTBOTTOM; }
-            if (atLeft) { handled = true; return HTLEFT; }
-            if (atRight) { handled = true; return HTRIGHT; }
 
             handled = true;
             return HTCLIENT;
@@ -603,20 +592,44 @@ public sealed partial class DashboardWindow : Window
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
-        BringToFront();
     }
 
-    internal void BringToFront()
+    private void Window_ContentRendered(object sender, EventArgs e)
     {
-        Topmost = true;
-        Activate();
-        Dispatcher.BeginInvoke(new Action(() => Topmost = false),
-            System.Windows.Threading.DispatcherPriority.Background);
+        FadeIn();
     }
 
     private void Window_Closing(object sender, CancelEventArgs e)
     {
         SaveWindowPosition();
+    }
+
+    private void FadeIn()
+    {
+        if (_headless)
+            return;
+
+        if (_suppressActivation)
+        {
+            Opacity = 1;
+            return;
+        }
+
+        var anim = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(250))
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+        anim.Completed += (_, _) => BringToFront();
+        BeginAnimation(OpacityProperty, anim);
+    }
+
+    internal void BringToFront()
+    {
+        if (_suppressActivation) return;
+        Topmost = true;
+        Activate();
+        Dispatcher.BeginInvoke(new Action(() => Topmost = false),
+            System.Windows.Threading.DispatcherPriority.Background);
     }
 
     private void CopyLog_Click(object sender, RoutedEventArgs e)
@@ -788,6 +801,17 @@ public sealed partial class DashboardWindow : Window
         ScheduleMoveResizeSave();
     }
 
+    private void TooltipIcon_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        // Force tooltip to close immediately when mouse leaves the icon
+        if (sender is System.Windows.DependencyObject d)
+        {
+            System.Windows.Controls.ToolTipService.SetIsEnabled(d, false);
+            _ = Dispatcher.InvokeAsync(() => System.Windows.Controls.ToolTipService.SetIsEnabled(d, true),
+                System.Windows.Threading.DispatcherPriority.Background);
+        }
+    }
+
     private void Window_SizeChanged(object sender, SizeChangedEventArgs e)
     {
         ScheduleMoveResizeSave();
@@ -845,27 +869,41 @@ public sealed partial class DashboardWindow : Window
     private void CurrencyChaos_Unchecked(object sender, RoutedEventArgs e) { if (!_loading && CurrencyExaltCheck.IsChecked != true) CurrencyChaosCheck.IsChecked = true; }
     private void CurrencyExalt_Unchecked(object sender, RoutedEventArgs e) { if (!_loading && CurrencyChaosCheck.IsChecked != true) CurrencyExaltCheck.IsChecked = true; }
 
+    private void DebugOverlayCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        var enabled = DebugOverlayCheck.IsChecked == true;
+        HideDebugOverlayCheck.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+        SaveDebugImagesCheck.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+    }
+
     private void RestoreWindowPosition()
     {
+        Width = 500;
         var pos = _vm.RestoreWindowPosition();
-        if (pos is not { } p) return;
 
-        if (!double.IsNaN(p.Width) && p.Width >= MinWidth)
-            Width = Math.Min(p.Width, SystemParameters.VirtualScreenWidth);
-        if (!double.IsNaN(p.Height) && p.Height >= MinHeight)
-            Height = Math.Min(p.Height, SystemParameters.VirtualScreenHeight);
-        if (double.IsNaN(p.Left) || double.IsNaN(p.Top)) return;
-
-        var vr = new Rect(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
-            SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
-        if (p.Left >= vr.Left && p.Top >= vr.Top && p.Left + Width <= vr.Right && p.Top + Height <= vr.Bottom)
-        { Left = p.Left; Top = p.Top; }
+        if (pos is { } p && !double.IsNaN(p.Left) && !double.IsNaN(p.Top)
+            && p.Left >= SystemParameters.VirtualScreenLeft
+            && p.Top >= SystemParameters.VirtualScreenTop
+            && p.Left + Width <= SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth
+            && p.Top + (double.IsNaN(p.Height) ? Height : Math.Min(p.Height, SystemParameters.VirtualScreenHeight)) <= SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight)
+        {
+            Left = p.Left;
+            Top = p.Top;
+            if (!double.IsNaN(p.Height) && p.Height >= MinHeight)
+                Height = Math.Min(p.Height, SystemParameters.VirtualScreenHeight);
+        }
+        else
+        {
+            Left = (SystemParameters.WorkArea.Width - Width) / 2 + SystemParameters.WorkArea.Left;
+            Top = (SystemParameters.WorkArea.Height - Height) / 2 + SystemParameters.WorkArea.Top;
+        }
     }
 
     private void SaveWindowPosition()
     {
         if (WindowState != WindowState.Normal) return;
-        _vm.SaveWindowPosition(Left, Top, Width, Height);
+        _vm.SaveWindowPosition(Left, Top, 500, Height);
     }
 
     private static readonly Dictionary<string, string> TesseractLanguageNames = new()
@@ -980,3 +1018,4 @@ public sealed class LogEntryViewModel : INotifyPropertyChanged
         UpdateDisplayText();
     }
 }
+// force rebuild 17:04:26

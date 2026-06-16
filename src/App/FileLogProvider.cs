@@ -36,7 +36,7 @@ public sealed class FileLogProvider : ILoggerProvider
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
             var message = formatter(state, exception);
-            var line = $"{DateTime.Now:HH:mm:ss.fff} [{logLevel.ToString()[..4]}] {category}: {message}";
+            var line = $"{DateTime.Now:HH:mm:ss.fff} [{logLevel}] {category}: {message}";
             if (exception is not null) line += $"\n{exception}";
             provider.Write(line);
         }
