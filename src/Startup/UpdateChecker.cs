@@ -26,6 +26,10 @@ internal sealed class UpdateChecker(
     private string? _changelogVersion;
     private CancellationToken _stoppingToken;
 
+    internal const string UpdateMarkerName = ".update-pending";
+    internal static string UpdateMarkerPath => Path.Combine(AppContext.BaseDirectory, UpdateMarkerName);
+    internal const string StagingDirPrefix = "runeshape-staging-";
+
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         _stoppingToken = cancellationToken;
@@ -91,26 +95,27 @@ internal sealed class UpdateChecker(
         catch (Exception ex) { logger.LogWarning(ex, "Updater repair failed."); }
     }
 
-    private void RunPowerShellUpdate(string zipPath, string installDir)
+    private void RunPowerShellUpdate(string zipPath, string stagingDir, string installDir)
     {
         var escapedZip = zipPath.Replace("'", "''");
         var escapedInstall = installDir.Replace("'", "''");
+        var escapedStage = stagingDir.Replace("'", "''");
         var scriptPath = Path.Combine(Path.GetTempPath(), $"runeshape-update-{Guid.NewGuid():N}.ps1");
         var script = $@"
         $ErrorActionPreference = 'Stop'
         Start-Sleep -Seconds 2
-        $staging = Join-Path $env:TEMP ""runeshape-staging-$(New-Guid)""
         try {{
-            Expand-Archive -Path '{escapedZip}' -DestinationPath $staging -Force
+            Expand-Archive -Path '{escapedZip}' -DestinationPath '{escapedStage}' -Force
             Remove-Item '{escapedZip}' -Force -ErrorAction SilentlyContinue
-            Get-ChildItem $staging -Recurse -File | ForEach-Object {{
-                $relative = $_.FullName.Substring($staging.Length + 1)
+            Get-ChildItem '{escapedStage}' -Recurse -File | ForEach-Object {{
+                $relative = $_.FullName.Substring('{escapedStage}'.Length + 1)
                 $target = Join-Path '{escapedInstall}' $relative
                 $targetDir = Split-Path $target -Parent
                 if (-not (Test-Path $targetDir)) {{ New-Item -ItemType Directory -Path $targetDir -Force | Out-Null }}
                 Copy-Item $_.FullName $target -Force
             }}
-            Remove-Item $staging -Recurse -Force
+            Remove-Item '{escapedStage}' -Recurse -Force
+            Remove-Item (Join-Path '{escapedInstall}' '{UpdateMarkerName}') -Force -ErrorAction SilentlyContinue
             Start-Process (Join-Path '{escapedInstall}' 'RuneshapePriceChecker.exe')
         }} catch {{
             Write-Error $_.Exception.Message
@@ -133,6 +138,8 @@ internal sealed class UpdateChecker(
         {
             logger.LogError(ex, "Failed to launch PowerShell update script.");
             try { File.Delete(scriptPath); } catch { }
+            try { File.Delete(UpdateMarkerPath); } catch { }
+            DashboardWindow.IsUpdating = false;
             throw;
         }
         logger.LogInformation("PowerShell update script launched.");
@@ -279,6 +286,7 @@ internal sealed class UpdateChecker(
             return;
         }
 
+        DashboardWindow.IsUpdating = true;
         WriteChangelogToSettings();
 
         var installDir = AppContext.BaseDirectory;
@@ -326,6 +334,10 @@ internal sealed class UpdateChecker(
                 }
             }
 
+            // Write marker before launching PowerShell so startup can detect interrupted updates
+            var stagingDir = Path.Combine(Path.GetTempPath(), $"{StagingDirPrefix}{Guid.NewGuid():N}");
+            try { File.WriteAllText(UpdateMarkerPath, stagingDir); } catch { }
+
             logger.LogInformation("Download complete. Extracting updater...");
             progress?.Report(100);
 
@@ -335,15 +347,21 @@ internal sealed class UpdateChecker(
             }
 
             logger.LogInformation("Extracting update...");
-            RunPowerShellUpdate(tempZip, installDir);
+            RunPowerShellUpdate(tempZip, stagingDir, installDir);
             await Task.Delay(500);
+            DashboardWindow.IsUpdating = false;
             lifetime.StopApplication();
         }
         catch (Exception ex)
         {
             try { File.Delete(tempZip); } catch { }
+            try { File.Delete(UpdateMarkerPath); } catch { }
             logger.LogError(ex, "Update failed.");
             throw;
+        }
+        finally
+        {
+            DashboardWindow.IsUpdating = false;
         }
     }
 

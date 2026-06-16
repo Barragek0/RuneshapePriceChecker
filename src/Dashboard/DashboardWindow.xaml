@@ -10,7 +10,7 @@
         SourceInitialized="Window_SourceInitialized"
         MinWidth="500"
         MaxWidth="500"
-        MinHeight="636"
+        MinHeight="640"
         Width="500"
         Height="691"
         WindowStartupLocation="Manual"
@@ -85,7 +85,8 @@
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
                                 CornerRadius="5"
-                                Padding="{TemplateBinding Padding}">
+                                Padding="{TemplateBinding Padding}"
+                                IsHitTestVisible="False">
                             <ContentPresenter>
                                 <ContentPresenter.Resources>
                                     <Style TargetType="TextBlock">
@@ -470,19 +471,21 @@
         <Style x:Key="TooltipIcon"
                TargetType="TextBlock">
             <Setter Property="Text"
-                    Value="&#x24D8;"/>
+                    Value="&#x1F6C8;"/>
             <Setter Property="FontSize"
-                    Value="14"/>
+                    Value="16"/>
             <Setter Property="VerticalAlignment"
                     Value="Center"/>
             <Setter Property="Margin"
-                    Value="5,0,0,0"/>
-            <Setter Property="ToolTipService.InitialShowDelay"
-                    Value="0"/>
+                    Value="5,-1,0,0"/>
+            <Setter Property="ToolTipService.IsEnabled"
+                    Value="False"/>
             <Setter Property="Cursor"
                     Value="Help"/>
             <Setter Property="Foreground"
                     Value="{StaticResource TextSecondary}"/>
+            <EventSetter Event="MouseEnter"
+                         Handler="TooltipIcon_MouseEnter"/>
             <EventSetter Event="MouseLeave"
                          Handler="TooltipIcon_MouseLeave"/>
             <Style.Triggers>
@@ -495,618 +498,664 @@
         </Style>
     </Window.Resources>
 
-    <Border Background="{StaticResource SurfaceBrush}"
-            CornerRadius="10">
+    <Grid>
+        <Border Background="{StaticResource SurfaceBrush}"
+                CornerRadius="10">
 
-        <Grid>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-            </Grid.RowDefinitions>
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
 
-            <!-- Header -->
-            <Grid Grid.Row="0">
-                <Border x:Name="HeaderSection"
-                        Background="{StaticResource SurfaceAltBrush}"
-                        CornerRadius="10,10,0,0"
-                        Padding="10,8,108,8"
-                        MouseEnter="Section_MouseEnter"
-                        MouseLeave="Section_MouseLeave">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <Image Grid.Column="0"
-                               Source="rune.ico"
-                               Width="43"
-                               Height="43"
-                               VerticalAlignment="Center"
-                               Margin="0,0,10,0"/>
-                        <StackPanel Grid.Column="1"
-                                    VerticalAlignment="Center">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="RuneshapePriceChecker"
-                                           Foreground="{StaticResource TextPrimary}"
-                                           FontSize="15"
-                                           FontWeight="SemiBold"/>
-                                <TextBlock x:Name="VersionRun"
-                                           Text="v0.0.0"
-                                           Foreground="{StaticResource TextSecondary}"
-                                           FontSize="11"
-                                           Margin="6,5,0,0"/>
-                            </StackPanel>
-                            <TextBlock x:Name="StatusLabel"
-                                       Foreground="{StaticResource GreenBrush}"
-                                       FontSize="12"
-                                       Margin="0,2,0,0">● Ready</TextBlock>
-                        </StackPanel>
-                    </Grid>
-                </Border>
-
-                <Border x:Name="UpdateBadge"
-                        HorizontalAlignment="Right"
-                        VerticalAlignment="Top"
-                        Margin="0,6,74,0"
-                        Padding="6,3"
-                        Background="{StaticResource DarkGreenBgBrush}"
-                        BorderBrush="{StaticResource GreenBrush}"
-                        BorderThickness="1"
-                        CornerRadius="6"
-                        Visibility="Collapsed"
-                        Cursor="Hand"
-                        SnapsToDevicePixels="True"
-                        MouseEnter="UpdateBadge_MouseEnter"
-                        MouseLeave="UpdateBadge_MouseLeave"
-                        MouseLeftButtonDown="Update_Click">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="Update"
-                                   Foreground="{StaticResource GreenBrush}"
-                                   FontSize="10"
-                                   FontWeight="SemiBold"
+                <!-- Header -->
+                <Grid Grid.Row="0">
+                    <Border x:Name="HeaderSection"
+                            Background="{StaticResource SurfaceAltBrush}"
+                            CornerRadius="10,10,0,0"
+                            Padding="10,8,108,8"
+                            MouseEnter="Section_MouseEnter"
+                            MouseLeave="Section_MouseLeave">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Image Grid.Column="0"
+                                   Source="rune.ico"
+                                   Width="43"
+                                   Height="43"
                                    VerticalAlignment="Center"
-                                   Margin="0,0,4,0"/>
-                        <TextBlock Text="&#x2B07;"
-                                   Foreground="{StaticResource GreenBrush}"
-                                   FontSize="14"
-                                   VerticalAlignment="Center"/>
-                    </StackPanel>
-                </Border>
+                                   Margin="0,0,10,0"/>
+                            <StackPanel Grid.Column="1"
+                                        VerticalAlignment="Center">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="RuneshapePriceChecker"
+                                               Foreground="{StaticResource TextPrimary}"
+                                               FontSize="15"
+                                               FontWeight="SemiBold"/>
+                                    <TextBlock x:Name="VersionRun"
+                                               Text="v0.0.0"
+                                               Foreground="{StaticResource TextSecondary}"
+                                               FontSize="11"
+                                               Margin="6,5,0,0"/>
+                                </StackPanel>
+                                <TextBlock x:Name="StatusLabel"
+                                           Foreground="{StaticResource GreenBrush}"
+                                           FontSize="12"
+                                           Margin="0,2,0,0">● Ready</TextBlock>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
 
-                <StackPanel x:Name="UpdateProgressPanel"
-                            Orientation="Horizontal"
+                    <Border x:Name="UpdateBadge"
                             HorizontalAlignment="Right"
                             VerticalAlignment="Top"
                             Margin="0,6,74,0"
-                            Visibility="Collapsed">
-                    <Ellipse Width="16"
-                             Height="16"
-                             Stroke="{StaticResource AccentBrush}"
-                             StrokeThickness="3"
-                             StrokeDashArray="0.8 0.2"
-                             RenderTransformOrigin="0.5,0.5"
-                             VerticalAlignment="Center"
-                             Margin="0,0,6,0">
-                        <Ellipse.RenderTransform>
-                            <RotateTransform x:Name="SpinnerRotate"
-                                             Angle="0"/>
-                        </Ellipse.RenderTransform>
-                    </Ellipse>
-                    <TextBlock x:Name="UpdateProgressText"
-                               Text="0%"
-                               Foreground="{StaticResource AccentBrush}"
-                               FontSize="13"
-                               FontWeight="SemiBold"
-                               VerticalAlignment="Center"/>
-                </StackPanel>
-                <Button Width="30"
-                        Height="30"
-                        Style="{StaticResource IconButtonStyle}"
-                        HorizontalAlignment="Right"
-                        VerticalAlignment="Top"
-                        Background="Transparent"
-                        BorderThickness="0"
-                        Margin="0,6,38,0"
-                        AutomationProperties.Name="Settings"
-                        Click="Settings_Click">
-                    <TextBlock Text="&#x2699;"
-                               Foreground="{StaticResource TextSecondary}"
-                               FontSize="18"
-                               HorizontalAlignment="Center"
-                               VerticalAlignment="Center"/>
-                </Button>
-                <Border x:Name="TestModeIndicator"
-                        AutomationProperties.AutomationId="TestModeIndicator"
-                        Visibility="Collapsed"
-                        HorizontalAlignment="Right"
-                        VerticalAlignment="Top"
-                        Margin="0,6,70,0"
-                        Padding="4,2"
-                        BorderBrush="{StaticResource RedBrush}"
-                        BorderThickness="1.5"
-                        CornerRadius="3"
-                        Background="#22F87171">
-                    <TextBlock Text="TEST MODE"
-                               Foreground="{StaticResource RedBrush}"
-                               FontSize="9"
-                               FontWeight="Bold"/>
-                </Border>
-                <Button Width="30"
-                        Height="30"
-                        Style="{StaticResource IconButtonStyle}"
-                        HorizontalAlignment="Right"
-                        VerticalAlignment="Top"
-                        Background="Transparent"
-                        BorderThickness="0"
-                        Margin="0,6,6,0"
-                        AutomationProperties.Name="Close"
-                        Click="Close_Click">
-                    <TextBlock Text="✕"
-                               Foreground="{StaticResource RedBrush}"
-                               FontSize="17"
-                               HorizontalAlignment="Center"
-                               VerticalAlignment="Center"/>
-                </Button>
-            </Grid>
+                            Padding="6,3"
+                            Background="{StaticResource DarkGreenBgBrush}"
+                            BorderBrush="{StaticResource GreenBrush}"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Visibility="Collapsed"
+                            Cursor="Hand"
+                            SnapsToDevicePixels="True"
+                            MouseEnter="UpdateBadge_MouseEnter"
+                            MouseLeave="UpdateBadge_MouseLeave"
+                            MouseLeftButtonDown="Update_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="Update"
+                                       Foreground="{StaticResource GreenBrush}"
+                                       FontSize="10"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,4,0"/>
+                            <TextBlock Text="&#x2B07;"
+                                       Foreground="{StaticResource GreenBrush}"
+                                       FontSize="14"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
 
-            <!-- Content area (log or settings) -->
-            <Grid Grid.Row="1">
-                <!-- Log panel -->
-                <Border x:Name="LogSection"
-                        Background="Transparent"
-                        CornerRadius="0,0,10,10"
-                        ClipToBounds="True"
-                        Visibility="Visible">
-                    <Grid>
-                        <ScrollViewer x:Name="LogScrollViewer"
-                                      VerticalScrollBarVisibility="Auto"
-                                      HorizontalScrollBarVisibility="Disabled"
-                                      Padding="10,6,10,0"
-                                      Background="Transparent">
-                            <ItemsControl x:Name="LogList"
-                                          ItemsSource="{Binding LogEntries}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Grid Margin="0,2,0,2">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="60"/>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="Auto"
-                                                                  MinWidth="45"/>
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0"
-                                                       Text="{Binding TimestampText}"
-                                                       Foreground="{Binding ForegroundBrush}"
-                                                       FontFamily="Segoe UI"
-                                                       FontSize="12"/>
-                                            <TextBlock Grid.Column="1"
-                                                       Text="{Binding MessageText}"
-                                                       Foreground="{Binding ForegroundBrush}"
-                                                       FontFamily="Segoe UI"
-                                                       FontSize="12"
-                                                       TextWrapping="Wrap"/>
-                                            <TextBlock Grid.Column="2"
-                                                       Text="{Binding CountText}"
-                                                       Foreground="{Binding ForegroundBrush}"
-                                                       FontFamily="Segoe UI"
-                                                       FontSize="12"
-                                                       Opacity="0.6"
-                                                       Margin="0,0,10,0"/>
-                                        </Grid>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </ScrollViewer>
-                        <Button x:Name="CopyLogButton"
-                                Width="35"
-                                Height="35"
-                                Style="{StaticResource IconButtonStyle}"
+                    <StackPanel x:Name="UpdateProgressPanel"
+                                Orientation="Horizontal"
                                 HorizontalAlignment="Right"
                                 VerticalAlignment="Top"
-                                Background="Transparent"
-                                BorderThickness="0"
-                                Margin="0,-1,10,0"
-                                AutomationProperties.Name="Copy Log"
-                                Click="CopyLog_Click"
-                                ToolTip="Copy log to clipboard">
-                            <TextBlock Text="&#x2398;"
-                                       Foreground="{StaticResource TextSecondary}"
-                                       FontSize="19"
-                                       HorizontalAlignment="Center"
-                                       VerticalAlignment="Center"/>
-                        </Button>
-                    </Grid>
-                </Border>
+                                Margin="0,6,74,0"
+                                Visibility="Collapsed">
+                        <Ellipse Width="16"
+                                 Height="16"
+                                 Stroke="{StaticResource AccentBrush}"
+                                 StrokeThickness="3"
+                                 StrokeDashArray="0.8 0.2"
+                                 RenderTransformOrigin="0.5,0.5"
+                                 VerticalAlignment="Center"
+                                 Margin="0,0,6,0">
+                            <Ellipse.RenderTransform>
+                                <RotateTransform x:Name="SpinnerRotate"
+                                                 Angle="0"/>
+                            </Ellipse.RenderTransform>
+                        </Ellipse>
+                        <TextBlock x:Name="UpdateProgressText"
+                                   Text="0%"
+                                   Foreground="{StaticResource AccentBrush}"
+                                   FontSize="13"
+                                   FontWeight="SemiBold"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <Button Width="30"
+                            Height="30"
+                            Style="{StaticResource IconButtonStyle}"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Top"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Margin="0,6,38,0"
+                            AutomationProperties.Name="Settings"
+                            Click="Settings_Click">
+                        <TextBlock Text="&#x2699;"
+                                   Foreground="{StaticResource TextSecondary}"
+                                   FontSize="18"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"/>
+                    </Button>
+                    <Border x:Name="TestModeIndicator"
+                            AutomationProperties.AutomationId="TestModeIndicator"
+                            Visibility="Collapsed"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Top"
+                            Margin="0,6,70,0"
+                            Padding="4,2"
+                            BorderBrush="{StaticResource RedBrush}"
+                            BorderThickness="1.5"
+                            CornerRadius="3"
+                            Background="#22F87171">
+                        <TextBlock Text="TEST MODE"
+                                   Foreground="{StaticResource RedBrush}"
+                                   FontSize="9"
+                                   FontWeight="Bold"/>
+                    </Border>
+                    <Button Width="30"
+                            Height="30"
+                            Style="{StaticResource IconButtonStyle}"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Top"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Margin="0,6,6,0"
+                            AutomationProperties.Name="Close"
+                            Click="Close_Click">
+                        <TextBlock Text="✕"
+                                   Foreground="{StaticResource RedBrush}"
+                                   FontSize="17"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"/>
+                    </Button>
+                </Grid>
 
-                <!-- Changelog panel -->
-                <Border x:Name="ChangelogSection"
-                        Background="Transparent"
-                        CornerRadius="0,0,10,10"
-                        ClipToBounds="True"
-                        Visibility="Collapsed">
-                    <Grid Margin="12,8,2,8">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="*"/>
-                        </Grid.RowDefinitions>
-                        <FlowDocumentScrollViewer x:Name="ChangelogViewer"
-                                                  Grid.Row="0"
-                                                  Grid.RowSpan="2"
-                                                  VerticalScrollBarVisibility="Auto"
-                                                  HorizontalScrollBarVisibility="Disabled"
-                                                  Background="Transparent"
-                                                  Padding="0"
-                                                  Margin="0,0,0,44"/>
-                        <Button Grid.Row="1"
-                                Width="100"
-                                Height="32"
-                                Background="{StaticResource GreenBtnBrush}"
-                                Foreground="White"
-                                BorderThickness="0"
-                                FontSize="13"
-                                FontWeight="SemiBold"
-                                Content="Got it"
-                                Click="ChangelogClose_Click"
-                                HorizontalAlignment="Right"
-                                VerticalAlignment="Bottom"
-                                Margin="0,0,0,4"/>
-                    </Grid>
-                </Border>
+                <!-- Content area (log or settings) -->
+                <Grid Grid.Row="1">
+                    <!-- Log panel -->
+                    <Border x:Name="LogSection"
+                            Background="Transparent"
+                            CornerRadius="0,0,10,10"
+                            ClipToBounds="True"
+                            Visibility="Visible">
+                        <Grid>
+                            <ScrollViewer x:Name="LogScrollViewer"
+                                          VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled"
+                                          Padding="10,6,10,0"
+                                          Background="Transparent">
+                                <ItemsControl x:Name="LogList"
+                                              ItemsSource="{Binding LogEntries}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="0,2,0,2">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="60"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"
+                                                                      MinWidth="45"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0"
+                                                           Text="{Binding TimestampText}"
+                                                           Foreground="{Binding ForegroundBrush}"
+                                                           FontFamily="Segoe UI"
+                                                           FontSize="12"/>
+                                                <TextBlock Grid.Column="1"
+                                                           Text="{Binding MessageText}"
+                                                           Foreground="{Binding ForegroundBrush}"
+                                                           FontFamily="Segoe UI"
+                                                           FontSize="12"
+                                                           TextWrapping="Wrap"/>
+                                                <TextBlock Grid.Column="2"
+                                                           Text="{Binding CountText}"
+                                                           Foreground="{Binding ForegroundBrush}"
+                                                           FontFamily="Segoe UI"
+                                                           FontSize="12"
+                                                           Opacity="0.6"
+                                                           Margin="0,0,10,0"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                            <Button x:Name="CopyLogButton"
+                                    Width="35"
+                                    Height="35"
+                                    Style="{StaticResource IconButtonStyle}"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Top"
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    Margin="0,-1,10,0"
+                                    AutomationProperties.Name="Copy Log"
+                                    Click="CopyLog_Click"
+                                    ToolTip="Copy log to clipboard">
+                                <TextBlock Text="&#x2398;"
+                                           Foreground="{StaticResource TextSecondary}"
+                                           FontSize="19"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"/>
+                            </Button>
+                        </Grid>
+                    </Border>
 
-                <!-- Setup prompt panel -->
-                <Border x:Name="SetupPromptSection"
-                        Background="Transparent"
-                        CornerRadius="0,0,10,10"
-                        Visibility="Collapsed">
-                    <Grid Margin="16,20">
-                        <StackPanel VerticalAlignment="Center"
-                                    HorizontalAlignment="Center"
-                                    MaxWidth="380">
-                            <TextBlock Text="Open the league panel interface in the game, then press Continue to set up the overlay."
-                                       Foreground="{StaticResource TextPrimary}"
-                                       FontSize="15"
-                                       FontWeight="SemiBold"
-                                       TextWrapping="Wrap"
-                                       TextAlignment="Center"
-                                       Margin="0,0,0,20"/>
-                            <Button x:Name="SetupContinueButton"
-                                    Width="160"
-                                    Height="36"
+                    <!-- Changelog panel -->
+                    <Border x:Name="ChangelogSection"
+                            Background="Transparent"
+                            CornerRadius="0,0,10,10"
+                            ClipToBounds="True"
+                            Visibility="Collapsed">
+                        <Grid Margin="12,8,2,8">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <FlowDocumentScrollViewer x:Name="ChangelogViewer"
+                                                      Grid.Row="0"
+                                                      Grid.RowSpan="2"
+                                                      VerticalScrollBarVisibility="Auto"
+                                                      HorizontalScrollBarVisibility="Disabled"
+                                                      Background="Transparent"
+                                                      Padding="0"
+                                                      Margin="0,0,0,44"/>
+                            <Button Grid.Row="1"
+                                    Width="100"
+                                    Height="32"
                                     Background="{StaticResource GreenBtnBrush}"
                                     Foreground="White"
-                                    FontSize="14"
-                                    FontWeight="Bold"
                                     BorderThickness="0"
-                                    Content="Continue"
-                                    Click="SetupContinue_Click"/>
-                        </StackPanel>
-                    </Grid>
-                </Border>
+                                    FontSize="13"
+                                    FontWeight="SemiBold"
+                                    Content="Got it"
+                                    Click="ChangelogClose_Click"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Bottom"
+                                    Margin="0,0,0,4"/>
+                        </Grid>
+                    </Border>
 
-                <!-- Settings panel -->
-                <Border x:Name="SettingsSection"
-                        Background="Transparent"
-                        CornerRadius="0,0,10,10"
-                        ClipToBounds="True"
-                        Visibility="Collapsed">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="*"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
-                        <ScrollViewer Grid.Row="0"
-                                      VerticalScrollBarVisibility="Auto"
-                                      Padding="20,12,20,12">
-                            <StackPanel>
-                                <!-- App -->
-                                <TextBlock Style="{StaticResource SectionHeader}"
-                                           Text="App"/>
-                                <Grid>
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
-                                    </Grid.RowDefinitions>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="*"/>
-                                    </Grid.ColumnDefinitions>
-                                    <CheckBox x:Name="AutoUpdateCheck"
-                                              Grid.Row="0"
-                                              Grid.Column="0"
-                                              VerticalAlignment="Center"
-                                              ToolTip="Automatically check for and download new versions from GitHub">Check for updates</CheckBox>
-                                    <StackPanel Grid.Row="1"
-                                                Grid.Column="0"
-                                                Orientation="Horizontal"
-                                                Margin="28,4,0,0">
-                                        <Button Content="View Changelog"
-                                                HorizontalAlignment="Left"
-                                                Background="Transparent"
-                                                Foreground="{StaticResource AccentBrush}"
-                                                BorderThickness="0"
-                                                FontSize="12"
-                                                Cursor="Hand"
-                                                Click="ViewChangelog_Click"/>
-                                        <Ellipse x:Name="ChangelogSpinner"
-                                                 Width="10"
-                                                 Height="10"
-                                                 Stroke="{StaticResource AccentBrush}"
-                                                 StrokeThickness="2"
-                                                 StrokeDashArray="0.6 0.15"
-                                                 RenderTransformOrigin="0.5,0.5"
-                                                 VerticalAlignment="Center"
-                                                 Margin="6,0,0,0"
-                                                 Visibility="Collapsed">
-                                            <Ellipse.RenderTransform>
-                                                <RotateTransform x:Name="ChangelogSpinnerRotate"
-                                                                 Angle="0"/>
-                                            </Ellipse.RenderTransform>
-                                        </Ellipse>
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="0"
-                                                Grid.RowSpan="2"
-                                                Grid.Column="1">
-                                        <StackPanel Orientation="Horizontal"
-                                                    Margin="14,0,0,6">
-                                            <TextBlock Text="Log Level"
-                                                       Foreground="#B8BEC6"
-                                                       FontSize="13"
-                                                       VerticalAlignment="Center"/>
-                                            <TextBlock Style="{StaticResource TooltipIcon}"
-                                                       ToolTip="Changing the log level will restart the app."/>
-                                        </StackPanel>
-                                        <ComboBox x:Name="LogLevelCombo"
-                                                  Width="130"
-                                                  HorizontalAlignment="Left"
-                                                  Margin="14,0,0,0"
-                                                  IsEditable="False"
-                                                  ToolTip="Controls how much detail appears in the log panel below"/>
-                                    </StackPanel>
-                                </Grid>
-
-                                <!-- spacer -->
-                                <Border Height="12"/>
-
-                                <!-- Pricing -->
-                                <TextBlock Style="{StaticResource SectionHeader}"
-                                           Text="Pricing"/>
-                                <Grid Margin="0,0,0,8">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="*"/>
-                                    </Grid.ColumnDefinitions>
-
-                                    <StackPanel Grid.Column="0">
-                                        <TextBlock Style="{StaticResource FieldLabel}"
-                                                   Text="League"/>
-                                        <ComboBox x:Name="LeagueCombo"
-                                                  Width="130"
-                                                  HorizontalAlignment="Left"
-                                                  Margin="14,0,0,0"
-                                                  IsEditable="False"/>
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="1">
-                                        <StackPanel Orientation="Horizontal"
-                                                    Margin="14,0,0,6">
-                                            <TextBlock Text="Pricing Source"
-                                                       Foreground="#B8BEC6"
-                                                       FontSize="13"
-                                                       VerticalAlignment="Center"/>
-                                            <TextBlock Style="{StaticResource TooltipIcon}"
-                                                       ToolTip="poe2scout sources prices from the last 24 hours for better accuracy. poe.ninja uses only the latest listed price."/>
-                                        </StackPanel>
-                                        <ComboBox x:Name="PricingSourceCombo"
-                                                  Width="130"
-                                                  HorizontalAlignment="Left"
-                                                  Margin="14,0,0,0"
-                                                  IsEditable="False"/>
-                                    </StackPanel>
-                                </Grid>
-
-                                <Border Height="4"/>
-
-                                <Grid Margin="0,0,0,8">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="*"/>
-                                    </Grid.ColumnDefinitions>
-
-                                    <StackPanel Grid.Column="0">
-                                        <TextBlock Style="{StaticResource FieldLabel}"
-                                                   Text="Display Currency"
-                                                   Margin="14,0,0,4"/>
-                                        <StackPanel Orientation="Horizontal"
-                                                    Margin="10,12,0,0">
-                                            <CheckBox x:Name="CurrencyExaltCheck"
-                                                      Content="Exalt"
-                                                      VerticalAlignment="Top"
-                                                      Checked="CurrencyExalt_Checked"
-                                                      Unchecked="CurrencyExalt_Unchecked"/>
-                                            <CheckBox x:Name="CurrencyChaosCheck"
-                                                      Content="Chaos"
-                                                      VerticalAlignment="Top"
-                                                      Margin="30,0,0,0"
-                                                      Checked="CurrencyChaos_Checked"
-                                                      Unchecked="CurrencyChaos_Unchecked"/>
-                                        </StackPanel>
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="1">
-                                        <TextBlock Style="{StaticResource FieldLabel}"
-                                                   Text="Price Color Thresholds"
-                                                   Margin="14,0,0,4"/>
-                                        <StackPanel Orientation="Horizontal"
-                                                    HorizontalAlignment="Left"
-                                                    Margin="14,0,0,0">
-                                            <StackPanel Margin="0,0,10,0">
-                                                <TextBlock Foreground="{StaticResource RedBrush}"
-                                                           FontSize="11"
-                                                           Text="Red"
-                                                           Margin="0,0,0,2"
-                                                           HorizontalAlignment="Center"/>
-                                                <TextBox x:Name="RedThresholdBox"
-                                                         Width="48"
-                                                         MaxLength="3"
-                                                         FontSize="12"
-                                                         Padding="1,1"
-                                                         HorizontalAlignment="Center"
-                                                         TextAlignment="Center"
-                                                         ToolTip="Items priced below this many Chaos Orbs will show as red"
-                                                         PreviewTextInput="ThresholdBox_PreviewTextInput"
-                                                         TextChanged="ThresholdBox_TextChanged"/>
-                                            </StackPanel>
-                                            <StackPanel Margin="0,0,10,0">
-                                                <TextBlock Foreground="{StaticResource AmberBrush}"
-                                                           FontSize="11"
-                                                           Text="Orange"
-                                                           Margin="0,0,0,2"
-                                                           HorizontalAlignment="Center"/>
-                                                <TextBox x:Name="OrangeThresholdBox"
-                                                         Width="48"
-                                                         MaxLength="3"
-                                                         FontSize="12"
-                                                         Padding="1,1"
-                                                         HorizontalAlignment="Center"
-                                                         TextAlignment="Center"
-                                                         ToolTip="Items priced between Red and this will show as orange"
-                                                         PreviewTextInput="ThresholdBox_PreviewTextInput"
-                                                         TextChanged="ThresholdBox_TextChanged"/>
-                                            </StackPanel>
-                                            <StackPanel>
-                                                <TextBlock Foreground="{StaticResource GreenBrush}"
-                                                           FontSize="11"
-                                                           Text="Green"
-                                                           Margin="0,0,0,2"
-                                                           HorizontalAlignment="Center"/>
-                                                <TextBox x:Name="GreenThresholdBox"
-                                                         Width="48"
-                                                         MaxLength="3"
-                                                         FontSize="12"
-                                                         Padding="1,1"
-                                                         HorizontalAlignment="Center"
-                                                         TextAlignment="Center"
-                                                         ToolTip="Items priced above this will show as green"
-                                                         PreviewTextInput="ThresholdBox_PreviewTextInput"
-                                                         TextChanged="ThresholdBox_TextChanged"/>
-                                            </StackPanel>
-                                        </StackPanel>
-                                    </StackPanel>
-                                </Grid>
-
-                                <!-- spacer -->
-                                <Border Height="12"/>
-
-                                <!-- OCR -->
-                                <TextBlock Style="{StaticResource SectionHeader}"
-                                           Text="OCR"/>
-                                <Grid Margin="0,0,0,10">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="*"/>
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="0">
-                                        <StackPanel Orientation="Horizontal"
-                                                    Margin="14,0,0,6">
-                                            <TextBlock Text="Game Language"
-                                                       Foreground="#B8BEC6"
-                                                       FontSize="13"
-                                                       VerticalAlignment="Center"/>
-                                            <TextBlock Style="{StaticResource TooltipIcon}"
-                                                       ToolTip="OCR language must match your game client. Price data is always English — non-English items are translated via the official trade API."/>
-                                        </StackPanel>
-                                        <ComboBox x:Name="LanguageCombo"
-                                                  Width="130"
-                                                  HorizontalAlignment="Left"
-                                                  Margin="14,0,0,0"
-                                                  IsEditable="False"/>
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="1"
-                                                Margin="24,0,0,0">
-                                        <StackPanel Orientation="Horizontal"
-                                                    Margin="14,0,0,6">
-                                            <TextBlock Text="OCR Backend"
-                                                       Foreground="#B8BEC6"
-                                                       FontSize="13"
-                                                       VerticalAlignment="Center"/>
-                                            <TextBlock Style="{StaticResource TooltipIcon}"
-                                                       ToolTip="Windows OCR is faster and uses less CPU. Only switch to Tesseract if Windows OCR isn't working correctly for you."/>
-                                        </StackPanel>
-                                        <ComboBox x:Name="OcrBackendCombo"
-                                                  Width="112"
-                                                  HorizontalAlignment="Left"
-                                                  Margin="14,0,0,0"
-                                                  IsEditable="False"/>
-                                    </StackPanel>
-                                    <Button x:Name="ReRunSetupBtn"
-                                            Grid.Column="2"
-                                            Width="120"
-                                            Height="28"
-                                            Background="{StaticResource SurfaceAltBrush}"
-                                            Foreground="{StaticResource AccentBrush}"
-                                            BorderBrush="{StaticResource BorderBrush}"
-                                            BorderThickness="1"
-                                            FontSize="11"
-                                            Margin="16,16,12,0"
-                                            VerticalAlignment="Bottom"
-                                            HorizontalAlignment="Right"
-                                            Click="ReRunSetup_Click"
-                                            ToolTip="Re-run the initial OCR region setup wizard">
-                                        Re-run initial setup
-                                    </Button>
-                                </Grid>
-
-                                <CheckBox x:Name="DebugOverlayCheck"
-                                          Checked="DebugOverlayCheck_Changed"
-                                          Unchecked="DebugOverlayCheck_Changed">
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="Show debug overlay"
-                                                   VerticalAlignment="Center"/>
-                                        <TextBlock Style="{StaticResource TooltipIcon}"
-                                                   ToolTip="Show a semi-transparent overlay marking the OCR capture region, detected item rows, and cursor position"/>
-                                    </StackPanel>
-                                </CheckBox>
-                                <CheckBox x:Name="HideDebugOverlayCheck"
-                                          Margin="20,4,0,0"
-                                          Content="Hide when league panel not detected"
-                                          Visibility="Collapsed"/>
-                                <CheckBox x:Name="SaveDebugImagesCheck"
-                                          Margin="20,4,0,0"
-                                          Content="Save debug images"
-                                          Visibility="Collapsed"/>
-                            </StackPanel>
-                        </ScrollViewer>
-
-                        <Grid Grid.Row="1"
-                              Margin="24,12,24,16">
-                            <TextBlock x:Name="ValidationError"
-                                       Foreground="{StaticResource RedBrush}"
-                                       FontSize="11"
-                                       VerticalAlignment="Center"
-                                       Text=""/>
-                            <StackPanel Orientation="Horizontal"
-                                        HorizontalAlignment="Right">
-                                <Button Width="80"
-                                        Height="32"
-                                        Background="{StaticResource SurfaceAltBrush}"
-                                        Foreground="{StaticResource RedBrush}"
-                                        BorderBrush="{StaticResource BorderBrush}"
-                                        FontSize="12"
-                                        Margin="0,0,8,0"
-                                        Click="SettingsCancel_Click">Cancel</Button>
-                                <Button x:Name="SaveBtn"
-                                        Width="80"
-                                        Height="32"
+                    <!-- Setup prompt panel -->
+                    <Border x:Name="SetupPromptSection"
+                            Background="Transparent"
+                            CornerRadius="0,0,10,10"
+                            Visibility="Collapsed">
+                        <Grid Margin="16,20">
+                            <StackPanel VerticalAlignment="Center"
+                                        HorizontalAlignment="Center"
+                                        MaxWidth="380">
+                                <TextBlock Text="Open the league panel interface in the game, then press Continue to set up the overlay."
+                                           Foreground="{StaticResource TextPrimary}"
+                                           FontSize="15"
+                                           FontWeight="SemiBold"
+                                           TextWrapping="Wrap"
+                                           TextAlignment="Center"
+                                           Margin="0,0,0,20"/>
+                                <Button x:Name="SetupContinueButton"
+                                        Width="160"
+                                        Height="36"
                                         Background="{StaticResource GreenBtnBrush}"
                                         Foreground="White"
+                                        FontSize="14"
+                                        FontWeight="Bold"
                                         BorderThickness="0"
-                                        FontSize="12"
-                                        FontWeight="SemiBold"
-                                        Click="SettingsSave_Click">Save</Button>
+                                        Content="Continue"
+                                        Click="SetupContinue_Click"/>
                             </StackPanel>
                         </Grid>
-                    </Grid>
-                </Border>
+                    </Border>
+
+                    <!-- Settings panel -->
+                    <Border x:Name="SettingsSection"
+                            Background="Transparent"
+                            CornerRadius="0,0,10,10"
+                            ClipToBounds="True"
+                            Visibility="Collapsed">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <ScrollViewer Grid.Row="0"
+                                          VerticalScrollBarVisibility="Auto"
+                                          Padding="20,12,20,12">
+                                <StackPanel>
+                                    <!-- App -->
+                                    <TextBlock Style="{StaticResource SectionHeader}"
+                                               Text="App"/>
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Row="0"
+                                                    Grid.Column="0"
+                                                    Orientation="Horizontal"
+                                                    VerticalAlignment="Center">
+                                            <CheckBox x:Name="AutoUpdateCheck"
+                                                      VerticalAlignment="Center">Check for updates</CheckBox>
+                                            <TextBlock Style="{StaticResource TooltipIcon}"
+                                                       ToolTip="Automatically check for and download new versions from GitHub"
+                                                       VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Row="1"
+                                                    Grid.Column="0"
+                                                    Orientation="Horizontal"
+                                                    Margin="28,2,0,0">
+                                            <Button Content="View Changelog"
+                                                    HorizontalAlignment="Left"
+                                                    Background="Transparent"
+                                                    Foreground="{StaticResource AccentBrush}"
+                                                    BorderThickness="0"
+                                                    FontSize="12"
+                                                    Cursor="Hand"
+                                                    Click="ViewChangelog_Click"/>
+                                            <Ellipse x:Name="ChangelogSpinner"
+                                                     Width="10"
+                                                     Height="10"
+                                                     Stroke="{StaticResource AccentBrush}"
+                                                     StrokeThickness="2"
+                                                     StrokeDashArray="0.6 0.15"
+                                                     RenderTransformOrigin="0.5,0.5"
+                                                     VerticalAlignment="Center"
+                                                     Margin="6,0,0,0"
+                                                     Visibility="Collapsed">
+                                                <Ellipse.RenderTransform>
+                                                    <RotateTransform x:Name="ChangelogSpinnerRotate"
+                                                                     Angle="0"/>
+                                                </Ellipse.RenderTransform>
+                                            </Ellipse>
+                                        </StackPanel>
+                                        <StackPanel Grid.Row="0"
+                                                    Grid.RowSpan="2"
+                                                    Grid.Column="1"
+                                                    VerticalAlignment="Top">
+                                            <StackPanel Orientation="Horizontal"
+                                                        Margin="14,0,0,6">
+                                                <TextBlock Text="Log Level"
+                                                           Foreground="#B8BEC6"
+                                                           FontSize="13"
+                                                           VerticalAlignment="Center"/>
+                                                <TextBlock Style="{StaticResource TooltipIcon}"
+                                                           ToolTip="Changing the log level will restart the app."
+                                                           VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                            <ComboBox x:Name="LogLevelCombo"
+                                                      Width="130"
+                                                      HorizontalAlignment="Left"
+                                                      Margin="14,0,0,0"
+                                                      IsEditable="False"/>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <!-- spacer -->
+                                    <Border Height="12"/>
+
+                                    <!-- Pricing -->
+                                    <TextBlock Style="{StaticResource SectionHeader}"
+                                               Text="Pricing"/>
+                                    <Grid Margin="0,0,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <StackPanel Grid.Column="0">
+                                            <StackPanel Orientation="Horizontal"
+                                                        Margin="14,0,0,6">
+                                                <TextBlock Style="{StaticResource FieldLabel}"
+                                                           Text="League"
+                                                           Margin="0,0,0,0"
+                                                           VerticalAlignment="Center"/>
+                                                <TextBlock Style="{StaticResource TooltipIcon}"
+                                                           ToolTip="Select the Path of Exile 2 league to fetch prices for"
+                                                           VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                            <ComboBox x:Name="LeagueCombo"
+                                                      Width="130"
+                                                      HorizontalAlignment="Left"
+                                                      Margin="14,0,0,0"
+                                                      VerticalAlignment="Top"
+                                                      IsEditable="False"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1">
+                                            <StackPanel Orientation="Horizontal"
+                                                        Margin="14,0,0,6">
+                                                <TextBlock Text="Pricing Source"
+                                                           Foreground="#B8BEC6"
+                                                           FontSize="13"
+                                                           VerticalAlignment="Center"/>
+                                                <TextBlock Style="{StaticResource TooltipIcon}"
+                                                           ToolTip="poe2scout sources prices from the last 24 hours for better accuracy. poe.ninja uses only the latest listed price."
+                                                           VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                            <ComboBox x:Name="PricingSourceCombo"
+                                                      Width="130"
+                                                      HorizontalAlignment="Left"
+                                                      Margin="14,0,0,0"
+                                                      VerticalAlignment="Top"
+                                                      IsEditable="False"/>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <Border Height="4"/>
+
+                                    <Grid Margin="0,0,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <StackPanel Grid.Column="0">
+                                            <StackPanel Orientation="Horizontal"
+                                                        Margin="14,0,0,4">
+                                                <TextBlock Style="{StaticResource FieldLabel}"
+                                                           Text="Display Currency"
+                                                           Margin="0,0,0,0"
+                                                           VerticalAlignment="Center"/>
+                                                <TextBlock Style="{StaticResource TooltipIcon}"
+                                                           ToolTip="Choose which currency to display prices in — Exalt or Chaos"
+                                                           VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                            <StackPanel Orientation="Horizontal"
+                                                        Margin="10,8,0,0">
+                                                <CheckBox x:Name="CurrencyExaltCheck"
+                                                          Content="Exalt"
+                                                          VerticalAlignment="Top"
+                                                          Checked="CurrencyExalt_Checked"
+                                                          Unchecked="CurrencyExalt_Unchecked"/>
+                                                <CheckBox x:Name="CurrencyChaosCheck"
+                                                          Content="Chaos"
+                                                          VerticalAlignment="Top"
+                                                          Margin="30,0,0,0"
+                                                          Checked="CurrencyChaos_Checked"
+                                                          Unchecked="CurrencyChaos_Unchecked"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1">
+                                            <StackPanel Orientation="Horizontal"
+                                                        Margin="14,0,0,4">
+                                                <TextBlock Style="{StaticResource FieldLabel}"
+                                                           Text="Price Color Thresholds"
+                                                           Margin="0,0,0,0"
+                                                           VerticalAlignment="Center"/>
+                                                <TextBlock Style="{StaticResource TooltipIcon}"
+                                                           ToolTip="Items below the Red threshold show as red, between Red and Orange show as orange, and above Green show as green"
+                                                           VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                            <StackPanel Orientation="Horizontal"
+                                                        HorizontalAlignment="Left"
+                                                        Margin="14,0,0,0">
+                                                <StackPanel Margin="0,0,10,0">
+                                                    <TextBlock Foreground="{StaticResource RedBrush}"
+                                                               FontSize="11"
+                                                               Text="Red"
+                                                               Margin="0,0,0,2"
+                                                               HorizontalAlignment="Center"/>
+                                                    <TextBox x:Name="RedThresholdBox"
+                                                             Width="48"
+                                                             MaxLength="3"
+                                                             FontSize="12"
+                                                             Padding="1,1"
+                                                             HorizontalAlignment="Center"
+                                                             TextAlignment="Center"
+                                                             PreviewTextInput="ThresholdBox_PreviewTextInput"
+                                                             TextChanged="ThresholdBox_TextChanged"/>
+                                                </StackPanel>
+                                                <StackPanel Margin="0,0,10,0">
+                                                    <TextBlock Foreground="{StaticResource AmberBrush}"
+                                                               FontSize="11"
+                                                               Text="Orange"
+                                                               Margin="0,0,0,2"
+                                                               HorizontalAlignment="Center"/>
+                                                    <TextBox x:Name="OrangeThresholdBox"
+                                                             Width="48"
+                                                             MaxLength="3"
+                                                             FontSize="12"
+                                                             Padding="1,1"
+                                                             HorizontalAlignment="Center"
+                                                             TextAlignment="Center"
+                                                             PreviewTextInput="ThresholdBox_PreviewTextInput"
+                                                             TextChanged="ThresholdBox_TextChanged"/>
+                                                </StackPanel>
+                                                <StackPanel>
+                                                    <TextBlock Foreground="{StaticResource GreenBrush}"
+                                                               FontSize="11"
+                                                               Text="Green"
+                                                               Margin="0,0,0,2"
+                                                               HorizontalAlignment="Center"/>
+                                                    <TextBox x:Name="GreenThresholdBox"
+                                                             Width="48"
+                                                             MaxLength="3"
+                                                             FontSize="12"
+                                                             Padding="1,1"
+                                                             HorizontalAlignment="Center"
+                                                             TextAlignment="Center"
+                                                             PreviewTextInput="ThresholdBox_PreviewTextInput"
+                                                             TextChanged="ThresholdBox_TextChanged"/>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <!-- spacer -->
+                                    <Border Height="12"/>
+
+                                    <!-- OCR -->
+                                    <TextBlock Style="{StaticResource SectionHeader}"
+                                               Text="OCR"/>
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0">
+                                            <StackPanel Orientation="Horizontal"
+                                                        Margin="14,0,0,6">
+                                                <TextBlock Text="Game Language"
+                                                           Foreground="#B8BEC6"
+                                                           FontSize="13"
+                                                           VerticalAlignment="Center"/>
+                                                <TextBlock Style="{StaticResource TooltipIcon}"
+                                                           ToolTip="OCR language must match your game client. Price data is always English — non-English items are translated via the official trade API."/>
+                                            </StackPanel>
+                                            <ComboBox x:Name="LanguageCombo"
+                                                      Width="130"
+                                                      HorizontalAlignment="Left"
+                                                      Margin="14,0,0,0"
+                                                      IsEditable="False"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1"
+                                                    Margin="24,0,0,0">
+                                            <StackPanel Orientation="Horizontal"
+                                                        Margin="14,0,0,6">
+                                                <TextBlock Text="OCR Backend"
+                                                           Foreground="#B8BEC6"
+                                                           FontSize="13"
+                                                           VerticalAlignment="Center"/>
+                                                <TextBlock Style="{StaticResource TooltipIcon}"
+                                                           ToolTip="Windows OCR is faster and uses less CPU. Only switch to Tesseract if Windows OCR isn't working correctly for you."/>
+                                            </StackPanel>
+                                            <ComboBox x:Name="OcrBackendCombo"
+                                                      Width="112"
+                                                      HorizontalAlignment="Left"
+                                                      Margin="14,0,0,0"
+                                                      IsEditable="False"/>
+                                        </StackPanel>
+                                        <Button x:Name="ReRunSetupBtn"
+                                                Grid.Column="2"
+                                                Width="120"
+                                                Height="28"
+                                                Background="{StaticResource SurfaceAltBrush}"
+                                                Foreground="{StaticResource AccentBrush}"
+                                                BorderBrush="{StaticResource BorderBrush}"
+                                                BorderThickness="1"
+                                                FontSize="11"
+                                                Margin="16,16,12,0"
+                                                VerticalAlignment="Bottom"
+                                                HorizontalAlignment="Right"
+                                                Click="ReRunSetup_Click">
+                                            Re-run initial setup
+                                        </Button>
+                                    </Grid>
+
+                                    <CheckBox x:Name="DebugOverlayCheck"
+                                              Checked="DebugOverlayCheck_Changed"
+                                              Unchecked="DebugOverlayCheck_Changed">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="Show debug overlay"
+                                                       VerticalAlignment="Center"/>
+                                            <TextBlock Style="{StaticResource TooltipIcon}"
+                                                       ToolTip="Show a semi-transparent overlay marking the OCR capture region, detected item rows, and cursor position"/>
+                                        </StackPanel>
+                                    </CheckBox>
+                                    <CheckBox x:Name="HideDebugOverlayCheck"
+                                              Margin="20,4,0,0"
+                                              Content="Hide when league panel not detected"
+                                              Visibility="Collapsed"/>
+                                    <CheckBox x:Name="SaveDebugImagesCheck"
+                                              Margin="20,4,0,0"
+                                              Content="Save debug images"
+                                              Visibility="Collapsed"/>
+                                </StackPanel>
+                            </ScrollViewer>
+
+                            <Grid Grid.Row="1"
+                                  Margin="24,12,24,16">
+                                <TextBlock x:Name="ValidationError"
+                                           Foreground="{StaticResource RedBrush}"
+                                           FontSize="11"
+                                           VerticalAlignment="Center"
+                                           Text=""/>
+                                <StackPanel Orientation="Horizontal"
+                                            HorizontalAlignment="Right">
+                                    <Button Width="80"
+                                            Height="32"
+                                            Background="{StaticResource SurfaceAltBrush}"
+                                            Foreground="{StaticResource RedBrush}"
+                                            BorderBrush="{StaticResource BorderBrush}"
+                                            FontSize="12"
+                                            Margin="0,0,8,0"
+                                            Click="SettingsCancel_Click">Cancel</Button>
+                                    <Button x:Name="SaveBtn"
+                                            Width="80"
+                                            Height="32"
+                                            Background="{StaticResource GreenBtnBrush}"
+                                            Foreground="White"
+                                            BorderThickness="0"
+                                            FontSize="12"
+                                            FontWeight="SemiBold"
+                                            Click="SettingsSave_Click">Save</Button>
+                                </StackPanel>
+                            </Grid>
+                        </Grid>
+                    </Border>
+                </Grid>
             </Grid>
-        </Grid>
-    </Border>
+        </Border>
+
+        <!-- Custom tooltip overlay — same window, no separate HWND to interfere with mouse -->
+        <Canvas IsHitTestVisible="False">
+            <Border x:Name="TooltipBorder"
+                    Visibility="Collapsed"
+                    Background="#252830"
+                    BorderBrush="#3A3E48"
+                    BorderThickness="1"
+                    CornerRadius="5"
+                    Padding="10,7"
+                    MaxWidth="320">
+                <TextBlock x:Name="TooltipPopupText"
+                           Foreground="#D8DCE4"
+                           FontSize="13"
+                           TextWrapping="Wrap"/>
+            </Border>
+        </Canvas>
+    </Grid>
 </Window>

@@ -32,6 +32,7 @@ public sealed partial class DashboardWindow : Window
     public event Action? ChangelogDismissed;
 
     internal bool IsChangelogVisible { get; private set; }
+    internal static volatile bool IsUpdating;
 
     public DashboardWindow(DashboardLogSink sink)
     {
@@ -413,6 +414,8 @@ public sealed partial class DashboardWindow : Window
 
     private void Settings_Click(object sender, RoutedEventArgs e)
     {
+        if (_settingsVisible)
+            UnlockStatus();
         ToggleSettings();
     }
 
@@ -633,6 +636,11 @@ public sealed partial class DashboardWindow : Window
 
     private void Window_Closing(object sender, CancelEventArgs e)
     {
+        if (IsUpdating || File.Exists(Path.Combine(AppContext.BaseDirectory, ".update-pending")))
+        {
+            e.Cancel = true;
+            return;
+        }
         SaveWindowPosition();
     }
 
@@ -742,6 +750,7 @@ public sealed partial class DashboardWindow : Window
         var error = _vm.SaveSettings();
         if (error is not null) { ShowValidation(error, RedThresholdBox); return; }
         ToggleSettings();
+        UnlockStatus();
 
         if (_vm.LogLevelChanged)
         {
@@ -777,9 +786,9 @@ public sealed partial class DashboardWindow : Window
         var greenOk = decimal.TryParse(GreenThresholdBox.Text, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var green)
                       && green >= 0.1m && green <= 999m;
 
-        if (!redOk && RedThresholdBox.Text.Length > 0) { valid = false; MarkInvalid(RedThresholdBox); }
-        if (!orangeOk && OrangeThresholdBox.Text.Length > 0) { valid = false; MarkInvalid(OrangeThresholdBox); }
-        if (!greenOk && GreenThresholdBox.Text.Length > 0) { valid = false; MarkInvalid(GreenThresholdBox); }
+        if (!redOk) { valid = false; MarkInvalid(RedThresholdBox); }
+        if (!orangeOk) { valid = false; MarkInvalid(OrangeThresholdBox); }
+        if (!greenOk) { valid = false; MarkInvalid(GreenThresholdBox); }
 
         if (redOk && orangeOk && !(red < orange))
         {
@@ -828,20 +837,69 @@ public sealed partial class DashboardWindow : Window
         }
     }
 
+    private void UnlockStatus()
+    {
+        _statusLockedUntil = DateTime.MinValue;
+    }
+
     private void Window_LocationChanged(object sender, EventArgs e)
     {
         ScheduleMoveResizeSave();
     }
 
+    private void TooltipIcon_MouseEnter(object sender, MouseEventArgs e)
+    {
+        if (sender is FrameworkElement element)
+        {
+            var tip = element.ToolTip as string;
+            if (string.IsNullOrEmpty(tip))
+                return;
+
+            TooltipPopupText.Text = tip;
+
+            // Measure while Hidden (participates in layout, not rendered) to get real size
+            TooltipBorder.Visibility = Visibility.Hidden;
+            TooltipBorder.Measure(new Size(320, double.PositiveInfinity));
+            TooltipBorder.Arrange(new Rect(TooltipBorder.DesiredSize));
+            var tipW = TooltipBorder.DesiredSize.Width;
+            var tipH = TooltipBorder.DesiredSize.Height;
+
+            var mouseX = e.GetPosition(this).X;
+            var elemBounds = element.TransformToAncestor(this).TransformBounds(new Rect(0, 0, element.ActualWidth, element.ActualHeight));
+            var m = 4d;
+
+            // Center horizontally on the mouse cursor
+            var x = mouseX - tipW / 2;
+            // Show below the element by default
+            var y = elemBounds.Bottom + 4;
+
+            // If would overflow right edge, flip to left of element
+            if (x + tipW > ActualWidth - m)
+                x = elemBounds.Left - tipW - m;
+            // If would overflow left edge, flip to right of element
+            if (x < m)
+                x = elemBounds.Right + m;
+            // Last resort: clamp to window edges (tooltip wider than window)
+            if (x + tipW > ActualWidth - m)
+                x = ActualWidth - tipW - m;
+            if (x < m)
+                x = m;
+
+            // If would overflow bottom, flip above
+            if (y + tipH > ActualHeight - m)
+                y = elemBounds.Top - tipH - m;
+            if (y < m)
+                y = m;
+
+            TooltipBorder.SetValue(Canvas.LeftProperty, x);
+            TooltipBorder.SetValue(Canvas.TopProperty, y);
+            TooltipBorder.Visibility = Visibility.Visible;
+        }
+    }
+
     private void TooltipIcon_MouseLeave(object sender, MouseEventArgs e)
     {
-        // Force tooltip to close immediately when mouse leaves the icon
-        if (sender is DependencyObject d)
-        {
-            ToolTipService.SetIsEnabled(d, false);
-            _ = Dispatcher.InvokeAsync(() => ToolTipService.SetIsEnabled(d, true),
-                DispatcherPriority.Background);
-        }
+        TooltipBorder.Visibility = Visibility.Collapsed;
     }
 
     private void Window_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -871,6 +929,7 @@ public sealed partial class DashboardWindow : Window
         _vm.LoadSettings();
         SyncUiFromViewModel();
         ToggleSettings();
+        UnlockStatus();
     }
 
     private void ShowValidation(string message, Control target)

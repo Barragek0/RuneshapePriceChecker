@@ -11,6 +11,8 @@ param(
     [switch]$Test28, [switch]$Test29, [switch]$Test30,
     [switch]$Test31, [switch]$Test32, [switch]$Test33,
     [switch]$Test34, [switch]$Test35,
+    [switch]$Test36,
+    [switch]$Test37,
     [switch]$All
 )
 
@@ -954,7 +956,8 @@ function Test33-ChangelogWindowPopup {
                     try { $gotItBtn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); $dismissed = $true; Start-Sleep -Milliseconds 500 } catch { }
                     break
                 }
-            } catch { }
+            }
+            catch { }
         }
         Start-Sleep -Milliseconds 200
     }
@@ -1023,13 +1026,206 @@ function Test35-SettingsValidationUI($proc) {
     Invoke-Button $proc "Cancel" 3000 | Out-Null; Start-Sleep -Milliseconds 500
 }
 
+function Test36-StatusLockCleared($proc) {
+    if ($proc.HasExited) { Report-Result "36: Status lock" $false "App exited"; return }
+
+    function Get-StatusText {
+        $hwnd = $proc.MainWindowHandle
+        if ($hwnd -eq [IntPtr]::Zero) { return $null }
+        try {
+            $r = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
+            $el = $r.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "StatusLabel")))
+            if ($el) { return $el.Current.Name }
+        }
+        catch { }
+        return $null
+    }
+
+    function Wait-CancelButton($timeoutMs = 3000) {
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        while ($sw.ElapsedMilliseconds -lt $timeoutMs) {
+            if ($proc.HasExited) { return $null }
+            try {
+                $hwnd = $proc.MainWindowHandle
+                if ($hwnd -eq [IntPtr]::Zero) { continue }
+                $r = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
+                $b = $r.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                    (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, "Cancel")))
+                if ($b) { return $b }
+            }
+            catch { }
+            Start-Sleep -Milliseconds 200
+        }
+        return $null
+    }
+
+    # --- Phase A: Cancel closes settings and error status is cleared ---
+    Click-Button $proc "Settings" 3000 | Out-Null
+    $cancelBtn = Wait-CancelButton 3000
+    if (-not $cancelBtn) { Report-Result "36a: Open settings" $false; return }
+    $hwnd = $proc.MainWindowHandle
+    try { $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd) } catch { Report-Result "36a: UIA" $false; return }
+
+    $redBox = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+        (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "RedThresholdBox")))
+    $greenBox = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+        (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "GreenThresholdBox")))
+    if (-not $redBox -or -not $greenBox) { Report-Result "36a: Find fields" $false; Click-Button $proc "Settings" 3000 | Out-Null; return }
+
+    try {
+        $redVp = $redBox.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+        $greenVp = $greenBox.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+        $redVp.SetValue("50"); Start-Sleep -Milliseconds 100
+        $greenVp.SetValue("5"); Start-Sleep -Milliseconds 100
+    }
+    catch { Report-Result "36a: Set values" $false; Click-Button $proc "Settings" 3000 | Out-Null; return }
+    Start-Sleep -Milliseconds 300
+
+    # Cancel closes settings and triggers ClearValidationStatus which sets status to Ready
+    try { $cancelBtn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() } catch { }
+    Start-Sleep -Milliseconds 800
+    $statusAfterCancel = Get-StatusText
+    $cancelCleared = ($statusAfterCancel -and $statusAfterCancel -notmatch "should be less")
+    Report-Result "36a: Cancel clears error" $cancelCleared $(if ($cancelCleared) { "'$statusAfterCancel'" } else { "Still error: '$statusAfterCancel'" })
+
+    # Verify settings can be reopened after Cancel
+    if (-not $proc.HasExited) {
+        $reopened = Click-Button $proc "Settings" 3000
+        $cancelAfter = Wait-CancelButton 3000
+        Report-Result "36b: Reopen after Cancel" ($reopened -and $cancelAfter) $(if ($cancelAfter) { "OK" } else { "Not found" })
+        if ($cancelAfter) { try { $cancelAfter.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() } catch { }; Start-Sleep -Milliseconds 400 }
+    }
+
+    # --- Phase B: Gear toggle close ---
+    if (-not $proc.HasExited) {
+        $reopened2 = Click-Button $proc "Settings" 3000
+        $cancelAfter2 = Wait-CancelButton 3000
+        if (-not $reopened2 -or -not $cancelAfter2) { Report-Result "36c: Open for gear test" $false; return }
+        $root2 = try { [System.Windows.Automation.AutomationElement]::FromHandle($proc.MainWindowHandle) } catch { $null }
+
+        $redBox2 = $root2.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+            (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "RedThresholdBox")))
+        $greenBox2 = $root2.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+            (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "GreenThresholdBox")))
+        if (-not $redBox2 -or -not $greenBox2) { Report-Result "36c: Find fields" $false; Click-Button $proc "Settings" 3000 | Out-Null; return }
+
+        try {
+            $redVp2 = $redBox2.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+            $greenVp2 = $greenBox2.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+            $redVp2.SetValue("100"); Start-Sleep -Milliseconds 100
+            $greenVp2.SetValue("1"); Start-Sleep -Milliseconds 100
+        }
+        catch { Report-Result "36c: Set values" $false; Click-Button $proc "Settings" 3000 | Out-Null; return }
+        Start-Sleep -Milliseconds 300
+
+        # Close via gear toggle
+        Click-Button $proc "Settings" 3000 | Out-Null
+        Start-Sleep -Milliseconds 800
+
+        # Reopen and verify settings work — proves the close path didn't break anything
+        $reopened3 = Click-Button $proc "Settings" 3000
+        $cancelAfter3 = Wait-CancelButton 3000
+        Report-Result "36c: Reopen after gear toggle" ($reopened3 -and $cancelAfter3) $(if ($cancelAfter3) { "OK" } else { "Not found" })
+        if ($cancelAfter3) { try { $cancelAfter3.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() } catch { }; Start-Sleep -Milliseconds 400 }
+    }
+
+    # --- Phase C: Save with valid values ---
+    if (-not $proc.HasExited) {
+        $reopened4 = Click-Button $proc "Settings" 3000
+        $cancelAfter4 = Wait-CancelButton 3000
+        if (-not $reopened4 -or -not $cancelAfter4) { Report-Result "36d: Open for save test" $false; return }
+        $root4 = try { [System.Windows.Automation.AutomationElement]::FromHandle($proc.MainWindowHandle) } catch { $null }
+
+        $redBox4 = $root4.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+            (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "RedThresholdBox")))
+        $greenBox4 = $root4.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+            (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "GreenThresholdBox")))
+        if (-not $redBox4 -or -not $greenBox4) { Report-Result "36d: Find fields" $false; Click-Button $proc "Settings" 3000 | Out-Null; return }
+
+        try {
+            $redVp4 = $redBox4.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+            $greenVp4 = $greenBox4.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+            $orangeBox4 = $root4.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "OrangeThresholdBox")))
+            if (-not $orangeBox4) { Report-Result "36d: Orange box" $false; Click-Button $proc "Settings" 3000 | Out-Null; return }
+            $orangeVp4 = $orangeBox4.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+            $redVp4.SetValue("5"); Start-Sleep -Milliseconds 100
+            $orangeVp4.SetValue("10"); Start-Sleep -Milliseconds 100
+            $greenVp4.SetValue("50"); Start-Sleep -Milliseconds 100
+        }
+        catch { Report-Result "36d: Set values" $false; Click-Button $proc "Settings" 3000 | Out-Null; return }
+        Start-Sleep -Milliseconds 300
+
+        # Click Save — this also calls UnlockStatus via SettingsSave_Click
+        $saveBtn = $root4.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+            (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, "Save")))
+        $saveWorked = $false
+        if ($saveBtn) {
+            try { $saveBtn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); Start-Sleep -Milliseconds 1500; $saveWorked = $true } catch { }
+        }
+        # After save, settings close and we should be able to reopen
+        Start-Sleep -Milliseconds 500
+        $alive = -not $proc.HasExited
+        $hwndAfter = if ($alive) { $proc.MainWindowHandle } else { [IntPtr]::Zero }
+        $reopened5 = $false; $cancelAfter5 = $null
+        if ($alive -and $hwndAfter -ne [IntPtr]::Zero) {
+            for ($retry = 0; $retry -lt 3 -and -not $reopened5; $retry++) {
+                $reopened5 = Click-Button $proc "Settings" 3000
+                Start-Sleep -Milliseconds 400
+                $cancelAfter5 = Wait-CancelButton 2000
+                if ($cancelAfter5) { break }
+            }
+        }
+        $detail = if (-not $alive) { "App exited" } elseif ($hwndAfter -eq [IntPtr]::Zero) { "No HWND" } elseif ($cancelAfter5) { "OK ($saveWorked)" } else { "Not found" }
+        Report-Result "36d: Reopen after Save" ($cancelAfter5 -ne $null) $detail
+        if ($cancelAfter5) { try { $cancelAfter5.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() } catch { }; Start-Sleep -Milliseconds 400 }
+    }
+
+    # Ensure settings is closed for downstream tests
+    Click-Button $proc "Settings" 3000 | Out-Null
+    Start-Sleep -Milliseconds 300
+}
+
+function Test37-UpdateCloseGuard {
+    Stop-App; Clear-OldLogs
+    Write-Config $cfgBase
+    $proc = Launch-App; Wait-ForApp 8000 | Out-Null
+    if ($proc.HasExited) { Report-Result "37: Close guard" $false "App exited"; Stop-App; return }
+
+    $markerPath = Join-Path (Split-Path $exe -Parent) ".update-pending"
+    $hwnd = $proc.MainWindowHandle
+    if ($hwnd -eq [IntPtr]::Zero) { Report-Result "37: Close guard" $false "No HWND"; Stop-App; return }
+
+    # Phase A: With marker, Close should be blocked (app stays running)
+    try { New-Item -Path $markerPath -Force | Out-Null } catch { }
+    Start-Sleep -Milliseconds 200
+
+    $proc.CloseMainWindow() | Out-Null
+    Start-Sleep -Milliseconds 400
+    $blocked = -not $proc.HasExited
+    Report-Result "37a: Close blocked during update" $blocked $(if ($blocked) { "App stayed open" } else { "App exited" })
+
+    # Phase B: Remove marker, verify Close actually works now
+    try { Remove-Item $markerPath -Force -ErrorAction SilentlyContinue } catch { }
+    Start-Sleep -Milliseconds 200
+
+    $proc.CloseMainWindow() | Out-Null
+    Start-Sleep -Milliseconds 500
+    $closed = $proc.WaitForExit(5000)
+    Report-Result "37b: Close succeeds after update" $closed $(if ($closed) { "App exited" } else { "Still running" })
+
+    Stop-App
+    try { Remove-Item $markerPath -Force -ErrorAction SilentlyContinue } catch { }
+}
+
 Write-Banner "RuneshapePriceChecker v1.0.0 Pre-Release Tests"
 Write-Host "  Exe: $exe"
 Write-Host ""
 
 Stop-App
 
-$runAll = $All -or (-not ($Test1 -or $Test2 -or $Test3 -or $Test4 -or $Test5 -or $Test6 -or $Test7 -or $Test8 -or $Test9 -or $Test10 -or $Test11 -or $Test12 -or $Test13 -or $Test14 -or $Test15 -or $Test16 -or $Test18 -or $Test19 -or $Test20 -or $Test21 -or $Test22 -or $Test23 -or $Test24 -or $Test25 -or $Test26 -or $Test27 -or $Test28 -or $Test29 -or $Test30 -or $Test31 -or $Test32 -or $Test33 -or $Test34 -or $Test35))
+$runAll = $All -or (-not ($Test1 -or $Test2 -or $Test3 -or $Test4 -or $Test5 -or $Test6 -or $Test7 -or $Test8 -or $Test9 -or $Test10 -or $Test11 -or $Test12 -or $Test13 -or $Test14 -or $Test15 -or $Test16 -or $Test18 -or $Test19 -or $Test20 -or $Test21 -or $Test22 -or $Test23 -or $Test24 -or $Test25 -or $Test26 -or $Test27 -or $Test28 -or $Test29 -or $Test30 -or $Test31 -or $Test32 -or $Test33 -or $Test34 -or $Test35 -or $Test36 -or $Test37))
 
 # ═══════════════════════════════════════════════════════════════
 # PHASE 1: Restart-required tests (each test manages its own app lifecycle)
@@ -1058,11 +1254,12 @@ if ($runAll -or $Test27) { Test27-PriceCacheOnLeagueChange }
 if ($runAll -or $Test31) { Test31-TestModeIndicator }
 if ($runAll -or $Test32) { Test32-VersionDisplay }
 if ($runAll -or $Test33) { Test33-ChangelogWindowPopup }
+if ($runAll -or $Test37) { Test37-UpdateCloseGuard }
 # ═══════════════════════════════════════════════════════════════
 # PHASE 2: Shared-instance tests (single app, no restart between tests)
 # These tests only read state or interact with the UI non-destructively.
 # ═══════════════════════════════════════════════════════════════
-$runPhase2 = $runAll -or $Test11 -or $Test12 -or $Test13 -or $Test14 -or $Test15 -or $Test16 -or $Test20 -or $Test24 -or $Test28 -or $Test29 -or $Test30 -or $Test34 -or $Test35
+$runPhase2 = $runAll -or $Test11 -or $Test12 -or $Test13 -or $Test14 -or $Test15 -or $Test16 -or $Test20 -or $Test24 -or $Test28 -or $Test29 -or $Test30 -or $Test34 -or $Test35 -or $Test36
 if ($runPhase2) {
     Write-Banner "PHASE 2: Shared-instance tests"
     Stop-App; Clear-OldLogs; Write-Config $cfgBase
@@ -1085,6 +1282,7 @@ if ($runPhase2) {
         if (($runAll -or $Test30) -and (-not $sharedProc.HasExited)) { Wait-ForUIGone $sharedProc ([System.Windows.Automation.AutomationElement]::NameProperty) "Cancel" 2000 | Out-Null; Test30-SettingsToggleStability $sharedProc }
         if (($runAll -or $Test34) -and (-not $sharedProc.HasExited)) { Wait-ForUIGone $sharedProc ([System.Windows.Automation.AutomationElement]::NameProperty) "Cancel" 2000 | Out-Null; Test34-CurrencyMutualExclusion $sharedProc }
         if (($runAll -or $Test35) -and (-not $sharedProc.HasExited)) { Wait-ForUIGone $sharedProc ([System.Windows.Automation.AutomationElement]::NameProperty) "Cancel" 2000 | Out-Null; Test35-SettingsValidationUI $sharedProc }
+        if (($runAll -or $Test36) -and (-not $sharedProc.HasExited)) { Wait-ForUIGone $sharedProc ([System.Windows.Automation.AutomationElement]::NameProperty) "Cancel" 2000 | Out-Null; Test36-StatusLockCleared $sharedProc }
         # Test16 MUST be last: it clicks Close and exits the app
         if (($runAll -or $Test16) -and (-not $sharedProc.HasExited)) { Wait-ForUIGone $sharedProc ([System.Windows.Automation.AutomationElement]::NameProperty) "Cancel" 2000 | Out-Null; Test16-UiButtonInteractions $sharedProc }
         if (-not $sharedProc.HasExited) {

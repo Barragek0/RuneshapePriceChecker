@@ -5,6 +5,9 @@ namespace RuneshapePriceChecker.App.Dashboard;
 public sealed class DashboardService(DashboardLogSink sink) : IDisposable
 {
     public static Action<IProgress<int>>? UpdateTrigger { get; set; }
+    private static volatile bool _isUpdating;
+    public static bool IsUpdating { get => _isUpdating; set => _isUpdating = value; }
+    public static bool CanSaveSettings => !IsUpdating;
     private static readonly ManualResetEventSlim ChangelogDismissedEvent = new(false);
     public static Task WaitForChangelogDismissedAsync(CancellationToken ct)
     {
