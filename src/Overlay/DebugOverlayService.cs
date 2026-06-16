@@ -320,11 +320,11 @@ public sealed class DebugOverlayService(
         if (string.IsNullOrWhiteSpace(message))
         {
             var form = GetBannerForm();
-            if (form is { IsDisposed: false, Visible: true })
+            if (form is { IsDisposed: false, IsHidden: false })
             {
                 logger.LogDebug("Banner hidden (no unpriceable items).");
+                form.SafeHide();
             }
-            form?.SafeHide();
             return;
         }
 
@@ -392,7 +392,7 @@ public sealed class DebugOverlayService(
         lock (_bannerSync) { return _bannerForm; }
     }
 
-    public void SetDebugText(IReadOnlyList<string> lines, IReadOnlyList<int>? rowYPositions = null, bool interfaceDetected = true, string? statusLine = null)
+    public void SetDebugText(IReadOnlyList<string> lines, IReadOnlyList<int>? rowYPositions = null, bool interfaceDetected = true, string? statusLine = null, Rectangle? cropBounds = null)
     {
         if (_setupInProgress) return;
 
@@ -424,6 +424,12 @@ public sealed class DebugOverlayService(
 
         overlay.SetStatusLine(statusLine);
         overlay.SetDebugLines([.. lines], rowYPositions is { } ry ? [.. ry] : null);
+        overlay.SetCropBounds(cropBounds);
+    }
+
+    public void SetCursorIndicator(Point? localPos, int boxW = 30, int boxH = 30)
+    {
+        GetOverlayForm()?.SetCursorIndicator(localPos, boxW, boxH);
     }
 
     private sealed class BoundsOverlayForm : Form
@@ -438,6 +444,23 @@ public sealed class DebugOverlayService(
         private bool _showDebugOverlay;
         private volatile bool _isHidden = true;
         private string? _statusLine;
+        private Rectangle? _cropBounds;
+        private Point? _cursorLocal;
+        private Point? _lastCursorDrawn;
+        private int _cursorBoxW = 30;
+        private int _cursorBoxH = 30;
+        private static readonly Pen BoxPen = new(Color.Red, 3);
+        private static readonly Pen CropPen = new(Color.FromArgb(200, 0, 255, 0), 2f) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash };
+        private static readonly Pen CursorPen = new(Color.FromArgb(200, 180, 80, 255), 1.5f) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash };
+        private static readonly Pen ScanPen = new(Color.FromArgb(220, 255, 255, 0), 2f) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash };
+        private static readonly SolidBrush DotBrush = new(Color.FromArgb(255, 255, 60, 60));
+        private static readonly Font StatusFont = new("Segoe UI", 14f, FontStyle.Bold, GraphicsUnit.Pixel);
+        private static readonly SolidBrush StatusBrush = new(Color.FromArgb(220, 255, 255, 100));
+        private static readonly Pen StatusOutlinePen = new(Color.FromArgb(220, 0, 0, 0), 2f) { LineJoin = System.Drawing.Drawing2D.LineJoin.Round };
+        private static readonly Font DebugFont = new("Segoe UI", 14f, FontStyle.Bold, GraphicsUnit.Pixel);
+        private static readonly SolidBrush DebugFillBrush = new(Color.Red);
+        private static readonly Pen DebugOutlinePen = new(Color.FromArgb(255, 0, 0, 0), 2.2f) { LineJoin = System.Drawing.Drawing2D.LineJoin.Round, StartCap = System.Drawing.Drawing2D.LineCap.Round, EndCap = System.Drawing.Drawing2D.LineCap.Round };
+        private readonly System.Windows.Forms.Timer _cursorTimer;
 
         public BoundsOverlayForm()
         {
@@ -449,6 +472,8 @@ public sealed class DebugOverlayService(
             TransparencyKey = TransparencyChroma;
             DoubleBuffered = true;
             Cursor = Cursors.Default;
+            _cursorTimer = new System.Windows.Forms.Timer { Interval = 16 }; // ~60 FPS
+            _cursorTimer.Tick += OnCursorTimerTick;
         }
 
         protected override bool ShowWithoutActivation => true;
@@ -499,72 +524,67 @@ public sealed class DebugOverlayService(
             if (!_showDebugOverlay)
                 return;
 
-            using var pen = new Pen(Color.Red, 3);
-            e.Graphics.DrawRectangle(pen, 0, 1, boxWidth - 1, _frame.Height - 1);
+            e.Graphics.DrawRectangle(BoxPen, 0, 1, boxWidth - 1, _frame.Height - 1);
+
+            // Content-aware crop region (green dashed)
+            if (_cropBounds is { } crop && crop.Width > 0 && crop.Height > 0)
+            {
+                e.Graphics.DrawRectangle(CropPen, crop.X, crop.Y, crop.Width - 1, crop.Height - 1);
+            }
+
+            // Cursor position indicator (purple dashed box, top-left at cursor hotspot)
+            if (_cursorLocal is { } c)
+            {
+                var bw = _cursorBoxW;
+                var bh = _cursorBoxH;
+                if (c.X + bw > 0 && c.Y + bh > 0 && c.X < boxWidth && c.Y < _frame.Height + 30)
+                {
+                    e.Graphics.DrawRectangle(CursorPen, c.X, c.Y, bw, bh);
+                }
+            }
 
             var scanLeft = (int)(boxWidth * LeaguePanelDetector.LeftFraction);
             var scanRight = (int)(boxWidth * LeaguePanelDetector.RightFraction);
             var ry = (int)(_frame.Height * LeaguePanelDetector.TopRowFraction);
 
-            using var scanPen = new Pen(Color.FromArgb(220, 255, 255, 0), 2f)
-            {
-                DashStyle = System.Drawing.Drawing2D.DashStyle.Dash
-            };
-            e.Graphics.DrawLine(scanPen, scanLeft, 0, scanLeft, ry);
-            e.Graphics.DrawLine(scanPen, scanRight, 0, scanRight, ry);
+            e.Graphics.DrawLine(ScanPen, scanLeft, 0, scanLeft, ry);
+            e.Graphics.DrawLine(ScanPen, scanRight, 0, scanRight, ry);
 
-            using var dotBrush = new SolidBrush(Color.FromArgb(255, 255, 60, 60));
-            e.Graphics.FillEllipse(dotBrush, scanLeft - 3, ry - 3, 7, 7);
-            e.Graphics.FillEllipse(dotBrush, scanRight - 3, ry - 3, 7, 7);
+            e.Graphics.FillEllipse(DotBrush, scanLeft - 3, ry - 3, 7, 7);
+            e.Graphics.FillEllipse(DotBrush, scanRight - 3, ry - 3, 7, 7);
 
             var lines = _debugLines;
             var rowY = _debugRowY;
 
             if (_statusLine is { } status)
             {
-                using var statusFont = new Font("Segoe UI", 14f, FontStyle.Bold, GraphicsUnit.Pixel);
-                using var statusBrush = new SolidBrush(Color.FromArgb(220, 255, 255, 100));
-                using var statusOutline = new Pen(Color.FromArgb(220, 0, 0, 0), 2f)
-                {
-                    LineJoin = System.Drawing.Drawing2D.LineJoin.Round
-                };
-                var statusSize = e.Graphics.MeasureString(status, statusFont, PointF.Empty, StringFormat.GenericTypographic);
+                var statusSize = e.Graphics.MeasureString(status, StatusFont, PointF.Empty, StringFormat.GenericTypographic);
                 var statusX = (boxWidth - (int)statusSize.Width) / 2f;
                 var statusY = _frame.Height + 4f;
                 using var path = new System.Drawing.Drawing2D.GraphicsPath();
-                path.AddString(status, statusFont.FontFamily, (int)statusFont.Style,
-                    e.Graphics.DpiY * statusFont.SizeInPoints / 72f,
+                path.AddString(status, StatusFont.FontFamily, (int)StatusFont.Style,
+                    e.Graphics.DpiY * StatusFont.SizeInPoints / 72f,
                     new PointF(statusX, statusY), StringFormat.GenericTypographic);
-                e.Graphics.DrawPath(statusOutline, path);
-                e.Graphics.FillPath(statusBrush, path);
+                e.Graphics.DrawPath(StatusOutlinePen, path);
+                e.Graphics.FillPath(StatusBrush, path);
             }
 
             if (lines.Length == 0)
                 return;
 
-            const float defaultFontSizePx = 14f;
-            using var defaultFont = new Font("Segoe UI", defaultFontSizePx, FontStyle.Bold, GraphicsUnit.Pixel);
-            using var fillBrush = new SolidBrush(Color.Red);
-            using var outlinePen = new Pen(Color.FromArgb(255, 0, 0, 0), 2.2f)
-            {
-                LineJoin = System.Drawing.Drawing2D.LineJoin.Round,
-                StartCap = System.Drawing.Drawing2D.LineCap.Round,
-                EndCap = System.Drawing.Drawing2D.LineCap.Round
-            };
-            var defaultLineHeight = (int)defaultFont.GetHeight(e.Graphics) + 2;
+            var defaultLineHeight = (int)DebugFont.GetHeight(e.Graphics) + 2;
             for (var i = 0; i < lines.Length; i++)
             {
                 var y = (i < rowY.Length ? rowY[i] : 6 + (i * defaultLineHeight));
                 y = Math.Clamp(y, 0, Height - defaultLineHeight);
 
-                var textSize = e.Graphics.MeasureString(lines[i], defaultFont, PointF.Empty, StringFormat.GenericTypographic);
                 var x = debugX + 8;
-                var fontSize = e.Graphics.DpiY * defaultFont.SizeInPoints / 72f;
+                var fontSize = e.Graphics.DpiY * DebugFont.SizeInPoints / 72f;
 
                 using var path = new System.Drawing.Drawing2D.GraphicsPath();
-                path.AddString(lines[i], defaultFont.FontFamily, (int)defaultFont.Style, fontSize, new PointF(x, y), StringFormat.GenericTypographic);
-                e.Graphics.DrawPath(outlinePen, path);
-                e.Graphics.FillPath(fillBrush, path);
+                path.AddString(lines[i], DebugFont.FontFamily, (int)DebugFont.Style, fontSize, new PointF(x, y), StringFormat.GenericTypographic);
+                e.Graphics.DrawPath(DebugOutlinePen, path);
+                e.Graphics.FillPath(DebugFillBrush, path);
             }
         }
 
@@ -574,6 +594,46 @@ public sealed class DebugOverlayService(
             _debugRowY = rowY ?? [];
             if (!IsDisposed && Visible)
                 Invalidate();
+        }
+
+        public void SetCropBounds(Rectangle? crop)
+        {
+            _cropBounds = crop;
+            if (!IsDisposed && Visible)
+                Invalidate();
+        }
+
+        public void SetCursorIndicator(Point? localPos, int boxW = 30, int boxH = 30)
+        {
+            _cursorBoxW = boxW;
+            _cursorBoxH = boxH;
+            if (_cursorTimer.Enabled)
+                return; // fast timer owns _cursorLocal
+            _cursorLocal = localPos;
+            if (!IsDisposed && Visible)
+                Invalidate();
+        }
+
+        private void OnCursorTimerTick(object? sender, EventArgs e)
+        {
+            if (_isHidden || _frame.IsEmpty || IsDisposed || !Visible)
+                return;
+
+            var pos = Cursor.Position;
+            var newLocal = new Point(pos.X - _frame.X, pos.Y - _frame.Y);
+
+            if (newLocal == _lastCursorDrawn)
+                return;
+
+            var clearW = _cursorBoxW + 4;
+            var clearH = _cursorBoxH + 4;
+            if (_lastCursorDrawn is { } old)
+                Invalidate(new Rectangle(old.X - 2, old.Y - 2, clearW, clearH));
+            Invalidate(new Rectangle(newLocal.X - 2, newLocal.Y - 2, clearW, clearH));
+            Update();
+
+            _cursorLocal = newLocal;
+            _lastCursorDrawn = newLocal;
         }
 
         public void SetStatusLine(string? status)
@@ -608,6 +668,7 @@ public sealed class DebugOverlayService(
 
             _frame = frame;
             Bounds = fullFrame;
+            _lastCursorDrawn = null;
             Invalidate();
 
             PinTopMost();
@@ -617,6 +678,8 @@ public sealed class DebugOverlayService(
                 Show();
                 PinTopMost();
             }
+
+            _cursorTimer.Start();
         }
 
         public void SafeHide()
@@ -631,6 +694,9 @@ public sealed class DebugOverlayService(
                 return;
             }
 
+            _cursorTimer.Stop();
+            _lastCursorDrawn = null;
+            _cursorLocal = null;
             Hide();
         }
 

@@ -5,7 +5,7 @@ namespace RuneshapePriceChecker.Overlay;
 internal class OverlayFormBase : Form
 {
     protected static readonly Color TransparencyChroma = Color.FromArgb(1, 2, 3);
-    protected volatile bool IsHidden = true;
+    internal volatile bool IsHidden;
 
     protected OverlayFormBase()
     {

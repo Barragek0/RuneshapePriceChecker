@@ -30,6 +30,7 @@ public sealed class DashboardViewModel(string configPath)
     public bool ShowPricingOverlay { get; set; } = true;
     public bool ShowBanner { get; set; } = true;
     public string OcrLanguage { get; set; } = "eng";
+    public string OcrBackend { get; set; } = "windows";
     public bool AutoUpdate { get; set; } = true;
 
     public Action<IProgress<int>>? OnUpdateTriggered { get; set; }
@@ -107,6 +108,7 @@ public sealed class DashboardViewModel(string configPath)
                 ShowPricingOverlay = ocr.Val("ShowPricingOverlay", true);
                 ShowBanner = ocr.Val("ShowBanner", true);
                 OcrLanguage = ocr.Str("Language", "eng");
+                OcrBackend = ocr.Str("OcrBackend", "windows");
             }
 
             if (root["Update"] is JsonNode update)
@@ -162,6 +164,7 @@ public sealed class DashboardViewModel(string configPath)
                 ocr["ShowPricingOverlay"] = ShowPricingOverlay;
                 ocr["ShowBanner"] = ShowBanner;
                 ocr["Language"] = OcrLanguage;
+                ocr["OcrBackend"] = OcrBackend;
             }
 
             if (rootObj["Update"] is JsonObject update)

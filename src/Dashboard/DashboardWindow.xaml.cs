@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Net.Http;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -56,6 +57,7 @@ public sealed partial class DashboardWindow : Window
             _vm.OnLogEntry(entry);
 
         PopulateLanguageCombo();
+        PopulateOcrBackendCombo();
         PopulatePricingSourceCombo();
         PopulateLogLevelCombo();
         _vm.LoadSettings();
@@ -97,8 +99,10 @@ public sealed partial class DashboardWindow : Window
 
     private static bool HasCommandLineArg(string arg)
     {
-        return Environment.GetCommandLineArgs()
-            .Any(a => string.Equals(a, arg, StringComparison.OrdinalIgnoreCase));
+        foreach (var a in Environment.GetCommandLineArgs())
+            if (string.Equals(a, arg, StringComparison.OrdinalIgnoreCase))
+                return true;
+        return false;
     }
 
     private void CheckPendingChangelog()
@@ -194,14 +198,17 @@ public sealed partial class DashboardWindow : Window
         DebugOverlayCheck.IsChecked = _vm.DebugOverlay;
         HideDebugOverlayCheck.IsChecked = _vm.HideDebugOverlayWhenInterfaceNotDetected;
         SaveDebugImagesCheck.IsChecked = _vm.SaveDebugImages;
-        ShowPricingOverlayCheck.IsChecked = _vm.ShowPricingOverlay;
-        ShowBannerCheck.IsChecked = _vm.ShowBanner;
         AutoUpdateCheck.IsChecked = _vm.AutoUpdate;
         for (var i = 0; i < LanguageCombo.Items.Count; i++)
         {
             if (LanguageCombo.Items[i] is ComboBoxItem item &&
                 string.Equals(item.Tag as string, _vm.OcrLanguage, StringComparison.OrdinalIgnoreCase))
             { LanguageCombo.SelectedIndex = i; break; }
+        }
+        for (var i = 0; i < OcrBackendCombo.Items.Count; i++)
+        {
+            if (string.Equals((OcrBackendCombo.Items[i] as string)?.ToLowerInvariant(), _vm.OcrBackend, StringComparison.OrdinalIgnoreCase))
+            { OcrBackendCombo.SelectedIndex = i; break; }
         }
         _loading = false;
         ValidateThresholds();
@@ -219,9 +226,8 @@ public sealed partial class DashboardWindow : Window
         _vm.DebugOverlay = DebugOverlayCheck.IsChecked == true;
         _vm.HideDebugOverlayWhenInterfaceNotDetected = HideDebugOverlayCheck.IsChecked == true;
         _vm.SaveDebugImages = SaveDebugImagesCheck.IsChecked == true;
-        _vm.ShowPricingOverlay = ShowPricingOverlayCheck.IsChecked == true;
-        _vm.ShowBanner = ShowBannerCheck.IsChecked == true;
         _vm.OcrLanguage = (LanguageCombo.SelectedItem as ComboBoxItem)?.Tag as string ?? "eng";
+        _vm.OcrBackend = (OcrBackendCombo.SelectedItem as string)?.ToLowerInvariant() ?? "windows";
         _vm.AutoUpdate = AutoUpdateCheck.IsChecked == true;
     }
 
@@ -331,9 +337,21 @@ public sealed partial class DashboardWindow : Window
     {
         RestoreWindowPosition();
         var handle = new WindowInteropHelper(this).Handle;
+
+        // Prevent white flash by painting window background dark before first render
+        SetClassLong(handle, GCL_HBRBACKGROUND, CreateSolidBrush(0x001D1A23));
+
         var source = HwndSource.FromHwnd(handle);
         source?.AddHook(WndProc);
     }
+
+    private const int GCL_HBRBACKGROUND = -10;
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetClassLong(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr CreateSolidBrush(uint crColor);
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
@@ -605,12 +623,14 @@ public sealed partial class DashboardWindow : Window
     {
         var now = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
         var header = $"=== RuneshapePriceChecker {VersionRun.Text} — copied at {now} ==={Environment.NewLine}{Environment.NewLine}";
-        var body = string.Join(Environment.NewLine,
-            LogEntries.Reverse().Select(entry =>
-            {
-                var count = string.IsNullOrEmpty(entry.CountText) ? "" : $" {entry.CountText}";
-                return $"{entry.TimestampText}  {entry.MessageText}{count}";
-            }));
+        var lines = new string[LogEntries.Count];
+        for (var i = 0; i < LogEntries.Count; i++)
+        {
+            var entry = LogEntries[LogEntries.Count - 1 - i];
+            var count = string.IsNullOrEmpty(entry.CountText) ? "" : $" {entry.CountText}";
+            lines[i] = $"{entry.Timestamp:HH:mm:ss.fff}  {entry.MessageText}{count}";
+        }
+        var body = string.Join(Environment.NewLine, lines);
         Clipboard.SetText(header + body);
     }
 
@@ -878,6 +898,25 @@ public sealed partial class DashboardWindow : Window
                 break;
             }
         }
+    }
+
+    private static readonly bool _windowsOcrSupported = Environment.OSVersion.Version.Build >= 17763;
+
+    private void PopulateOcrBackendCombo()
+    {
+        OcrBackendCombo.Items.Clear();
+        if (_windowsOcrSupported)
+        {
+            OcrBackendCombo.Items.Add("Windows");
+            OcrBackendCombo.Items.Add("Tesseract");
+        }
+        else
+        {
+            OcrBackendCombo.Items.Add("Tesseract");
+            OcrBackendCombo.ToolTip = "Windows OCR requires Windows 10 build 1809 or later. Only Tesseract is available on this system.";
+            OcrBackendCombo.IsEnabled = false;
+        }
+        OcrBackendCombo.SelectedIndex = 0;
     }
 
     private void PopulatePricingSourceCombo()

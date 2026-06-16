@@ -61,6 +61,31 @@
                     Value="250"/>
             <Setter Property="ToolTipService.ShowDuration"
                     Value="3000"/>
+            <Setter Property="Background"
+                    Value="#252830"/>
+            <Setter Property="Foreground"
+                    Value="#D8DCE4"/>
+            <Setter Property="BorderBrush"
+                    Value="#3A3E48"/>
+            <Setter Property="BorderThickness"
+                    Value="1"/>
+            <Setter Property="FontSize"
+                    Value="13"/>
+            <Setter Property="Padding"
+                    Value="10,7"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToolTip">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="5"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style TargetType="ScrollBar">
@@ -545,6 +570,7 @@
                         Background="Transparent"
                         BorderThickness="0"
                         Margin="0,6,38,0"
+                        AutomationProperties.Name="Settings"
                         Click="Settings_Click">
                     <TextBlock Text="&#x2699;"
                                Foreground="{StaticResource TextSecondary}"
@@ -575,6 +601,7 @@
                         Background="Transparent"
                         BorderThickness="0"
                         Margin="0,6,6,0"
+                        AutomationProperties.Name="Close"
                         Click="Close_Click">
                     <TextBlock Text="✕"
                                Foreground="{StaticResource RedBrush}"
@@ -640,6 +667,7 @@
                                 Background="Transparent"
                                 BorderThickness="0"
                                 Margin="0,-1,10,0"
+                                AutomationProperties.Name="Copy Log"
                                 Click="CopyLog_Click"
                                 ToolTip="Copy log to clipboard">
                             <TextBlock Text="&#x2398;"
@@ -744,7 +772,8 @@
                                     <CheckBox x:Name="AutoUpdateCheck"
                                               Grid.Row="0"
                                               Grid.Column="0"
-                                              VerticalAlignment="Center">Check for updates</CheckBox>
+                                              VerticalAlignment="Center"
+                                              ToolTip="Automatically check for and download new versions from GitHub">Check for updates</CheckBox>
                                     <StackPanel Grid.Row="1"
                                                 Grid.Column="0"
                                                 Orientation="Horizontal"
@@ -811,7 +840,8 @@
                                                   Width="130"
                                                   HorizontalAlignment="Left"
                                                   Margin="14,0,0,0"
-                                                  IsEditable="False"/>
+                                                  IsEditable="False"
+                                                  ToolTip="Controls how much detail appears in the log panel below"/>
                                     </StackPanel>
                                 </Grid>
 
@@ -842,7 +872,8 @@
                                                   Width="130"
                                                   HorizontalAlignment="Left"
                                                   Margin="14,0,0,0"
-                                                  IsEditable="False"/>
+                                                  IsEditable="False"
+                                                  ToolTip="Price data source — poe2scout is faster for bulk lookups"/>
                                     </StackPanel>
                                 </Grid>
 
@@ -858,11 +889,13 @@
                                         <StackPanel Orientation="Horizontal">
                                             <CheckBox x:Name="CurrencyChaosCheck"
                                                       Content="Chaos"
+                                                      ToolTip="Display prices in Chaos Orbs"
                                                       Checked="CurrencyChaos_Checked"
                                                       Unchecked="CurrencyChaos_Unchecked"/>
                                             <CheckBox x:Name="CurrencyExaltCheck"
                                                       Content="Exalt"
                                                       Margin="16,0,0,0"
+                                                      ToolTip="Display prices in Exalted Orbs"
                                                       Checked="CurrencyExalt_Checked"
                                                       Unchecked="CurrencyExalt_Unchecked"/>
                                         </StackPanel>
@@ -884,6 +917,7 @@
                                                          MaxLength="3"
                                                          HorizontalAlignment="Center"
                                                          TextAlignment="Center"
+                                                         ToolTip="Items priced below this many Chaos Orbs will show as red"
                                                          PreviewTextInput="ThresholdBox_PreviewTextInput"
                                                          TextChanged="ThresholdBox_TextChanged"/>
                                             </StackPanel>
@@ -898,6 +932,7 @@
                                                          MaxLength="3"
                                                          HorizontalAlignment="Center"
                                                          TextAlignment="Center"
+                                                         ToolTip="Items priced between Red and this will show as orange"
                                                          PreviewTextInput="ThresholdBox_PreviewTextInput"
                                                          TextChanged="ThresholdBox_TextChanged"/>
                                             </StackPanel>
@@ -912,6 +947,7 @@
                                                          MaxLength="3"
                                                          HorizontalAlignment="Center"
                                                          TextAlignment="Center"
+                                                         ToolTip="Items priced above this will show as green"
                                                          PreviewTextInput="ThresholdBox_PreviewTextInput"
                                                          TextChanged="ThresholdBox_TextChanged"/>
                                             </StackPanel>
@@ -929,6 +965,7 @@
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
                                     </Grid.ColumnDefinitions>
                                     <StackPanel Grid.Column="0">
                                         <TextBlock Style="{StaticResource FieldLabel}"
@@ -937,10 +974,21 @@
                                                   Width="130"
                                                   HorizontalAlignment="Left"
                                                   Margin="14,0,0,0"
-                                                  IsEditable="False"/>
+                                                  IsEditable="False"
+                                                  ToolTip="OCR language must match your game client. Price data is always English — non-English items are translated via the official trade API."/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Margin="24,0,0,0">
+                                        <TextBlock Style="{StaticResource FieldLabel}"
+                                                   Text="OCR Backend"/>
+                                        <ComboBox x:Name="OcrBackendCombo"
+                                                  Width="112"
+                                                  HorizontalAlignment="Left"
+                                                  Margin="14,0,0,0"
+                                                  IsEditable="False"
+                                                  ToolTip="Windows: built-in OCR, 2-10x faster, zero dependencies. Tesseract: traditional OCR engine with broader language support."/>
                                     </StackPanel>
                                     <Button x:Name="ReRunSetupBtn"
-                                            Grid.Column="1"
+                                            Grid.Column="2"
                                             Width="150"
                                             Height="28"
                                             Background="{StaticResource SurfaceAltBrush}"
@@ -950,17 +998,19 @@
                                             FontSize="11"
                                             Margin="16,16,12,0"
                                             VerticalAlignment="Bottom"
+                                            HorizontalAlignment="Right"
                                             Click="ReRunSetup_Click"
                                             ToolTip="Re-run the initial OCR region setup wizard">
                                         Re-run initial setup
                                     </Button>
                                 </Grid>
 
-                                <CheckBox x:Name="DebugOverlayCheck">Show debug overlay</CheckBox>
-                                <CheckBox x:Name="HideDebugOverlayCheck">Hide debug overlay when panel not detected</CheckBox>
-                                <CheckBox x:Name="SaveDebugImagesCheck">Save debug images</CheckBox>
-                                <CheckBox x:Name="ShowPricingOverlayCheck">Show pricing overlay</CheckBox>
-                                <CheckBox x:Name="ShowBannerCheck">Show unpriced item banner</CheckBox>
+                                <CheckBox x:Name="DebugOverlayCheck"
+                                          ToolTip="Show a semi-transparent overlay marking the OCR capture region, detected item rows, and cursor position">Show debug overlay</CheckBox>
+                                <CheckBox x:Name="HideDebugOverlayCheck"
+                                          ToolTip="Automatically hide the debug overlay when the league panel isn't visible on screen">Hide debug overlay when panel not detected</CheckBox>
+                                <CheckBox x:Name="SaveDebugImagesCheck"
+                                          ToolTip="Save preprocessed OCR images to disk for debugging.&#x0a;⚠ Noticeably reduces performance during scrolling.">Save debug images</CheckBox>
                             </StackPanel>
                         </ScrollViewer>
 

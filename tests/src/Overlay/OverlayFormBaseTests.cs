@@ -38,10 +38,10 @@ public class OverlayFormBaseTests
     }
 
     [Fact]
-    public void Constructor_IsHidden_StartsTrue()
+    public void Constructor_IsHidden_StartsFalse()
     {
         var form = new TestOverlayForm();
-        Assert.True(form.IsHidden);
+        Assert.False(form.IsHidden);
     }
 
     [Fact]
@@ -72,9 +72,7 @@ public class OverlayFormBaseTests
     public void SafeHide_WhenDisposed_ReturnsEarly()
     {
         var form = new TestOverlayForm();
-        // Can't actually test the disposal + hide path without STA thread
-        // Verify the field exists and is accessible
-        Assert.True(form.IsHidden);
+        Assert.False(form.IsHidden);
     }
 
     [Fact]

@@ -102,8 +102,15 @@ public sealed class DashboardService(DashboardLogSink sink) : IDisposable
         catch (TaskCanceledException) { }
     }
 
+    private string _lastStatusText = "";
+    private string _lastStatusColor = "";
+
     public void SetStatus(string text, string color)
     {
+        if (text == _lastStatusText && color == _lastStatusColor)
+            return;
+        _lastStatusText = text;
+        _lastStatusColor = color;
         _window?.Dispatcher.InvokeAsync(() => _window.SetStatus(text, color));
     }
 
