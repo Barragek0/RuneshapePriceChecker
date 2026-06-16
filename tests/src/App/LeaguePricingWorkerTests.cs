@@ -86,13 +86,13 @@ public class LeaguePricingWorkerTests
     }
 
     [Fact]
-    public void MinOcrInterval_Is120Milliseconds()
+    public void MinOcrInterval_Is50Milliseconds()
     {
         var field = typeof(LeaguePricingWorker).GetField("MinOcrInterval",
             BindingFlags.NonPublic | BindingFlags.Static);
         Assert.NotNull(field);
         var value = (TimeSpan)field!.GetValue(null)!;
-        Assert.Equal(120, value.TotalMilliseconds);
+        Assert.Equal(50, value.TotalMilliseconds);
     }
 
     [Fact]

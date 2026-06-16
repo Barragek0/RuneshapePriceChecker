@@ -1,5 +1,7 @@
 using RuneshapePriceChecker.Contracts;
 using RuneshapePriceChecker.Configuration;
+using RuneshapePriceChecker.OCR;
+using RuneshapePriceChecker.Pricing;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -10,6 +12,7 @@ namespace RuneshapePriceChecker.App;
 public sealed class PricingCacheRefreshWorker(
     IPricingCache cache,
     IOptionsMonitor<PricingCacheOptions> options,
+    IOptionsMonitor<OcrOptions> ocrOptions,
     ILogger<PricingCacheRefreshWorker> logger,
     DashboardService dashboard) : BackgroundService
 {
@@ -37,6 +40,7 @@ public sealed class PricingCacheRefreshWorker(
             try
             {
                 await cache.RefreshAsync(stoppingToken).ConfigureAwait(false);
+                ((InMemoryPricingCache)cache).SetOcrLanguage(ocrOptions.CurrentValue.Language);
                 _lastPricingSource = _options.CurrentValue.PricingSource;
                 logger.LogInformation("Pricing cache refreshed at {Timestamp}", DateTimeOffset.UtcNow);
 

@@ -10,7 +10,8 @@ namespace RuneshapePriceChecker.Pricing;
 public sealed class InMemoryPricingCache(
     IPricingSource pricingSource,
     IOptionsMonitor<PricingCacheOptions> pricingOptions,
-    ILogger<InMemoryPricingCache> logger) : IPricingCache
+    ILogger<InMemoryPricingCache> logger,
+    ItemNameTranslator? translator = null) : IPricingCache
 {
     private readonly ConcurrentDictionary<string, decimal> _exactPrices = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, decimal> _fallbackPrices = new(StringComparer.OrdinalIgnoreCase);
@@ -24,6 +25,15 @@ public sealed class InMemoryPricingCache(
     private volatile bool _ready;
 
     public bool IsReady => _ready;
+
+    public void SetOcrLanguage(string language)
+    {
+        translator?.SetLanguage(language);
+        if (translator is not null && !translator.IsLoaded && !language.Equals("eng", StringComparison.OrdinalIgnoreCase))
+        {
+            _ = translator.LoadAsync(language, CancellationToken.None);
+        }
+    }
     private static readonly Regex NonAlphaNumeric = new("[^A-Za-z0-9]+", RegexOptions.Compiled);
     private static readonly Regex LeadingQuantityWithX = new("^(?:\\d+|[AaIiLlTt|])\\s*[Xx]\\s+", RegexOptions.Compiled);
     private static readonly Regex LeadingQuantityWithoutX = new("^(?:\\d+|[IiLl|])\\s+", RegexOptions.Compiled);
@@ -40,7 +50,8 @@ public sealed class InMemoryPricingCache(
     public PriceQuote? TryGetPriceQuote(string itemName, int quantity)
     {
         var clampedQuantity = Math.Max(1, quantity);
-        var keys = BuildLookupCandidates(itemName).ToArray();
+        var translatedName = translator?.ToEnglish(itemName) ?? itemName;
+        var keys = BuildLookupCandidates(translatedName);
         foreach (var key in keys)
         {
             var quote = TryGetPriceQuoteForKey(key, clampedQuantity);
@@ -237,48 +248,41 @@ public sealed class InMemoryPricingCache(
         return false;
     }
 
-    private static IEnumerable<string> BuildLookupCandidates(string itemName)
+    private static string[] BuildLookupCandidates(string itemName)
     {
         var normalized = Normalize(itemName);
         if (string.IsNullOrWhiteSpace(normalized))
+            return [];
+
+        var list = new List<string>(4);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void TryAdd(string candidate)
         {
-            yield break;
+            if (!string.IsNullOrWhiteSpace(candidate) && seen.Add(candidate))
+                list.Add(candidate);
         }
 
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (seen.Add(normalized))
-        {
-            yield return normalized;
-        }
+        TryAdd(normalized);
 
         var levelMatch = TrailingLevelNumber.Match(normalized);
         if (levelMatch.Success)
         {
             var levelNumber = levelMatch.Groups["level"].Value;
             var withNumericLevel = TrailingLevelNumber.Replace(normalized, $" {levelNumber}").Trim();
-            if (!string.IsNullOrWhiteSpace(withNumericLevel) && seen.Add(withNumericLevel))
-            {
-                yield return withNumericLevel;
-            }
+            TryAdd(withNumericLevel);
         }
 
         var withoutLevel = TrailingLevel.Replace(normalized, string.Empty).Trim();
-        if (!string.IsNullOrWhiteSpace(withoutLevel) && seen.Add(withoutLevel))
-        {
-            yield return withoutLevel;
-        }
+        TryAdd(withoutLevel);
 
         var withoutOrb = TrailingOrb.Replace(normalized, string.Empty).Trim();
-        if (!string.IsNullOrWhiteSpace(withoutOrb) && seen.Add(withoutOrb))
-        {
-            yield return withoutOrb;
-        }
+        TryAdd(withoutOrb);
 
         var withoutLevelAndOrb = TrailingOrb.Replace(withoutLevel, string.Empty).Trim();
-        if (!string.IsNullOrWhiteSpace(withoutLevelAndOrb) && seen.Add(withoutLevelAndOrb))
-        {
-            yield return withoutLevelAndOrb;
-        }
+        TryAdd(withoutLevelAndOrb);
+
+        return [.. list];
     }
 
     public async Task RefreshAsync(CancellationToken cancellationToken)

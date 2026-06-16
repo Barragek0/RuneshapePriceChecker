@@ -5,6 +5,7 @@ using RuneshapePriceChecker.Configuration;
 using RuneshapePriceChecker.Contracts;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using StructLinq;
 
 namespace RuneshapePriceChecker.Pricing;
 
@@ -24,11 +25,7 @@ public sealed class PoeNinjaClient(HttpClient httpClient, IOptionsMonitor<Pricin
         decimal currencyMaxChaos = 0m;
 
         var encodedLeague = Uri.EscapeDataString(pricingOptions.League);
-        var typesToFetch = pricingOptions.IncludedTypes
-            .Where(t => !string.IsNullOrWhiteSpace(t))
-            .Select(t => t.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        var typesToFetch = GetDistinctTrimmed(pricingOptions.IncludedTypes);
 
         var baseUri = new Uri(pricingOptions.PoeNinjaBaseUrl, UriKind.Absolute);
 
@@ -137,6 +134,16 @@ public sealed class PoeNinjaClient(HttpClient httpClient, IOptionsMonitor<Pricin
             : 0m;
 
         return new PricingSnapshot(exactPrices, uniqueCategoryRanges, divineOrbChaosValue, exaltedOrbChaosValue, currencyMinChaos, currencyMaxChaos);
+    }
+
+    private static string[] GetDistinctTrimmed(string[] types)
+    {
+        return types
+            .ToStructEnumerable()
+            .Select(t => t?.Trim() ?? string.Empty)
+            .Where(t => t.Length > 0, _ => _)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     private static string GetEndpointForType(string type, PricingCacheOptions options)
