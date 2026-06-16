@@ -2,6 +2,8 @@ bin/
 obj/
 scripts/*
 !scripts/monitor-performance.ps1
+!scripts/monitor-memory-leak.ps1
+!scripts/perf-test-config.json
 tests/*/bin/
 tests/*/obj/
 tests/pre-release-tests.ps1
@@ -19,4 +21,6 @@ appsettings.release.json
 docs/
 .github/plans/
 .github/prompts/
+.github/performance/
+.github/release-notes/
 releases/

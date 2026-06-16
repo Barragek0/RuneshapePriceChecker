@@ -731,6 +731,8 @@ internal sealed class UpdateOptions
     public string GitHubApiBaseUrl { get; set; } = "https://api.github.com";
     public string GitHubRepoOwner { get; set; } = "Barragek0";
     public string GitHubRepoName { get; set; } = "RuneshapePriceChecker";
+
+    public string? GithubToken { get; set; }
 }
 
 internal sealed record GitHubRelease(string TagName, List<GitHubAsset>? Assets, string? Body = null);

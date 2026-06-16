@@ -1,0 +1,36 @@
+{
+  "App": {
+    "LogLevel": "Information"
+  },
+  "Pricing": {
+    "PricingSource": "poe2scout",
+    "League": "Runes of Aldur",
+    "RedThreshold": 0.5,
+    "OrangeThreshold": 1.0,
+    "GreenThreshold": 5.0,
+    "DisplayCurrency": "exalt"
+  },
+  "OCR": {
+    "Language": "eng",
+    "SaveDebugImages": false,
+    "DebugOverlay": false,
+    "HideDebugOverlayWhenInterfaceNotDetected": false,
+    "ShowPricingOverlay": true,
+    "ShowBanner": true
+  },
+  "Update": {
+    "AutoUpdate": true,
+    "IgnorePrereleases": false
+  },
+  "Window": {
+    "InitialSetupComplete": true,
+    "Left": -536,
+    "Top": 19,
+    "Width": 520,
+    "Height": 691,
+    "CustomOffsetX": 49,
+    "CustomOffsetY": 151,
+    "CustomWidth": 497,
+    "CustomHeight": 536
+  }
+}

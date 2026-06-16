@@ -13,7 +13,15 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-var suppressWarning = args.Any(a => a.StartsWith("--App:SuppressAlreadyRunningWarning=", StringComparison.OrdinalIgnoreCase));
+var suppressWarning = false;
+foreach (var a in args)
+{
+    if (a.StartsWith("--App:SuppressAlreadyRunningWarning=", StringComparison.OrdinalIgnoreCase))
+    {
+        suppressWarning = true;
+        break;
+    }
+}
 if (!suppressWarning)
 {
     // Also check config file — post-update restarts won't have CLI args
@@ -148,6 +156,10 @@ var host = Host.CreateDefaultBuilder(args)
             client.Timeout = TimeSpan.FromSeconds(60);
             client.DefaultRequestHeaders.UserAgent.Add(new System.Net.Http.Headers.ProductInfoHeaderValue("RuneshapePriceChecker", "1.0"));
             client.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+
+            var token = context.Configuration["Update:GitHubToken"];
+            if (!string.IsNullOrWhiteSpace(token))
+                client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
         });
 
         services.AddSingleton<IPricingSource, PricingSourceRouter>();
@@ -157,6 +169,12 @@ var host = Host.CreateDefaultBuilder(args)
 
         services.AddSingleton<ILeagueWindowReader, OcrLeagueWindowReader>();
         services.AddSingleton<IOverlayRenderer, PricingOverlayRenderer>();
+        services.AddHttpClient<ItemNameTranslator>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
+        services.AddSingleton<ItemNameTranslator>();
+
         services.AddSingleton<IPricingCache, InMemoryPricingCache>();
 
         services.AddHostedService(sp => sp.GetRequiredService<Poe2WindowResolutionService>());

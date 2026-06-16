@@ -54,6 +54,20 @@
             "command": "taskkill /F /IM UpdateTestServer.exe & taskkill /F /IM TlsProxy.exe",
             "problemMatcher": [],
             "detail": "Stops the HTTP test server and TLS proxy."
+        },
+        {
+            "label": "Run Performance Comparison",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "scripts\\monitor-performance.ps1"
+            ],
+            "group": "test",
+            "problemMatcher": [],
+            "detail": "Runs 3-way OCR backend comparison: v1.0.0 baseline vs v1.0.1 tesseract vs v1.0.1 windows (9 runs, ~3 min). Requires PoE2 running."
         }
     ]
 }
