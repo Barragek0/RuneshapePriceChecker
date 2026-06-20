@@ -14,15 +14,6 @@ It reads item rows from the runeshape panel with OCR (Optical Character Recognit
 
 ![example](https://i.vgy.me/1XkXx8.png)
 
-## Key Features
-
-- **Dual OCR engine** — Windows OCR by default (3.6x faster than Tesseract, zero dependencies). Tesseract available as a fallback. Switch anytime in Settings.
-- **Item name translation** — The app supports English, French, German, Spanish, Portuguese, Thai, Korean, Japanese, and Traditional Chinese. Item names are translated automatically via the official trade API. The actual app does not have translations for these yet. They may be added in the future.
-- **20 price updates per second** — Full capture-to-display cycle in ~50ms. Previously capped at ~6/sec with Tesseract.
-
-## How it Looks
-![example](https://i.vgy.me/1XkXx8.png)
-
 ## Known Issues / Limitations
 
 - New Skills and Supports don't have price data from pricing sources yet — the tool warns when it detects them.
@@ -53,7 +44,6 @@ It reads item rows from the runeshape panel with OCR (Optical Character Recognit
 ## Quick Start
 
 ```powershell
-cd "C:/1.Path stuff/RuneshapePriceChecker"
 dotnet run --project RuneshapePriceChecker.csproj -c Release
 ```
 
@@ -179,6 +169,12 @@ If an item is not recognized or not available in the current pricing data, it do
 
 You can switch pricing sources anytime in Settings under **Pricing**.
 
-## Disclaimer
+## Credits
 
-The vast majority of code in this project was written by a person (I'd estimate 95%, excluding the test suite). AI has been used to update documentation, fix bugs I couldn't find a solution for, target areas for refactoring, and create the test suite. The test suite was created with AI assistance because manually writing a test suite of this size would have taken weeks - with AI it took a couple of days.
+- **[Exiled Exchange 2](https://github.com/Kvan7/Exiled-Exchange-2)** — Item name translation data sourced from their curated game data files (`items.ndjson` generated from PoE2's `BaseItemTypes.json`).
+- **AI** — While the vast majority of code in this project was written by a person, AI was used to:
+ - Update documentation
+ - Help fix bugs I couldn't find a solution for
+ - Analyse the codebase and look for the areas in need of refactoring the most for readability.
+ - Write all tests in the /tests/ project (this would have taken me weeks to do myself, with AI it only took a day or so)
+ - Generate translation data files (`ocr/unique-category-map.json`) by extracting and mapping base-type keywords across all 8 supported languages — a task that would have required manual translation of hundreds of game terms

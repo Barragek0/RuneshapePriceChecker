@@ -1,4 +1,4 @@
-; RuneshapePriceChecker Installer Script
+﻿; RuneshapePriceChecker Installer Script
 ; Requires Inno Setup 6+: https://jrsoftware.org/isinfo.php
 
 #define MyAppName "RuneshapePriceChecker"
@@ -33,7 +33,6 @@ Name: "launchapp"; Description: "Launch {#MyAppName}"
 
 [Files]
 Source: "obj\Release\publish\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-Source: "obj\Release\updater-publish\Update.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "obj\Release\publish\*.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "obj\Release\publish\runtimes\*"; DestDir: "{app}\runtimes"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 Source: "README.md"; DestDir: "{app}"; DestName: "README.txt"; Flags: ignoreversion
