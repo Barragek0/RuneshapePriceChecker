@@ -1,5 +1,6 @@
 ﻿using System.Windows.Threading;
 using RuneshapePriceChecker.Configuration;
+using RuneshapePriceChecker.Pricing;
 
 namespace RuneshapePriceChecker.App.Dashboard;
 
@@ -82,7 +83,7 @@ public sealed class DashboardService(DashboardLogSink sink, DebugMetricsCollecto
         // Auto-detect OCR language from the game's config file
         Poe2ConfigFile.StartWatching();
         var gameLang = Poe2ConfigFile.Language ?? "eng";
-        Window.SetGameLanguage(gameLang);
+        Window.SetGameLanguage(gameLang, ItemNameTranslator.IsLanguageSupported(gameLang));
         Poe2ConfigFile.ConfigChanged += () =>
         {
             var effective = Poe2ConfigFile.Language ?? "eng";
@@ -90,7 +91,7 @@ public sealed class DashboardService(DashboardLogSink sink, DebugMetricsCollecto
             if (!string.Equals(effective, current, StringComparison.OrdinalIgnoreCase))
             {
                 _sink.Emit("[Config] PoE2 game language changed — updating OCR language.");
-                _ = Window.Dispatcher.InvokeAsync(() => Window.SetGameLanguage(effective));
+                _ = Window.Dispatcher.InvokeAsync(() => Window.SetGameLanguage(effective, ItemNameTranslator.IsLanguageSupported(effective)));
             }
         };
 

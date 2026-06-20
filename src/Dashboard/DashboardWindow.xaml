@@ -762,6 +762,23 @@
                             </TextBlock>
                         </Border>
 
+                        <!-- Unsupported language warning bar -->
+                        <Border Grid.Row="0"
+                                x:Name="OcrUnsupportedLanguageWarning"
+                                Visibility="Collapsed"
+                                Background="#2A1E1E"
+                                Padding="12,8">
+                            <TextBlock Foreground="{StaticResource RedBrush}"
+                                       FontSize="12"
+                                       TextWrapping="Wrap">
+                            <Run Text="OCR disabled — "/>
+                            <Run x:Name="UnsupportedLanguageName"
+                                 Text="this language"
+                                 FontWeight="Bold"/>
+                            <Run Text=" is not supported by the app."/>
+                            </TextBlock>
+                        </Border>
+
                         <!-- Log panel -->
                         <Border Grid.Row="1"
                                 x:Name="LogSection"
@@ -950,7 +967,9 @@
                                                         HorizontalAlignment="Left">
                                                 <CheckBox x:Name="AutoUpdateCheck"
                                                           VerticalAlignment="Center"
-                                                          Margin="16,0,0,0">
+                                                          Margin="16,0,0,0"
+                                                          Checked="AutoSetting_Changed"
+                                                          Unchecked="AutoSetting_Changed">
                                                     <StackPanel Orientation="Horizontal">
                                                         <TextBlock Text="Check for updates"
                                                                    VerticalAlignment="Center"/>
@@ -998,7 +1017,9 @@
                                                 </CheckBox>
                                                 <CheckBox x:Name="BringToForegroundCheck"
                                                           VerticalAlignment="Center"
-                                                          Margin="16,0,0,0">
+                                                          Margin="16,0,0,0"
+                                                          Checked="AutoSetting_Changed"
+                                                          Unchecked="AutoSetting_Changed">
                                                     <StackPanel Orientation="Horizontal">
                                                         <TextBlock Text="Bring to foreground"
                                                                    VerticalAlignment="Center"/>
@@ -1026,7 +1047,8 @@
                                                           Width="130"
                                                           HorizontalAlignment="Left"
                                                           Margin="14,0,0,0"
-                                                          IsEditable="False"/>
+                                                          IsEditable="False"
+                                                          SelectionChanged="ComboSetting_Changed"/>
                                             </StackPanel>
                                         </Grid>
 
@@ -1058,7 +1080,8 @@
                                                           HorizontalAlignment="Left"
                                                           Margin="14,0,0,0"
                                                           VerticalAlignment="Top"
-                                                          IsEditable="False"/>
+                                                          IsEditable="False"
+                                                          SelectionChanged="ComboSetting_Changed"/>
                                             </StackPanel>
                                             <StackPanel Grid.Column="1">
                                                 <StackPanel Orientation="Horizontal"
@@ -1076,7 +1099,8 @@
                                                           HorizontalAlignment="Left"
                                                           Margin="14,0,0,0"
                                                           VerticalAlignment="Top"
-                                                          IsEditable="False"/>
+                                                          IsEditable="False"
+                                                          SelectionChanged="ComboSetting_Changed"/>
                                             </StackPanel>
                                         </Grid>
 
@@ -1244,11 +1268,15 @@
                                         <CheckBox x:Name="HideDebugOverlayCheck"
                                                   Margin="20,4,0,0"
                                                   Content="Hide when league panel not detected"
-                                                  Visibility="Collapsed"/>
+                                                  Visibility="Collapsed"
+                                                  Checked="AutoSetting_Changed"
+                                                  Unchecked="AutoSetting_Changed"/>
                                         <CheckBox x:Name="SaveDebugImagesCheck"
                                                   Margin="20,4,0,0"
                                                   Content="Save debug images"
-                                                  Visibility="Collapsed"/>
+                                                  Visibility="Collapsed"
+                                                  Checked="AutoSetting_Changed"
+                                                  Unchecked="AutoSetting_Changed"/>
                                     </StackPanel>
                                 </ScrollViewer>
 

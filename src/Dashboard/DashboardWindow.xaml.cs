@@ -50,6 +50,7 @@ public sealed partial class DashboardWindow : Window
     private DispatcherTimer? _alwaysOnTopTimer;
     private DispatcherTimer? _setupPollTimer;
     private string? _pendingLanguageAppTag;
+    private bool _saveQueued;
 
     public ObservableCollection<LogEntryViewModel> LogEntries => _vm.LogEntries;
 
@@ -496,6 +497,8 @@ public sealed partial class DashboardWindow : Window
             StartAlwaysOnTopTimer();
         else
             StopAlwaysOnTopTimer();
+
+        QueueAutoSave();
     }
 
     private void UpdateBringToForegroundVisibility()
@@ -791,6 +794,8 @@ public sealed partial class DashboardWindow : Window
         {
             SyncViewModelFromUi();
             _ = _vm.SaveSettings();
+            ClearValidation();
+            ClearValidationStatus();
         }
         if (!_settingsVisible) IsChangelogVisible = false;
         _settingsVisible = !_settingsVisible;
@@ -816,6 +821,7 @@ public sealed partial class DashboardWindow : Window
         _ = _vm.SaveSettings();
         OcrLanguageWarning.Visibility = Visibility.Collapsed;
         StopLanguagePackWatchdog();
+        PopulateOcrBackendCombo();
         e.Handled = true;
     }
 
@@ -1063,7 +1069,7 @@ public sealed partial class DashboardWindow : Window
         StopLanguagePackWatchdog();
         _pendingLanguageAppTag = null;
         OcrLanguageWarning.Visibility = Visibility.Collapsed;
-        _sink.Emit("Windows OCR language pack installed — OCR engine will reinitialize.", "green");
+        _sink.Emit("Windows OCR language pack installed — OCR engine will reinitialize. OCR will only update after you reopen the league panel interface.", "green");
     }
     private static string? AppLangToWindowsTag(string appLang)
     {
@@ -1147,7 +1153,13 @@ public sealed partial class DashboardWindow : Window
             ? (Brush)FindResource("GreenBrush")
             : (Brush)FindResource("RedBrush");
 
-        DbgCaptureMethod.Text = string.IsNullOrEmpty(snap.CaptureMethod) ? "—" : snap.CaptureMethod;
+        var method = snap.CaptureMethod;
+        if (!string.IsNullOrEmpty(method))
+        {
+            var dash = method.IndexOf('-');
+            if (dash > 0) method = method[(dash + 1)..];
+        }
+        DbgCaptureMethod.Text = string.IsNullOrEmpty(method) ? "—" : method;
         var lsRunning = Process.GetProcessesByName("LosslessScaling").Length > 0;
         DbgLsStatus.Text = lsRunning ? "\u25CF Running" : "Not running";
         DbgLsStatus.Foreground = lsRunning
@@ -1367,6 +1379,14 @@ public sealed partial class DashboardWindow : Window
     {
         if (_loading) return;
         ValidateThresholds();
+
+        // Auto-save only when all thresholds are valid
+        var redOk = decimal.TryParse(RedThresholdBox.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var red);
+        var orangeOk = decimal.TryParse(OrangeThresholdBox.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var orange);
+        var greenOk = decimal.TryParse(GreenThresholdBox.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var green);
+
+        if (redOk && orangeOk && greenOk && red < orange && orange < green)
+            QueueAutoSave();
     }
 
     private void ValidateThresholds()
@@ -1538,9 +1558,32 @@ public sealed partial class DashboardWindow : Window
     }
 
     private void CurrencyChaos_Checked(object sender, RoutedEventArgs e) { if (!_loading) CurrencyExaltCheck.IsChecked = false; }
-    private void CurrencyExalt_Checked(object sender, RoutedEventArgs e) { if (!_loading) CurrencyChaosCheck.IsChecked = false; }
-    private void CurrencyChaos_Unchecked(object sender, RoutedEventArgs e) { if (!_loading && CurrencyExaltCheck.IsChecked != true) CurrencyChaosCheck.IsChecked = true; }
-    private void CurrencyExalt_Unchecked(object sender, RoutedEventArgs e) { if (!_loading && CurrencyChaosCheck.IsChecked != true) CurrencyExaltCheck.IsChecked = true; }
+    private void CurrencyExalt_Checked(object sender, RoutedEventArgs e) { if (!_loading) { CurrencyChaosCheck.IsChecked = false; QueueAutoSave(); } }
+    private void CurrencyChaos_Unchecked(object sender, RoutedEventArgs e) { if (!_loading && CurrencyExaltCheck.IsChecked != true) { CurrencyChaosCheck.IsChecked = true; QueueAutoSave(); } }
+    private void CurrencyExalt_Unchecked(object sender, RoutedEventArgs e) { if (!_loading && CurrencyChaosCheck.IsChecked != true) { CurrencyExaltCheck.IsChecked = true; QueueAutoSave(); } }
+
+    private void QueueAutoSave()
+    {
+        if (_loading || _saveQueued) return;
+        _saveQueued = true;
+        _ = Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+        {
+            _saveQueued = false;
+            SyncViewModelFromUi();
+
+            // Validate thresholds before saving
+            var redOk = decimal.TryParse(RedThresholdBox.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var red);
+            var orangeOk = decimal.TryParse(OrangeThresholdBox.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var orange);
+            var greenOk = decimal.TryParse(GreenThresholdBox.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var green);
+
+            if (redOk && orangeOk && greenOk && red < orange && orange < green)
+                _ = _vm.SaveSettings();
+            // If thresholds are invalid, don't save — validation highlighting stays visible
+
+            if (_vm.LogLevelChanged)
+                RestartApp();
+        }));
+    }
 
     private void DebugOverlayCheck_Changed(object sender, RoutedEventArgs e)
     {
@@ -1548,6 +1591,7 @@ public sealed partial class DashboardWindow : Window
         var enabled = DebugOverlayCheck.IsChecked == true;
         HideDebugOverlayCheck.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
         SaveDebugImagesCheck.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+        QueueAutoSave();
     }
 
     private void RestoreWindowPosition()
@@ -1580,11 +1624,22 @@ public sealed partial class DashboardWindow : Window
         if (WindowState != WindowState.Normal) return;
         _vm.SaveWindowPosition(Left, Top, 500, Height);
     }
-    public void SetGameLanguage(string code)
+    public void SetGameLanguage(string code, bool supported = true)
     {
         _vm.OcrLanguage = code;
+
+        OcrUnsupportedLanguageWarning.Visibility = supported ? Visibility.Collapsed : Visibility.Visible;
+        if (!supported)
+        {
+            UnsupportedLanguageName.Text = code;
+            // Language pack warning is irrelevant when the language isn't supported at all
+            OcrLanguageWarning.Visibility = Visibility.Collapsed;
+            StopLanguagePackWatchdog();
+        }
+
         // Auto-switch to Tesseract if Windows OCR was selected but doesn't support this language
-        if (string.Equals(code, "rus", StringComparison.OrdinalIgnoreCase) &&
+        if ((string.Equals(code, "rus", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(code, "kor", StringComparison.OrdinalIgnoreCase)) &&
             string.Equals(_vm.OcrBackend, "windows", StringComparison.OrdinalIgnoreCase))
         {
             _vm.OcrBackend = "tesseract";
@@ -1599,17 +1654,17 @@ public sealed partial class DashboardWindow : Window
     {
         var lang = language ?? _vm.OcrLanguage;
         OcrBackendCombo.Items.Clear();
-        if (_windowsOcrSupported && !string.Equals(lang, "rus", StringComparison.OrdinalIgnoreCase))
+        if (_windowsOcrSupported && !string.Equals(lang, "rus", StringComparison.OrdinalIgnoreCase) && !string.Equals(lang, "kor", StringComparison.OrdinalIgnoreCase))
         {
             _ = OcrBackendCombo.Items.Add("Windows");
             _ = OcrBackendCombo.Items.Add("Tesseract");
             OcrBackendCombo.ToolTip = "Windows OCR is faster and uses less CPU. Only switch to Tesseract if Windows OCR isn't working correctly for you.";
             OcrBackendCombo.IsEnabled = true;
         }
-        else if (_windowsOcrSupported && string.Equals(lang, "rus", StringComparison.OrdinalIgnoreCase))
+        else if (_windowsOcrSupported && (string.Equals(lang, "rus", StringComparison.OrdinalIgnoreCase) || string.Equals(lang, "kor", StringComparison.OrdinalIgnoreCase)))
         {
             _ = OcrBackendCombo.Items.Add("Tesseract");
-            OcrBackendCombo.ToolTip = "Windows OCR does not support Russian text recognition reliably. Tesseract is used automatically for Russian.";
+            OcrBackendCombo.ToolTip = "Windows OCR does not support Korean text recognition reliably. Tesseract is used automatically for Korean.";
             OcrBackendCombo.IsEnabled = false;
         }
         else
@@ -1620,7 +1675,11 @@ public sealed partial class DashboardWindow : Window
         }
         // Sync the info icon's tooltip text with the combo's tooltip
         _ = (OcrBackendTooltip?.ToolTip = OcrBackendCombo.ToolTip);
-        OcrBackendCombo.SelectedIndex = 0;
+
+        // Select the item matching the current backend setting
+        var selected = string.Equals(_vm.OcrBackend, "tesseract", StringComparison.OrdinalIgnoreCase) ? "Tesseract" : "Windows";
+        var idx = OcrBackendCombo.Items.IndexOf(selected);
+        OcrBackendCombo.SelectedIndex = idx >= 0 ? idx : 0;
         UpdateOcrBackendWarning();
     }
 
@@ -1629,17 +1688,31 @@ public sealed partial class DashboardWindow : Window
         if (OcrBackendWarning is null) return;
         var isTesseract = string.Equals(OcrBackendCombo.SelectedItem as string, "Tesseract", StringComparison.OrdinalIgnoreCase);
         var isRussian = string.Equals(_vm.OcrLanguage, "rus", StringComparison.OrdinalIgnoreCase);
+        var isKorean = string.Equals(_vm.OcrLanguage, "kor", StringComparison.OrdinalIgnoreCase);
         // Show warning icon when Tesseract is used but Windows OCR is available —
-        // except for Russian where Windows OCR doesn't work, then show the info icon.
-        var showWarning = _windowsOcrSupported && isTesseract && !isRussian;
+        // except for Russian and Korean where Windows OCR doesn't work well, then show the info icon.
+        var showWarning = _windowsOcrSupported && isTesseract && !isRussian && !isKorean;
         OcrBackendWarning.Visibility = showWarning ? Visibility.Visible : Visibility.Collapsed;
         _ = (OcrBackendTooltip?.Visibility = showWarning ? Visibility.Collapsed : Visibility.Visible);
+    }
+
+    private void AutoSetting_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        QueueAutoSave();
+    }
+
+    private void ComboSetting_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading) return;
+        QueueAutoSave();
     }
 
     private void OcrBackendCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_loading) return;
         UpdateOcrBackendWarning();
+        QueueAutoSave();
     }
 
     private void PopulatePricingSourceCombo()
