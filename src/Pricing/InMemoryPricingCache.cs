@@ -52,11 +52,13 @@ public sealed class InMemoryPricingCache(
         var clampedQuantity = Math.Max(1, quantity);
         var translatedName = translator?.ToEnglish(itemName) ?? itemName;
         var keys = BuildLookupCandidates(translatedName);
+        logger.LogTrace("PriceLookup: '{Name}' translated='{T}' keys=[{Keys}]", itemName, translatedName, string.Join(", ", keys));
         foreach (var key in keys)
         {
             var quote = TryGetPriceQuoteForKey(key, clampedQuantity);
             if (quote is not null)
             {
+                logger.LogTrace("PriceLookup: '{Name}' matched key '{Key}' -> {Label}", itemName, key, quote.Label);
                 return quote;
             }
         }
@@ -69,7 +71,8 @@ public sealed class InMemoryPricingCache(
             }
         }
 
-        if (TryResolveSingleLetterOffCandidate(keys, out var correctedKey))
+        // Fallback: try single-character substitution via FallbackProvider
+        if (FallbackProvider.TryResolveSingleLetterOffCandidate(keys, EnumerateKnownLookupKeys(), out var correctedKey))
         {
             var correctedQuote = TryGetPriceQuoteForKey(correctedKey, clampedQuantity);
             if (correctedQuote is not null)
@@ -77,6 +80,20 @@ public sealed class InMemoryPricingCache(
                 return correctedQuote with
                 {
                     MatchDetail = $"Very close match triggered: {correctedKey}={correctedQuote.Label}"
+                };
+            }
+        }
+
+        // Fallback: try 2-character substitution via FallbackProvider
+        var fewAwayKey = FallbackProvider.ResolveFewCharsAwayCandidate(keys, EnumerateKnownLookupKeys());
+        if (fewAwayKey is not null)
+        {
+            var fewAwayQuote = TryGetPriceQuoteForKey(fewAwayKey, clampedQuantity);
+            if (fewAwayQuote is not null)
+            {
+                return fewAwayQuote with
+                {
+                    MatchDetail = $"Few chars match: {fewAwayKey}={fewAwayQuote.Label}"
                 };
             }
         }
@@ -137,38 +154,6 @@ public sealed class InMemoryPricingCache(
         return null;
     }
 
-    private bool TryResolveSingleLetterOffCandidate(IReadOnlyList<string> keys, out string correctedKey)
-    {
-        correctedKey = string.Empty;
-        var matchCount = 0;
-
-        foreach (var key in keys)
-        {
-            if (key.Length < 7)
-            {
-                continue;
-            }
-
-            foreach (var known in EnumerateKnownLookupKeys())
-            {
-                if (!IsSingleSubstitutionAway(key, known))
-                {
-                    continue;
-                }
-
-                correctedKey = known;
-                matchCount++;
-                if (matchCount > 1)
-                {
-                    correctedKey = string.Empty;
-                    return false;
-                }
-            }
-        }
-
-        return matchCount == 1;
-    }
-
     private IEnumerable<string> EnumerateKnownLookupKeys()
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -204,63 +189,6 @@ public sealed class InMemoryPricingCache(
                 yield return key;
             }
         }
-    }
-
-    private static bool IsSingleSubstitutionAway(string source, string candidate)
-    {
-        if (string.IsNullOrWhiteSpace(source) || string.IsNullOrWhiteSpace(candidate))
-        {
-            return false;
-        }
-
-        var lenDiff = source.Length - candidate.Length;
-        if (lenDiff == 0)
-        {
-            var differences = 0;
-            for (var i = 0; i < source.Length; i++)
-            {
-                if (source[i] == candidate[i])
-                {
-                    continue;
-                }
-
-                differences++;
-                if (differences > 1)
-                {
-                    return false;
-                }
-            }
-
-            return differences == 1;
-        }
-
-        if (lenDiff is 1 or -1)
-        {
-            var longer = lenDiff == 1 ? source : candidate;
-            var shorter = lenDiff == 1 ? candidate : source;
-
-            var differences = 0;
-            var si = 0;
-            for (var li = 0; li < longer.Length && si < shorter.Length; li++, si++)
-            {
-                if (longer[li] == shorter[si])
-                {
-                    continue;
-                }
-
-                differences++;
-                if (differences > 1)
-                {
-                    return false;
-                }
-
-                si--;
-            }
-
-            return differences <= 1;
-        }
-
-        return false;
     }
 
     private static string[] BuildLookupCandidates(string itemName)
@@ -316,6 +244,12 @@ public sealed class InMemoryPricingCache(
             }
 
             _exactPrices[normalized] = pair.Value;
+
+            // Diagnostic: log UNCUT SKILL GEM price keys to verify level matching
+            if (normalized.StartsWith("UNCUT SKILL GEM", StringComparison.OrdinalIgnoreCase))
+            {
+                logger.LogInformation("PriceKey: raw='{Raw}' normalized='{Norm}' value={Val}", pair.Key, normalized, pair.Value);
+            }
 
             if (ItemNameParser.TryGetTierFallbackKey(normalized, out var fallbackKey))
             {
@@ -612,6 +546,7 @@ public sealed class InMemoryPricingCache(
             }
 
             var suffix = normalizedItemName[family.Length..].Trim();
+
             if (suffix.Length > 0)
             {
                 return false;

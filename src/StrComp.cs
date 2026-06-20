@@ -81,13 +81,22 @@ internal static class StrComp
 
     public static bool AreFewCharsAway(ReadOnlySpan<char> source, ReadOnlySpan<char> target, int maxDistance)
     {
-        if (maxDistance < 1) return false;
+        return GetEditDistance(source, target, maxDistance) >= 0;
+    }
+
+    /// <summary>
+    /// Returns the Levenshtein edit distance between source and target,
+    /// or -1 if the distance exceeds maxDistance (allowing early termination).
+    /// </summary>
+    public static int GetEditDistance(ReadOnlySpan<char> source, ReadOnlySpan<char> target, int maxDistance)
+    {
+        if (maxDistance < 1) return -1;
 
         var absLenDiff = Math.Abs(source.Length - target.Length);
-        if (absLenDiff > maxDistance) return false;
+        if (absLenDiff > maxDistance) return -1;
 
-        if (source.Length == 0) return target.Length <= maxDistance;
-        if (target.Length == 0) return source.Length <= maxDistance;
+        if (source.Length == 0) return target.Length <= maxDistance ? target.Length : -1;
+        if (target.Length == 0) return source.Length <= maxDistance ? source.Length : -1;
 
         ReadOnlySpan<char> a, b;
         if (source.Length <= target.Length) { a = source; b = target; }
@@ -111,9 +120,10 @@ internal static class StrComp
                 curr[j] = Math.Min(Math.Min(curr[j - 1] + 1, prev[j] + 1), prev[j - 1] + cost);
                 if (curr[j] < best) best = curr[j];
             }
-            if (best > maxDistance) return false;
+            if (best > maxDistance) return -1;
             var temp = prev; prev = curr; curr = temp;
         }
-        return prev[m] <= maxDistance;
+        var distance = prev[m];
+        return distance <= maxDistance ? distance : -1;
     }
 }

@@ -1,6 +1,5 @@
 ﻿using System.Globalization;
 using System.Reflection;
-using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 
@@ -12,9 +11,18 @@ public sealed class ItemNameTranslator(ILogger<ItemNameTranslator> logger, Trans
     private readonly ILogger<ItemNameTranslator> _logger = logger;
     private static Lazy<Dictionary<string, string>> _bundledTranslations = new(LoadBundledTranslations);
     private static Lazy<Dictionary<string, LanguageInfo>> _languageInfo = new(LoadLanguageInfo);
+    private readonly Dictionary<string, string> _recentTranslations = new();
+
+    private static readonly HashSet<string> _supportedLanguages = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "eng", "fra", "deu", "spa", "por", "rus", "kor", "jpn", "chi_tra"
+    };
 
     public bool IsLoaded { get; private set; }
     public string? LoadedLanguage { get; private set; }
+
+    public static bool IsLanguageSupported(string? language) =>
+        !string.IsNullOrWhiteSpace(language) && _supportedLanguages.Contains(language);
 
     public static IReadOnlyDictionary<string, LanguageInfo> Languages => _languageInfo.Value;
 
@@ -28,11 +36,23 @@ public sealed class ItemNameTranslator(ILogger<ItemNameTranslator> logger, Trans
     {
         if (string.IsNullOrEmpty(name)) return name;
 
+        // Fast path: already translated this name recently (case-sensitive key)
+        if (_recentTranslations.TryGetValue(name, out var recent))
+        {
+            _logger.LogTrace("ToEnglish: cache hit '{Name}' -> '{Result}'", name, recent);
+            return recent;
+        }
+
         // 1) Try TranslationCache (API-fetched, fastest)
         if (_cache is not null && LoadedLanguage is not null)
         {
-            var cached = _cache.ToEnglish(name);
-            if (cached is not null) return cached;
+            var translated = _cache.ToEnglish(name);
+            if (translated is not null)
+            {
+                _logger.LogTrace("ToEnglish: TranslationCache '{Name}' -> '{Result}'", name, translated);
+                _recentTranslations[name] = translated;
+                return translated;
+            }
         }
 
         // 2) Try bundled translations.json fallback
@@ -41,71 +61,95 @@ public sealed class ItemNameTranslator(ILogger<ItemNameTranslator> logger, Trans
         {
             var key = $"{name}##{lang}";
             if (_bundledTranslations.Value.TryGetValue(key, out var bundledEnglish))
+            {
+                _logger.LogTrace("ToEnglish: bundled exact '{Key}' -> '{Result}'", key, bundledEnglish);
+                _recentTranslations[name] = bundledEnglish;
                 return bundledEnglish;
+            }
 
             var norm = NormalizeToTesseractCode(lang);
             if (norm is not null)
             {
                 key = $"{name}##{norm}";
                 if (_bundledTranslations.Value.TryGetValue(key, out bundledEnglish))
+                {
+                    _logger.LogTrace("ToEnglish: bundled norm '{Key}' -> '{Result}'", key, bundledEnglish);
+                    _recentTranslations[name] = bundledEnglish;
                     return bundledEnglish;
+                }
             }
 
             // Try diacritics-insensitive fallback (e.g. "Orbe exalt" matches "Orbe exalté")
-            var plain = RemoveDiacritics(name);
+            var plain = FallbackProvider.RemoveDiacritics(name);
             if (!string.Equals(plain, name, StringComparison.OrdinalIgnoreCase))
             {
                 key = $"{plain}##{lang}";
                 if (_bundledTranslations.Value.TryGetValue(key, out bundledEnglish))
+                {
+                    _recentTranslations[name] = bundledEnglish;
                     return bundledEnglish;
+                }
 
                 if (norm is not null)
                 {
                     key = $"{plain}##{norm}";
                     if (_bundledTranslations.Value.TryGetValue(key, out bundledEnglish))
+                    {
+                        _recentTranslations[name] = bundledEnglish;
                         return bundledEnglish;
+                    }
                 }
             }
 
             // Try apostrophe-normalized (handles "l t" → "l'été")
-            var noApos = RemoveApostrophes(plain);
+            var noApos = FallbackProvider.RemoveApostrophes(plain);
             if (noApos != plain)
             {
                 key = $"{noApos}##{lang}";
                 if (_bundledTranslations.Value.TryGetValue(key, out bundledEnglish))
+                {
+                    _recentTranslations[name] = bundledEnglish;
                     return bundledEnglish;
+                }
 
                 if (norm is not null)
                 {
                     key = $"{noApos}##{norm}";
                     if (_bundledTranslations.Value.TryGetValue(key, out bundledEnglish))
+                    {
+                        _recentTranslations[name] = bundledEnglish;
                         return bundledEnglish;
+                    }
                 }
+            }
+
+        }
+
+        // 2b) Cross-language fallback with adaptive distance based on string length
+        if (LoadedLanguage is not null && _bundledTranslations.Value.Count > 0 && !lang.Equals("eng", StringComparison.OrdinalIgnoreCase))
+        {
+            var plainSearch = FallbackProvider.RemoveDiacritics(name);
+            var noAposSearch = FallbackProvider.RemoveApostrophes(plainSearch);
+            var normCode = NormalizeToTesseractCode(lang);
+            var fuzzyDist = FallbackProvider.FuzzyMaxDist(plainSearch);
+
+            var result = FallbackProvider.TryCrossLanguageMultiCharMatch(
+                plainSearch, noAposSearch, _bundledTranslations.Value, lang, normCode, fuzzyDist);
+            if (result is not null)
+            {
+                _logger.LogTrace("ToEnglish: cross-lang '{Name}' -> '{Result}' (d={D}, lang={Lang})", name, result, fuzzyDist, lang);
+                _recentTranslations[name] = result;
+                return result;
             }
         }
 
         // 3) Not found — return original
+        if (LoadedLanguage is not null && !LoadedLanguage.Equals("eng", StringComparison.OrdinalIgnoreCase))
+            _recentTranslations[name] = name;
+        _logger.LogTrace("ToEnglish: no translation found for '{Name}', returning as-is", name);
         return name;
     }
-    private static string RemoveApostrophes(string text)
-    {
-        if (string.IsNullOrEmpty(text) || text.IndexOf('\'') < 0)
-            return text;
-        return text.Replace('\'', ' ');
-    }
 
-    private static string RemoveDiacritics(string text)
-    {
-        if (string.IsNullOrEmpty(text)) return text;
-        var normalized = text.Normalize(NormalizationForm.FormD);
-        var sb = new StringBuilder(text.Length);
-        foreach (var c in normalized)
-        {
-            if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
-                _ = sb.Append(c);
-        }
-        return sb.ToString().Normalize(NormalizationForm.FormC);
-    }
 
     private static string? NormalizeToTesseractCode(string lang)
     {
@@ -136,6 +180,7 @@ public sealed class ItemNameTranslator(ILogger<ItemNameTranslator> logger, Trans
         if (IsLoaded && string.Equals(LoadedLanguage, language, StringComparison.OrdinalIgnoreCase))
             return;
 
+        _recentTranslations.Clear();
         IsLoaded = false;
         LoadedLanguage = language;
     }

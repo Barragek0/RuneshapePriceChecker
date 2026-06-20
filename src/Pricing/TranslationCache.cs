@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Globalization;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
@@ -212,131 +211,78 @@ public sealed class TranslationCache : IDisposable
     public string? ToEnglish(string name)
     {
         if (_translations.TryGetValue(name, out var english))
+        {
+            _logger.LogTrace("TCache: exact '{Name}' -> '{Result}'", name, english);
             return english;
+        }
 
-        var plain = RemoveDiacritics(name);
+        // Level 2: Diacritics-insensitive — all languages
+        var plain = FallbackProvider.RemoveDiacritics(name);
         if (_translationsNoDiacritics.TryGetValue(plain, out english))
+        {
+            _logger.LogTrace("TCache: diacritics '{Name}' -> '{Result}'", plain, english);
             return english;
+        }
 
-        var noApos = RemoveApostrophes(plain);
+        // Level 3: Apostrophe-normalized — critical for fra
+        var noApos = FallbackProvider.RemoveApostrophes(plain);
         if (noApos != plain && _translationsNoDiacritics.TryGetValue(noApos, out english))
+        {
+            _logger.LogTrace("TCache: apostrophe '{Name}' -> '{Result}'", noApos, english);
             return english;
+        }
 
+        // Level 4: Tier suffix stripping — critical for fra/deu
         var withoutTier = StripTierSuffix(plain);
         if (withoutTier is not null && _translationsNoDiacritics.TryGetValue(withoutTier, out english))
+        {
+            _logger.LogTrace("TCache: tier '{Name}' -> '{Result}'", withoutTier, english);
             return english;
-
-        foreach (var kvp in _translationsNoDiacritics)
-        {
-            if (StrComp.IsOneCharAway(plain, kvp.Key))
-                return kvp.Value;
-            if (noApos != plain && StrComp.IsOneCharAway(noApos, kvp.Key))
-                return kvp.Value;
         }
 
-        for (var maxDist = 2; maxDist <= 3; maxDist++)
+        // Levels 5-6: Fuzzy match with adaptive distance based on string length
+        var fuzzyDist = FallbackProvider.FuzzyMaxDist(plain);
+        var mcResult = FallbackProvider.TryMultiCharTranslation(plain, _translationsNoDiacritics, fuzzyDist);
+        if (mcResult is not null) { _logger.LogTrace("TCache: fuzzy '{Name}' -> '{Result}' (d={D})", plain, mcResult, fuzzyDist); return mcResult; }
+        if (noApos != plain)
         {
-            foreach (var kvp in _translationsNoDiacritics)
-            {
-                if (StrComp.AreFewCharsAway(plain, kvp.Key, maxDist))
-                    return kvp.Value;
-                if (noApos != plain && StrComp.AreFewCharsAway(noApos, kvp.Key, maxDist))
-                    return kvp.Value;
-            }
+            mcResult = FallbackProvider.TryMultiCharTranslation(noApos, _translationsNoDiacritics, fuzzyDist);
+            if (mcResult is not null) { _logger.LogTrace("TCache: fuzzy(noApos) '{Name}' -> '{Result}' (d={D})", noApos, mcResult, fuzzyDist); return mcResult; }
         }
 
-        // Some OCR errors insert extra spaces ("Aproveita mento" instead of "Aproveitamento")
-        // or miss spaces entirely. Strip spaces from both sides as a last-resort fallback.
-        var noSpaces = RemoveAllSpaces(plain);
+        // Level 7: Space-stripped + fuzzy — critical for por ("Aproveita mento")
+        var noSpaces = FallbackProvider.RemoveAllSpaces(plain);
+        if (noSpaces != plain)
+        {
+            var spaceResult = FallbackProvider.TrySpaceStrippedMultiCharTranslation(plain, noSpaces, _translationsNoDiacritics, fuzzyDist);
+            if (spaceResult is not null) { _logger.LogTrace("TCache: space-stripped '{Name}' -> '{Result}'", noSpaces, spaceResult); return spaceResult; }
+        }
+
+        // Level 8: Level-suffix stripping + fuzzy — critical for deu ("(Stufe 10)")
+        var exactResult = FallbackProvider.TryLevelSuffixStrippedExact(plain, noApos, _translationsNoDiacritics);
+        if (exactResult is not null) { _logger.LogTrace("TCache: level-suffix exact '{Name}' -> '{Result}'", plain, exactResult); return exactResult; }
+
+        var lsResult = FallbackProvider.TryLevelSuffixStrippedMultiChar(plain, noApos, _translationsNoDiacritics, fuzzyDist);
+        if (lsResult is not null) { _logger.LogTrace("TCache: level-suffix fuzzy '{Name}' -> '{Result}' (d={D})", plain, lsResult, fuzzyDist); return lsResult; }
+
+        // Space-stripped fallback within level-suffix section
         if (noSpaces != plain)
         {
             foreach (var kvp in _translationsNoDiacritics)
             {
-                var keyNoSpaces = RemoveAllSpaces(kvp.Key);
-                if (keyNoSpaces == kvp.Key) continue;
-                if (StrComp.IsOneCharAway(noSpaces, keyNoSpaces))
-                    return kvp.Value;
-            }
-
-            for (var maxDist = 2; maxDist <= 3; maxDist++)
-            {
-                foreach (var kvp in _translationsNoDiacritics)
+                var strippedKey = FallbackProvider.StripLevelSuffixFromKey(kvp.Key);
+                if (strippedKey is null) continue;
+                var strippedNoSpaces = FallbackProvider.RemoveAllSpaces(strippedKey);
+                if (strippedNoSpaces == strippedKey) continue;
+                if (StrComp.AreFewCharsAway(noSpaces, strippedNoSpaces, FallbackProvider.FuzzyMaxDist(noSpaces)))
                 {
-                    var keyNoSpaces = RemoveAllSpaces(kvp.Key);
-                    if (keyNoSpaces == kvp.Key) continue;
-                    if (StrComp.AreFewCharsAway(noSpaces, keyNoSpaces, maxDist))
-                        return kvp.Value;
+                    _logger.LogTrace("TCache: level-suffix+space '{Name}' -> '{Result}'", noSpaces, kvp.Value);
+                    return kvp.Value;
                 }
             }
         }
 
-        // Some items (e.g. Thaumaturgisches Flussmittel) only exist in the ndjson
-        // WITH a level suffix like "(Stufe 10)" but have no base-name-only entry.
-        // Strip level suffixes from dictionary keys as a last-resort fallback,
-        // then apply fuzzy matching — the OCR may still have errors in the base name.
-        foreach (var kvp in _translationsNoDiacritics)
-        {
-            var strippedKey = StripLevelSuffixFromKey(kvp.Key);
-            if (strippedKey is null) continue;
-
-            if (string.Equals(plain, strippedKey, StringComparison.OrdinalIgnoreCase))
-                return kvp.Value;
-            if (noApos != plain && string.Equals(noApos, strippedKey, StringComparison.OrdinalIgnoreCase))
-                return kvp.Value;
-
-            if (StrComp.IsOneCharAway(plain, strippedKey))
-                return kvp.Value;
-            if (noApos != plain && StrComp.IsOneCharAway(noApos, strippedKey))
-                return kvp.Value;
-
-            for (var maxDist = 2; maxDist <= 3; maxDist++)
-            {
-                if (StrComp.AreFewCharsAway(plain, strippedKey, maxDist))
-                    return kvp.Value;
-                if (noApos != plain && StrComp.AreFewCharsAway(noApos, strippedKey, maxDist))
-                    return kvp.Value;
-            }
-
-            // Space-stripped fallback within level-suffix section
-            if (noSpaces != plain)
-            {
-                var strippedNoSpaces = RemoveAllSpaces(strippedKey);
-                if (strippedNoSpaces != strippedKey)
-                {
-                    if (StrComp.IsOneCharAway(noSpaces, strippedNoSpaces))
-                        return kvp.Value;
-                    for (var maxDist = 2; maxDist <= 3; maxDist++)
-                    {
-                        if (StrComp.AreFewCharsAway(noSpaces, strippedNoSpaces, maxDist))
-                            return kvp.Value;
-                    }
-                }
-            }
-        }
-
-        return null;
-    }
-
-    private static string? StripLevelSuffixFromKey(string key)
-    {
-        if (string.IsNullOrEmpty(key)) return null;
-        var lastParen = key.LastIndexOf('(');
-        if (lastParen < 0) return null;
-        // Pattern: open-paren, some word chars, space, digits, close-paren at end
-        var suffix = key.AsSpan(lastParen);
-        var closeParen = suffix.LastIndexOf(')');
-        if (closeParen < 0 || closeParen != suffix.Length - 1) return null;
-        // Extract the content between parens
-        var inner = suffix[1..^1].Trim();
-        var spaceIdx = inner.LastIndexOf(' ');
-        if (spaceIdx < 0) return null;
-        var word = inner[..spaceIdx];
-        var num = inner[(spaceIdx + 1)..];
-        if (word.Length > 0 && int.TryParse(num, out _))
-        {
-            var stripped = key.AsSpan(0, lastParen).TrimEnd();
-            return stripped.Length > 0 ? stripped.ToString() : null;
-        }
+        _logger.LogTrace("TCache: no match for '{Name}'", plain);
         return null;
     }
 
@@ -368,49 +314,14 @@ public sealed class TranslationCache : IDisposable
 
     private static readonly string[] TierSuffixes = ["majeur", "mineur", "parfait", "supérieur", "supérieure", "stufe", "niveau", "nivel", "nível", "уровень"];
 
-    private static string RemoveApostrophes(string text)
-    {
-        if (string.IsNullOrEmpty(text) || text.IndexOf('\'') < 0)
-            return text;
-        return text.Replace('\'', ' ');
-    }
-
-    private static string RemoveAllSpaces(string text)
-    {
-        if (string.IsNullOrEmpty(text)) return text;
-        for (var i = 0; i < text.Length; i++)
-            if (char.IsWhiteSpace(text[i]))
-                goto needsStrip;
-        return text;
-    needsStrip:
-        var sb = new StringBuilder(text.Length);
-        foreach (var c in text)
-            if (!char.IsWhiteSpace(c))
-                _ = sb.Append(c);
-        return sb.ToString();
-    }
-
-    private static string RemoveDiacritics(string text)
-    {
-        if (string.IsNullOrEmpty(text)) return text;
-        var normalized = text.Normalize(NormalizationForm.FormD);
-        var sb = new StringBuilder(text.Length);
-        foreach (var c in normalized)
-        {
-            if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
-                _ = sb.Append(c);
-        }
-        return sb.ToString().Normalize(NormalizationForm.FormC);
-    }
-
     private void RebuildNoDiacriticsMap()
     {
         var map = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var kvp in _translations)
         {
-            var plain = RemoveDiacritics(kvp.Key);
+            var plain = FallbackProvider.RemoveDiacritics(kvp.Key);
             map[plain] = kvp.Value;
-            var noApos = RemoveApostrophes(plain);
+            var noApos = FallbackProvider.RemoveApostrophes(plain);
             if (noApos != plain)
                 map[noApos] = kvp.Value;
         }
