@@ -31,20 +31,18 @@ public class OcrTextPostProcessorTests
     [Fact]
     public void ExtractLikelyItemNames_ShortLines_Filtered()
     {
-        // Lines below 3 chars after normalization are filtered.
-        // Normalization adds "1x " prefix (3 chars), so only lines with
-        // empty parsed names produce output shorter than 3.
+        // Lines below 3 chars after normalization are filtered out.
         var result = OcrTextPostProcessor.ExtractLikelyItemNames("a\nb\nabc");
-        Assert.Equal(3, result.Count);
+        _ = Assert.Single(result);
+        Assert.Equal("abc", result[0]);
     }
 
     [Fact]
     public void ExtractLikelyItemNames_NumbersOnly_Filtered()
     {
-        // Items after normalization always contain 'x', so the letter check
-        // always passes. These are kept.
+        // Lines with no letters are filtered out.
         var result = OcrTextPostProcessor.ExtractLikelyItemNames("12\n34");
-        Assert.Equal(2, result.Count);
+        Assert.Empty(result);
     }
 
     [Fact]
