@@ -1,7 +1,6 @@
-<Solution>
+﻿<Solution>
   <Folder Name="/src/">
     <Project Path="src/Dashboard/Dashboard.csproj" />
-    <Project Path="src/Updater/Updater.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/OcrPricingSimulator/OcrPricingSimulator.csproj" />

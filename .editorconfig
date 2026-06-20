@@ -1,12 +1,13 @@
 [*.cs]
 
 # Code style: surface IDE diagnostics as build warnings
+csharp_prefer_braces = false                  # Omit braces around single-statement blocks
 dotnet_diagnostic.IDE0001.severity = warning  # Simplify name
 dotnet_diagnostic.IDE0002.severity = warning  # Simplify member access
 dotnet_diagnostic.IDE0003.severity = warning  # Remove 'this' qualification
 dotnet_diagnostic.IDE0004.severity = warning  # Remove unnecessary cast
 dotnet_diagnostic.IDE0005.severity = warning  # Remove unnecessary usings
-dotnet_diagnostic.IDE0011.severity = none     # Add braces (reduces readability for single-line ifs)
+dotnet_diagnostic.IDE0011.severity = warning  # Remove unnecessary braces
 dotnet_diagnostic.IDE0016.severity = warning  # Use 'throw' expression
 dotnet_diagnostic.IDE0017.severity = warning  # Simplify object initialization
 dotnet_diagnostic.IDE0018.severity = warning  # Simplify variable declaration

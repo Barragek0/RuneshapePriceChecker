@@ -17,11 +17,27 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="RuneshapePriceChecker.Tests" />
+    <InternalsVisibleTo Include="RuneshapePriceChecker.Dashboard" />
   </ItemGroup>
 
   <ItemGroup>
     <EmbeddedResource Include="img\example.png" Condition="Exists('img\example.png')" />
+    <EmbeddedResource Include="src\Pricing\translations.json" Visible="false" Link="tesseract\translations.json" />
+    <EmbeddedResource Include="ocr\translations\fra.ndjson" Visible="false" Link="translations\fra.ndjson" />
+    <EmbeddedResource Include="ocr\translations\deu.ndjson" Visible="false" Link="translations\deu.ndjson" />
+    <EmbeddedResource Include="ocr\translations\spa.ndjson" Visible="false" Link="translations\spa.ndjson" />
+    <EmbeddedResource Include="ocr\translations\por.ndjson" Visible="false" Link="translations\por.ndjson" />
+    <EmbeddedResource Include="ocr\translations\rus.ndjson" Visible="false" Link="translations\rus.ndjson" />
+    <EmbeddedResource Include="ocr\translations\kor.ndjson" Visible="false" Link="translations\kor.ndjson" />
+    <EmbeddedResource Include="ocr\translations\jpn.ndjson" Visible="false" Link="translations\jpn.ndjson" />
+    <EmbeddedResource Include="ocr\translations\chi_tra.ndjson" Visible="false" Link="translations\chi_tra.ndjson" />
+    <EmbeddedResource Include="ocr\unique-category-map.json" Visible="false" />
   </ItemGroup>
+
+  <!-- Pre-build: check for updated translation files from Exiled Exchange 2 -->
+  <Target Name="UpdateTranslations" BeforeTargets="BeforeBuild" Condition="'$(GITHUB_ACTIONS)' != 'true'">
+    <Exec Command="powershell -ExecutionPolicy Bypass -File &quot;scripts\update-translations.ps1&quot;" ContinueOnError="WarnAndContinue" />
+  </Target>
 
   <!-- Publish: trimmed self-contained (Release only, Debug uses framework-dependent for hot reload) -->
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
@@ -68,13 +84,13 @@
   <!-- Tesseract: embed traineddata + native DLLs -->
   <Target Name="EnsureTessData" BeforeTargets="AssignTargetPaths">
     <PropertyGroup>
-      <TessDataFile>$(MSBuildProjectDirectory)\tesseract\eng.traineddata</TessDataFile>
+      <TessDataFile>$(MSBuildProjectDirectory)\ocr\tesseract\eng.traineddata</TessDataFile>
       <TessNativeDir>$(MSBuildProjectDirectory)\native</TessNativeDir>
     </PropertyGroup>
-    <MakeDir Directories="$(MSBuildProjectDirectory)\tesseract" Condition="!Exists('$(MSBuildProjectDirectory)\tesseract')" />
+    <MakeDir Directories="$(MSBuildProjectDirectory)\ocr\tesseract" Condition="!Exists('$(MSBuildProjectDirectory)\ocr\tesseract')" />
     <Exec Command="powershell -NoProfile -Command if (-not (Test-Path '$(TessDataFile)')) { Write-Host 'Downloading eng.traineddata (best)...'; Invoke-WebRequest -Uri 'https://github.com/tesseract-ocr/tessdata_best/raw/main/eng.traineddata' -OutFile '$(TessDataFile)' }" Condition="!Exists('$(TessDataFile)')" />
     <ItemGroup>
-      <EmbeddedResource Include="$(TessDataFile)" Visible="false" Link="tesseract\eng.traineddata" />
+      <EmbeddedResource Include="$(TessDataFile)" Visible="false" Link="ocr\tesseract\eng.traineddata" />
     </ItemGroup>
     <PropertyGroup>
       <_TessPkgNativeDir>$(NuGetPackageRoot)\tesseract\5.2.0\x64</_TessPkgNativeDir>
@@ -93,47 +109,27 @@
     <IntermediateOutputPath>obj\run\</IntermediateOutputPath>
   </PropertyGroup>
 
-  <!-- Release pipeline: Build -> Test -> Zip -> Installer -->
-
+  <!-- Release pipeline: Publish - Test - Zip - Installer -->
+  <!--
+    dotnet test is used instead of dotnet build + separate dotnet test run because
+    publish already compiles the main project.  dotnet test's implicit build
+    detects the main project is up to date and only compiles the test project,
+    saving ~3-5 seconds of redundant MSBuild overhead.
+  -->
   <Target Name="Test" AfterTargets="Publish" Condition="'$(Configuration)' == 'Release' and '$(DesignTimeBuild)' != 'true' and '$(SkipTest)' != 'true'">
-    <Exec Command="dotnet build tests\Tests.csproj -c Release --nologo" ConsoleToMSBuild="true" IgnoreExitCode="true">
-      <Output TaskParameter="ExitCode" PropertyName="_TestBuildCode" />
-    </Exec>
-    <Error Condition="$(_TestBuildCode) != 0" Text="Test project build failed (exit code $(_TestBuildCode))" />
-    <Exec Command="dotnet test tests\Tests.csproj -c Release --no-build --nologo --verbosity normal" ConsoleToMSBuild="true" IgnoreExitCode="true">
-      <Output TaskParameter="ExitCode" PropertyName="_TestExitCode" />
-    </Exec>
-    <Error Condition="$(_TestExitCode) != 0" Text="xUnit tests failed (exit code $(_TestExitCode)). See output above for details." />
+    <Exec Command="dotnet test tests\Tests.csproj -c Release --nologo --verbosity normal -m:4" />
   </Target>
 
   <Target Name="Zip" AfterTargets="Test" Condition="'$(Configuration)' == 'Release' and '$(DesignTimeBuild)' != 'true'">
     <PropertyGroup>
-      <_UpdaterPublishDir>$(MSBuildProjectDirectory)\obj\Release\updater-publish\</_UpdaterPublishDir>
-      <ReleaseZipPath>$(BaseOutputPath)$(Configuration)\RuneshapePriceChecker.zip</ReleaseZipPath>
-      <ReleaseZipStageDir>$(BaseIntermediateOutputPath)$(Configuration)\zip-stage\</ReleaseZipStageDir>
+      <_ZipDir>$(MSBuildProjectDirectory)\bin\Release</_ZipDir>
+      <_PublishDir>$(MSBuildProjectDirectory)\obj\Release\publish</_PublishDir>
     </PropertyGroup>
-
-    <ItemGroup>
-      <_PublishFiles Include="$(PublishDir)*.exe" />
-    </ItemGroup>
-
-    <MakeDir Directories="$(BaseOutputPath)$(Configuration)" />
-    <RemoveDir Directories="$(ReleaseZipStageDir)" ContinueOnError="true" />
-    <MakeDir Directories="$(ReleaseZipStageDir)" />
-
-    <Copy SourceFiles="@(_PublishFiles)" DestinationFolder="$(ReleaseZipStageDir)" />
-
-    <Exec Command="dotnet publish src\Updater\Updater.csproj -c Release --nologo &quot;-p:PublishDir=$(_UpdaterPublishDir)&quot;" WorkingDirectory="$(MSBuildProjectDirectory)" />
-    <ItemGroup>
-      <_UpdaterZipFiles Include="$(_UpdaterPublishDir)Update.exe" />
-    </ItemGroup>
-    <Copy SourceFiles="@(_UpdaterZipFiles)" DestinationFolder="$(ReleaseZipStageDir)" />
-
-    <Copy SourceFiles="README.md" DestinationFiles="$(ReleaseZipStageDir)README.txt" />
-
-    <Delete Files="$(ReleaseZipPath)" ContinueOnError="true" />
-    <ZipDirectory SourceDirectory="$(ReleaseZipStageDir)" DestinationFile="$(ReleaseZipPath)" Overwrite="true" ContinueOnError="WarnAndContinue" />
-    <RemoveDir Directories="$(ReleaseZipStageDir)" ContinueOnError="true" />
+    <!-- Close 7-Zip if open — it locks the destination zip file -->
+    <Exec Command="powershell -NoProfile -Command &quot;Get-Process 7zFM,7zG,7z -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue&quot;" ContinueOnError="WarnAndContinue" />
+    <MakeDir Directories="$(_ZipDir)" Condition="!Exists('$(_ZipDir)')" />
+    <Exec Command="powershell -NoProfile -Command Compress-Archive -Path '$(_PublishDir)\RuneshapePriceChecker.exe', '$(MSBuildProjectDirectory)\README.md' -DestinationPath '$(_ZipDir)\RuneshapePriceChecker.zip' -Force" />
+    <Message Text="Created $(_ZipDir)\RuneshapePriceChecker.zip" Importance="high" />
   </Target>
 
   <Target Name="Installer" AfterTargets="Zip" Condition="'$(Configuration)' == 'Release' and '$(DesignTimeBuild)' != 'true'">
@@ -142,12 +138,9 @@
       <_IsccPath Condition="Exists('C:\Program Files (x86)\Inno Setup 6\ISCC.exe')">C:\Program Files (x86)\Inno Setup 6\ISCC.exe</_IsccPath>
     </PropertyGroup>
 
-    <Exec Condition="'$(_IsccPath)' != ''"
-          Command="&quot;$(_IsccPath)&quot; &quot;$(MSBuildProjectDirectory)\installer.iss&quot;"
-          WorkingDirectory="$(MSBuildProjectDirectory)" />
+    <Exec Condition="'$(_IsccPath)' != ''" Command="&quot;$(_IsccPath)&quot; &quot;$(MSBuildProjectDirectory)\installer.iss&quot;" WorkingDirectory="$(MSBuildProjectDirectory)" />
 
-    <Message Condition="'$(_IsccPath)' == ''"
-             Text="Inno Setup 6 not found. Skipping installer. Install from https://jrsoftware.org/isinfo.php" Importance="High" />
+    <Message Condition="'$(_IsccPath)' == ''" Text="Inno Setup 6 not found. Skipping installer. Install from https://jrsoftware.org/isinfo.php" Importance="High" />
   </Target>
 
 </Project>
