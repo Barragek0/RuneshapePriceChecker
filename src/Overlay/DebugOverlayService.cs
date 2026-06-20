@@ -32,7 +32,11 @@ public sealed class DebugOverlayService(
                 if (options.DebugOverlay)
                 {
                     EnsureOverlayThreadStarted();
-                    RefreshOverlayFrame(options);
+                    if (_frameDirty)
+                    {
+                        _frameDirty = false;
+                        RefreshOverlayFrame(options);
+                    }
                 }
                 else CloseOverlay();
                 if (options.ShowBanner) EnsureBannerThreadStarted();
@@ -42,7 +46,7 @@ public sealed class DebugOverlayService(
                 logger.LogError(ex, "Failed to refresh OCR bounds overlay.");
             }
 
-            await Task.Delay(6, stoppingToken).ConfigureAwait(false);
+            await Task.Delay(16, stoppingToken).ConfigureAwait(false);
         }
 
         CloseOverlay();
@@ -130,6 +134,7 @@ public sealed class DebugOverlayService(
     private bool _wasHidden;
     private volatile bool _forceHidden;
     private volatile bool _setupInProgress;
+    private volatile bool _frameDirty;
     private volatile bool _setupComplete; // in-memory guard until IOptionsMonitor picks up the file change
     public bool IsSetupInProgress => _setupInProgress;
     private Thread? _bannerThread;
@@ -275,6 +280,10 @@ public sealed class DebugOverlayService(
         }
     }
 
+    private string _lastBannerMessage = string.Empty;
+    private int _lastBannerX;
+    private int _lastBannerY;
+
     public void SetBannerMessage(string? message)
     {
         if (OverlayGate.AllOverlaysDisabled)
@@ -295,31 +304,47 @@ public sealed class DebugOverlayService(
                 logger.LogDebug("Banner hidden (no unpriceable items).");
                 form.SafeHide();
             }
-            return;
-        }
-
-        EnsureBannerThreadStarted();
-        var banner = GetBannerForm();
-        if (banner is null)
-        {
-            logger.LogWarning("Banner form is null after thread start.");
+            _lastBannerMessage = string.Empty;
             return;
         }
 
         var region = windowResolutionProvider.CurrentCaptureRegion;
         if (region is null)
         {
-            logger.LogDebug("Banner hidden (no capture region).");
-            banner.SafeHide();
+            var form = GetBannerForm();
+            if (form is { IsDisposed: false, IsHidden: false })
+                form.SafeHide();
+            _lastBannerMessage = string.Empty;
             return;
         }
 
         var x = region.X - 55;
         var y = region.Y - 60;
-        banner.SetMessage(message);
-        banner.SafeShow(x, y);
 
-        if (!banner.Visible)
+        // Skip if banner already visible with same message at same position
+        if (string.Equals(message, _lastBannerMessage, StringComparison.Ordinal) && x == _lastBannerX && y == _lastBannerY)
+        {
+            var banner = GetBannerForm();
+            if (banner is { IsDisposed: false, IsHidden: false })
+                return;
+        }
+
+        _lastBannerMessage = message;
+        _lastBannerX = x;
+        _lastBannerY = y;
+
+        EnsureBannerThreadStarted();
+        var b = GetBannerForm();
+        if (b is null)
+        {
+            logger.LogWarning("Banner form is null after thread start.");
+            return;
+        }
+
+        b.SetMessage(message);
+        b.SafeShow(x, y);
+
+        if (!b.Visible)
         {
             logger.LogDebug("Banner shown at ({X},{Y}): {Message}", x, y, message);
         }
@@ -375,10 +400,11 @@ public sealed class DebugOverlayService(
             _wasHidden = false;
         }
 
+        _frameDirty = true;
         overlay.SetStatusLine(statusLine);
-        overlay.SetDebugLines([.. lines], rowYPositions is { } ry ? [.. ry] : null);
+        overlay.SetDebugLines(lines, rowYPositions);
         if (translatedLines is not null)
-            overlay.SetTranslatedLines([.. translatedLines]);
+            overlay.SetTranslatedLines(translatedLines);
         overlay.SetCropBounds(cropBounds);
         if (retryRegions is not null)
             overlay.SetRetryRegions(retryRegions);
@@ -393,9 +419,9 @@ public sealed class DebugOverlayService(
         private const int DebugGap = 120;
         private const int BgPadding = 30;
         private Rectangle _frame;
-        private string[] _debugLines = [];
-        private string[] _debugTranslatedLines = [];
-        private int[] _debugRowY = [];
+        private IReadOnlyList<string> _debugLines = [];
+        private IReadOnlyList<string> _debugTranslatedLines = [];
+        private IReadOnlyList<int> _debugRowY = [];
         private IReadOnlyList<Rectangle> _retryRegions = [];
         private bool _showDebugOverlay;
         private string? _statusLine;
@@ -463,17 +489,17 @@ public sealed class DebugOverlayService(
                     TextFormatFlags.NoPadding);
             }
 
-            if (lines.Length > 0)
+            if (lines.Count > 0)
             {
-                for (var i = 0; i < lines.Length; i++)
+                for (var i = 0; i < lines.Count; i++)
                 {
-                    var rowTop = i < rowY.Length ? rowY[i] : 6 + (i * defaultLineHeight);
+                    var rowTop = i < rowY.Count ? rowY[i] : 6 + (i * defaultLineHeight);
                     rowTop = Math.Clamp(rowTop, 0, Height - defaultLineHeight);
                     var x = debugX + 38;
 
                     // Look up the matching purple box height to center text vertically
                     var rowH = defaultLineHeight;
-                    if (i < rowY.Length)
+                    if (i < rowY.Count)
                     {
                         foreach (var r in _retryRegions)
                         {
@@ -493,7 +519,7 @@ public sealed class DebugOverlayService(
                         TextFormatFlags.NoPadding | TextFormatFlags.NoClipping);
 
                     // Translated text in purple beneath the OCR-detected line
-                    if (i < _debugTranslatedLines.Length)
+                    if (i < _debugTranslatedLines.Count)
                     {
                         var translated = _debugTranslatedLines[i];
                         if (!string.IsNullOrWhiteSpace(translated) &&
@@ -511,7 +537,7 @@ public sealed class DebugOverlayService(
 
         }
 
-        public void SetDebugLines(string[] lines, int[]? rowY = null)
+        public void SetDebugLines(IReadOnlyList<string> lines, IReadOnlyList<int>? rowY = null)
         {
             _debugLines = lines;
             _debugRowY = rowY ?? [];
@@ -519,7 +545,7 @@ public sealed class DebugOverlayService(
                 Invalidate();
         }
 
-        public void SetTranslatedLines(string[] lines)
+        public void SetTranslatedLines(IReadOnlyList<string> lines)
         {
             _debugTranslatedLines = lines;
             if (!IsDisposed && Visible)

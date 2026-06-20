@@ -19,6 +19,7 @@ public sealed class PricingOverlayRenderer(
     private readonly IOptionsMonitor<OcrOptions> _ocrOptions = ocrOptions;
     private Thread? _overlayThread;
     private PriceOverlayForm? _overlayForm;
+    private string _lastContentHash = string.Empty;
 
     public void Render(LeagueWindowSnapshot snapshot, IReadOnlyDictionary<string, PriceQuote?> pricesByItemName)
     {
@@ -38,6 +39,7 @@ public sealed class PricingOverlayRenderer(
             var captureRegion = windowResolutionProvider.CurrentCaptureRegion;
             if (captureRegion is null)
             {
+                _lastContentHash = string.Empty;
                 overlay.SafeHide();
                 return;
             }
@@ -45,9 +47,16 @@ public sealed class PricingOverlayRenderer(
             var itemCount = snapshot.ItemNames.Count;
             if (itemCount == 0)
             {
+                _lastContentHash = string.Empty;
                 overlay.SafeHide();
                 return;
             }
+
+            // Skip render when content unchanged (same items + same prices)
+            var hash = BuildContentHash(snapshot, pricesByItemName);
+            if (hash == _lastContentHash)
+                return;
+            _lastContentHash = hash;
 
             List<Rectangle> rows;
             if (snapshot.RowYPositions is { Count: > 0 } positions && positions.Count == itemCount)
@@ -72,6 +81,20 @@ public sealed class PricingOverlayRenderer(
         {
             logger.LogError(ex, "Failed to render price overlay.");
         }
+    }
+
+    private static string BuildContentHash(LeagueWindowSnapshot snapshot,
+        IReadOnlyDictionary<string, PriceQuote?> pricesByItemName)
+    {
+        // Quick hash of items and their prices — avoid full structural comparison
+        var hash = new System.Text.StringBuilder();
+        foreach (var name in snapshot.ItemNames)
+        {
+            _ = hash.Append(name);
+            if (pricesByItemName.TryGetValue(name, out var quote) && quote is not null)
+                _ = hash.Append(quote.Label);
+        }
+        return hash.ToString();
     }
 
     private static List<OverlayRowEntry> BuildEntries(

@@ -47,7 +47,7 @@ internal sealed class OcrPerfTiming
         var delta = Stopwatch.GetTimestamp() - startTicks;
         _accum[idx] += delta;
         _counts[idx]++;
-        _cycleSlotMs[idx] = delta * 1000.0 / Stopwatch.Frequency;
+        _cycleSlotMs[idx] += delta * 1000.0 / Stopwatch.Frequency;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
