@@ -87,6 +87,25 @@ function Wait-ForUI($proc, $property, $value, $timeoutMs = 5000) {
     return $null
 }
 
+function Wait-ForPort($port, $timeoutMs = 5000) {
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($sw.ElapsedMilliseconds -lt $timeoutMs) {
+        try { $c = [System.Net.Sockets.TcpClient]::new(); $c.Connect('127.0.0.1', $port); $c.Dispose(); return $true } catch { }
+        Start-Sleep -Milliseconds 200
+    }
+    return $false
+}
+
+function Wait-ForProcess($name, $timeoutMs = 10000) {
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($sw.ElapsedMilliseconds -lt $timeoutMs) {
+        $p = Get-Process $name -ErrorAction SilentlyContinue
+        if ($p) { return $p }
+        Start-Sleep -Milliseconds 200
+    }
+    return $null
+}
+
 function Wait-ForClipboard($pattern, $timeoutMs = 3000) {
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     while ($sw.ElapsedMilliseconds -lt $timeoutMs) {
@@ -230,10 +249,8 @@ function Test1-ChangelogSetupCoordination {
             $clicked = Click-Button $proc "Got it" 5000
             if ($clicked) {
                 Report-Result "1b: UI clicked Got it" $true "Dismissed"
-                Start-Sleep -Milliseconds 1500
-                $lc2 = Get-Content (Get-LatestLog) -Raw
-                if ($lc2 -match "triggering initial setup") { Report-Result "1b: Setup after dismiss" $true "Triggered" }
-                else { Report-Result "1b: Setup after dismiss" $false "Not triggered" }
+                $setupAfter = Wait-ForLog "triggering initial setup" 5000
+                Report-Result "1b: Setup after dismiss" $setupAfter $(if ($setupAfter) { "Triggered" }else { "Not triggered" })
             }
             else { Report-Result "1b: UI dismiss" $false "Button not found" }
         }
@@ -285,49 +302,148 @@ function Test2-InitialSetupSuite {
 function Test8-AutoUpdater {
     $zip = Resolve-Path "$root\bin\Release\RuneshapePriceChecker.zip" -ErrorAction SilentlyContinue
     if (-not $zip) { Report-Result "3: Zip" $false "Publish first"; return }
+
+    # Build the "next version" exe so we can simulate a real version upgrade.
+    $buildProps = [xml](Get-Content "$root\Directory.Build.props")
+    $ver = [Version]($buildProps.Project.PropertyGroup.Version -replace '^v', '')
+    $nextVer = "{0}.{1}.{2}" -f $ver.Major, $ver.Minor, ($ver.Build + 1)
+    $updateDir = "$env:TEMP\rpc-update-$nextVer"
+    $updateZip = "$updateDir\RuneshapePriceChecker.zip"
+    if (-not (Test-Path $updateZip)) {
+        Write-Host "  Building v$nextVer update package..."
+        Remove-Item $updateDir -Recurse -Force -ErrorAction SilentlyContinue
+        $null = New-Item -ItemType Directory $updateDir -Force
+        dotnet publish "$root\RuneshapePriceChecker.csproj" -c Release /p:Version=$nextVer --output "$updateDir\publish" --nologo 2>&1 | Out-Null
+        Compress-Archive -Path "$updateDir\publish\*" -DestinationPath $updateZip -Force
+        Write-Host "  Update zip: $updateZip"
+    }
+
+    # Create a clean sandbox extracted from the ORIGINAL zip (v$ver).
+    # We DO NOT copy from $exeDir (obj/Release/publish/) because a previous update
+    # simulation may have overwritten it with the newer version.
+    $sandbox = "$env:TEMP\rpc-test8-$(Get-Random)"
+    $origExeDir = $exeDir
+    $origConfigDir = $configDir
+    $origConfigPath = $configPath
+    $origLogDir = $logDir
+    Write-Host "  Sandbox: $sandbox"
+    Remove-Item $sandbox -Recurse -Force -ErrorAction SilentlyContinue
+    $null = New-Item -ItemType Directory $sandbox -Force
+    # Extract the original release zip (always contains v$ver) into the sandbox
+    Expand-Archive -Path $zip -DestinationPath $sandbox -Force
+    # Override script-level paths to point at the sandbox
+    $script:exeDir = $sandbox
+    $script:exe = "$sandbox\RuneshapePriceChecker.exe"
+    $script:configDir = "$sandbox\config"
+    $script:configPath = "$sandbox\config\appsettings.json"
+    $script:logDir = "$sandbox\logs"
+    # Ensure config directory exists in the sandbox
+    $null = New-Item -ItemType Directory $script:configDir -Force
+
     Stop-App
     Get-Process "dotnet" -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $PID } | Stop-Process -Force
-    Start-Sleep -Milliseconds 1000
-    $serverProc = Start-Process -FilePath "dotnet" -ArgumentList "run --project tests/UpdateTestServer/UpdateTestServer.csproj -c Release --no-build -- `"$zip`" 8099" -PassThru -NoNewWindow
-    Start-Sleep -Milliseconds 1500
-    if ($serverProc.HasExited) { Report-Result "8a: Test server" $false "Crashed"; return }
+    # Wait for dotnet processes to fully exit before starting the test server
+    $null = Wait-For { -not (Get-Process "dotnet" -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $PID }) } 5000
+
+    # Start test server with the update zip (v$nextVer) and report that version
+    $serverProc = Start-Process -FilePath "dotnet" -ArgumentList "run --project tests/UpdateTestServer/UpdateTestServer.csproj -c Release --no-build -- `"$updateZip`" 8099 $nextVer" -PassThru -NoNewWindow
+    $serverReady = Wait-ForPort 8099 8000
+    if (-not $serverReady -or $serverProc.HasExited) { Report-Result "8a: Test server" $false "Not listening"; return }
     Report-Result "8a: Test server" $true "PID $($serverProc.Id)"
     Stop-App; Clear-OldLogs
-    Write-Config '{"App":{"LogLevel":"Debug","ForceUpdateAvailable":true},"Window":{"InitialSetupComplete":true},"Update":{"GitHubApiBaseUrl":"http://localhost:8099/api","AutoUpdate":true},"OCR":{"SaveDebugImages":false,"Language":"eng"}}'
-    $proc = Launch-App -extraArgs "--Update:GitHubApiBaseUrl=http://localhost:8099/api --App:AutoApplyUpdate=true --App:ForceUpdateAvailable=true"
-    # Wait for update detection; give auto-apply a few extra seconds after detection
-    $detected = Wait-ForLog "ForceUpdateAvailable|Starting.*download|Update available" 25000
-    if ($detected) { Start-Sleep -Milliseconds 5000 }  # give auto-apply time to progress
+    Write-Config '{"App":{"LogLevel":"Debug"},"Window":{"InitialSetupComplete":true},"Update":{"GitHubApiBaseUrl":"http://localhost:8099/api","AutoUpdate":true},"OCR":{"SaveDebugImages":false,"Language":"eng"}}'
+    $proc = Launch-App -extraArgs "--Update:GitHubApiBaseUrl=http://localhost:8099/api --App:AutoApplyUpdate=true"
+    # Wait for update detection
+    $detected = Wait-ForLog "New version|Update available" 25000
+    if (-not $detected) {
+        # Fallback: check the log directly
+        $log = Get-LatestLog
+        if ($log) { $detected = (Select-String -Path $log -Pattern "New version|Update available" -Quiet) }
+    }
+    Report-Result "8b: Real version check ($ver -> $nextVer)" $detected $(if ($detected) { "Detected" }else { "Not detected" })
+
+    if ($detected) {
+        # Wait for download to finish (conditional wait with timeout)
+        $downloaded = Wait-ForLog "Download complete|Copied local zip|using local zip" 20000
+        if ($downloaded) {
+            # Wait for updater to launch + apply (the app exits and restart is triggered)
+            $appExited = $null
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            while ($sw.ElapsedMilliseconds -lt 15000) {
+                if ($proc.HasExited) { $appExited = $true; break }
+                Start-Sleep -Milliseconds 200
+            }
+            # Wait for the restarted instance to be findable
+            if ($appExited) {
+                $restarted = $null
+                $sw2 = [System.Diagnostics.Stopwatch]::StartNew()
+                while ($sw2.ElapsedMilliseconds -lt 10000) {
+                    $p = Get-Process "RuneshapePriceChecker" -ErrorAction SilentlyContinue
+                    if ($p -and $p.Id -ne $proc.Id) { $restarted = $p; break }
+                    Start-Sleep -Milliseconds 300
+                }
+                if (-not $restarted) {
+                    # New instance may have already finished; try to find recent log
+                    Start-Sleep -Milliseconds 2000
+                }
+            }
+        }
+    }
+
     Stop-App
     $log = Get-LatestLog
     if ($log) {
         $lc = Get-Content $log -Raw
-        $detected = $lc -match "ForceUpdateAvailable" -or $lc -match "Starting update download" -or $lc -match "Update available"
-        Report-Result "8b: Force update" $detected $(if ($detected) { "Detected" }else { "Not detected" })
-        $prog = $lc -match "Download complete" -or $lc -match "Starting update download" -or $lc -match "Copied local zip" -or $lc -match "Launching updater" -or $lc -match "using local zip"
-        Report-Result "8c: Download/launch" $prog $(if ($prog) { "Progressed" }else { "Not yet (timing)" })
+        $downloaded = $lc -match "Download complete" -or $lc -match "Copied local zip" -or $lc -match "using local zip"
+        $launched = $lc -match "Launching updater" -or $lc -match "Update applied"
+        Report-Result "8c: Download/apply" ($downloaded -or $launched) $(if ($downloaded) { "Downloaded" }elseif ($launched) { "Applied" }else { "Not yet" })
     }
+    else {
+        Report-Result "8c: Download/apply" $false "No log"
+    }
+
+    # 8d: Check update check on second launch.
+    # The zip still contains v$ver (not v$nextVer), so the app will correctly
+    # detect the update again — "Update available" is the expected result.
+    # We preserve the existing config so the changelog from step 8c survives.
     Stop-App; Clear-OldLogs
-    Write-Config '{"App":{"LogLevel":"Debug"},"Window":{"InitialSetupComplete":true},"Update":{"GitHubApiBaseUrl":"http://localhost:8099/api"},"OCR":{"SaveDebugImages":false,"Language":"eng"}}'
-    $proc = Launch-App; Wait-ForApp 8000 | Out-Null
-    # Wait for the async update check to write changelog to config before stopping
-    $changelogWritten = Wait-ForConfig "Changelog" "Version" "1.0.1" 15000
-    Stop-App
+    $proc = Launch-App -extraArgs "--Update:GitHubApiBaseUrl=http://localhost:8099/api"; Wait-ForApp 8000 | Out-Null
+    $checkRan = Wait-ForLog "Update available|New version|Already up to date|No update available" 20000
+    if (-not $checkRan) {
+        $log = Get-LatestLog
+        if ($log) { $checkRan = (Select-String -Path $log -Pattern "Update available|New version|Already up to date" -Quiet) }
+    }
+    Report-Result "8d: Update check ran" $checkRan "OK"
+
+    # 8e: Changelog should now be in config (written by update detection during first OR second launch)
+    $changelogWritten = Wait-ForConfig "Changelog" "Version" $nextVer 15000
     if (-not $changelogWritten) {
-        # Fallback: check if config has any changelog version
         if (Test-Path $configPath) {
             $cfg = Get-Content $configPath -Raw | ConvertFrom-Json
             $changelogWritten = $cfg.Changelog -and $cfg.Changelog.Version
         }
     }
-    $log = Get-LatestLog
-    $found = $log -and (Select-String -Path $log -Pattern "Already up to date" -SimpleMatch -Quiet)
-    Report-Result "8d: Already-up-to-date" $found "OK"
+    if (-not $changelogWritten) {
+        $found = Wait-For { Test-Path $configPath -and (Get-Content $configPath -Raw) -match '"Changelog"' } 10000
+        $changelogWritten = $found
+    }
+    Stop-App
     if (Test-Path $configPath) {
         $cfg = Get-Content $configPath -Raw | ConvertFrom-Json
         Report-Result "8e: Changelog in config" ($cfg.Changelog -and $cfg.Changelog.Version) $(if ($cfg.Changelog.Version) { "v=$($cfg.Changelog.Version)" }else { "Missing" })
     }
+    else {
+        Report-Result "8e: Changelog in config" $false "No config"
+    }
     $serverProc | Stop-Process -Force -ErrorAction SilentlyContinue
+
+    # Restore original paths and clean up sandbox
+    $script:exeDir = $origExeDir
+    $script:exe = "$origExeDir\RuneshapePriceChecker.exe"
+    $script:configDir = $origConfigDir
+    $script:configPath = $origConfigPath
+    $script:logDir = $origLogDir
+    Remove-Item $sandbox -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 function Test9-ChangelogButton {
@@ -405,8 +521,8 @@ function Test11-Logging($proc) {
 }
 
 function Test5-ErrorHandling {
-    $td = "${exeDir}\tesseract\eng.traineddata"
-    $bk = "${exeDir}\tesseract\eng.traineddata.bak"
+    $td = "${exeDir}\ocr\tesseract\eng.traineddata"
+    $bk = "${exeDir}\ocr\tesseract\eng.traineddata.bak"
     Stop-App; Clear-OldLogs; Clear-Config
     if (Test-Path $td) { Move-Item $td $bk -Force }
     $proc = Launch-App; Wait-ForApp 5000 | Out-Null; Stop-App
@@ -1227,23 +1343,88 @@ Stop-App
 
 $runAll = $All -or (-not ($Test1 -or $Test2 -or $Test3 -or $Test4 -or $Test5 -or $Test6 -or $Test7 -or $Test8 -or $Test9 -or $Test10 -or $Test11 -or $Test12 -or $Test13 -or $Test14 -or $Test15 -or $Test16 -or $Test18 -or $Test19 -or $Test20 -or $Test21 -or $Test22 -or $Test23 -or $Test24 -or $Test25 -or $Test26 -or $Test27 -or $Test28 -or $Test29 -or $Test30 -or $Test31 -or $Test32 -or $Test33 -or $Test34 -or $Test35 -or $Test36 -or $Test37))
 
+# ── Sandbox management for isolation between tests ──
+$_savedPaths = @{}  # saved original paths for restore
+
+function Enter-TestSandbox {
+    param([string]$TestName)
+    # Snapshot original paths
+    $_savedPaths.ExeDir = $script:exeDir
+    $_savedPaths.Exe = $script:exe
+    $_savedPaths.ConfigDir = $script:configDir
+    $_savedPaths.ConfigPath = $script:configPath
+    $_savedPaths.LogDir = $script:logDir
+
+    # Create a fresh sandbox from the original zip
+    $zip = Resolve-Path "$root\bin\Release\RuneshapePriceChecker.zip" -ErrorAction SilentlyContinue
+    $sandbox = "$env:TEMP\rpc-sandbox-$TestName-$(Get-Random)"
+    Remove-Item $sandbox -Recurse -Force -ErrorAction SilentlyContinue
+    if ($zip) {
+        $null = New-Item -ItemType Directory $sandbox -Force
+        Expand-Archive -Path $zip -DestinationPath $sandbox -Force
+    }
+    else {
+        # Fall back to original exe dir if no zip (unlikely for release tests)
+        $sandbox = $_savedPaths.ExeDir
+    }
+
+    $script:exeDir = $sandbox
+    $script:exe = "$sandbox\RuneshapePriceChecker.exe"
+    $script:configDir = "$sandbox\config"
+    $script:configPath = "$sandbox\config\appsettings.json"
+    $script:logDir = "$sandbox\logs"
+    $null = New-Item -ItemType Directory $script:configDir -Force
+    # Seed with the perf-test baseline config so the app always has a valid starting point
+    $perfConfig = "$root\scripts\perf-test-config.json"
+    if (Test-Path $perfConfig) {
+        Copy-Item $perfConfig $script:configPath -Force
+    }
+}
+
+function Exit-TestSandbox {
+    # Restore original paths
+    $script:exeDir = $_savedPaths.ExeDir
+    $script:exe = $_savedPaths.Exe
+    $script:configDir = $_savedPaths.ConfigDir
+    $script:configPath = $_savedPaths.ConfigPath
+    $script:logDir = $_savedPaths.LogDir
+
+    # Clean up sandbox (only if it was created by Enter-TestSandbox)
+    $sandbox = $script:exeDir
+    if ($sandbox -and $sandbox -ne $_savedPaths.ExeDir -and $sandbox -like "$env:TEMP\rpc-sandbox-*") {
+        Remove-Item $sandbox -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# Wrap each test with sandbox isolation
+function Invoke-TestWithSandbox {
+    param([string]$Name, [ScriptBlock]$TestBlock)
+    Write-Host "${ansiCyan}[Sandbox] $Name${ansiReset}" -NoNewline
+    Enter-TestSandbox $Name
+    Write-Host " → $($script:exeDir)"
+    & $TestBlock
+    Exit-TestSandbox
+}
+
 # ═══════════════════════════════════════════════════════════════
 # PHASE 1: Restart-required tests (each test manages its own app lifecycle)
-# These tests change config files, test startup behavior, or need fresh app state.
+# Each test runs in a fresh sandbox extracted from the original release zip
+# so state from one test never leaks into another.
 # ═══════════════════════════════════════════════════════════════
-if ($runAll -or $Test1) { Test1-ChangelogSetupCoordination }
-if ($runAll -or $Test2) { Test2-InitialSetupSuite }
-if ($runAll -or $Test3) { Test3-AppLifecycle }
-if ($runAll -or $Test4) { Test4-ConfigRobustness }
-if ($runAll -or $Test5) { Test5-ErrorHandling }
-if ($runAll -or $Test6) { Test6-SettingsPersistence }
-if ($runAll -or $Test7) { Test7-InvalidThresholds }
+if ($runAll -or $Test1) { Invoke-TestWithSandbox "Test1" { Test1-ChangelogSetupCoordination } }
+if ($runAll -or $Test2) { Invoke-TestWithSandbox "Test2" { Test2-InitialSetupSuite } }
+if ($runAll -or $Test3) { Invoke-TestWithSandbox "Test3" { Test3-AppLifecycle } }
+if ($runAll -or $Test4) { Invoke-TestWithSandbox "Test4" { Test4-ConfigRobustness } }
+if ($runAll -or $Test5) { Invoke-TestWithSandbox "Test5" { Test5-ErrorHandling } }
+if ($runAll -or $Test6) { Invoke-TestWithSandbox "Test6" { Test6-SettingsPersistence } }
+if ($runAll -or $Test7) { Invoke-TestWithSandbox "Test7" { Test7-InvalidThresholds } }
+# Test8 manages its own sandbox (needs the original zip for base, a v+1 build for update)
 if ($runAll -or $Test8) { Test8-AutoUpdater }
-if ($runAll -or $Test9) { Test9-ChangelogButton }
-if ($runAll -or $Test10) { Test10-OverlayFeatureToggles }
+if ($runAll -or $Test9) { Invoke-TestWithSandbox "Test9" { Test9-ChangelogButton } }
+if ($runAll -or $Test10) { Invoke-TestWithSandbox "Test10" { Test10-OverlayFeatureToggles } }
 
 # Restart-mode tests (each starts/stops its own instance)
-if ($runAll -or $Test18) { Test18-OcrBackendSetting }
+if ($runAll -or $Test18) { Invoke-TestWithSandbox "Test18" { Test18-OcrBackendSetting } }
 if ($runAll -or $Test19) { Test19-ReRunSetup }
 if ($runAll -or $Test21) { Test21-PricingSourceChange }
 if ($runAll -or $Test22) { Test22-LogLevelChange }

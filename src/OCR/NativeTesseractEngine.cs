@@ -31,7 +31,6 @@ internal sealed partial class NativeTesseractEngine : IDisposable
         NativeMethods.TessBaseAPISetPageSegMode(_handle, mode);
     }
 
-    /// <summary>Recognize a single line of text (PSM 7). Returns text only — no TSV parsing needed.</summary>
     public string RecognizeSingleLine(Bitmap rowBitmap)
     {
         var pix = IntPtr.Zero;
@@ -43,7 +42,7 @@ internal sealed partial class NativeTesseractEngine : IDisposable
             _ = NativeMethods.TessBaseAPIRecognize(_handle, IntPtr.Zero);
 
             var textPtr = NativeMethods.TessBaseAPIGetUTF8Text(_handle);
-            var text = textPtr != IntPtr.Zero ? Marshal.PtrToStringAnsi(textPtr) ?? string.Empty : string.Empty;
+            var text = textPtr != IntPtr.Zero ? Marshal.PtrToStringUTF8(textPtr) ?? string.Empty : string.Empty;
             if (textPtr != IntPtr.Zero)
                 NativeMethods.TessDeleteText(textPtr);
 
@@ -73,7 +72,7 @@ internal sealed partial class NativeTesseractEngine : IDisposable
             }
 
             var textPtr = NativeMethods.TessBaseAPIGetUTF8Text(_handle);
-            var text = textPtr != IntPtr.Zero ? Marshal.PtrToStringAnsi(textPtr) ?? string.Empty : string.Empty;
+            var text = textPtr != IntPtr.Zero ? Marshal.PtrToStringUTF8(textPtr) ?? string.Empty : string.Empty;
             if (textPtr != IntPtr.Zero)
                 NativeMethods.TessDeleteText(textPtr);
 
@@ -95,7 +94,7 @@ internal sealed partial class NativeTesseractEngine : IDisposable
         if (tsvPtr == IntPtr.Zero)
             return [];
 
-        var tsv = Marshal.PtrToStringAnsi(tsvPtr) ?? string.Empty;
+        var tsv = Marshal.PtrToStringUTF8(tsvPtr) ?? string.Empty;
         NativeMethods.TessDeleteText(tsvPtr);
 
         return ParseWordYPositions(tsv, upscaleFactor);

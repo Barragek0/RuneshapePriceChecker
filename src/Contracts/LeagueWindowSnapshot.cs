@@ -5,6 +5,6 @@ public sealed record LeagueWindowSnapshot(
     DateTimeOffset CapturedAtUtc,
     IReadOnlyList<int>? RowYPositions = null,
     bool InterfaceDetected = true,
-    string? BannerMessage = null,
     string? CaptureMethod = null,
-    Rectangle? CropBounds = null);
+    Rectangle? CropBounds = null,
+    IReadOnlyList<Rectangle>? RetryRegions = null);

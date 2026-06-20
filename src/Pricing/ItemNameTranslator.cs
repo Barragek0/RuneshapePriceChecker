@@ -1,160 +1,336 @@
-using System.Collections.Concurrent;
+﻿using System.Globalization;
+using System.Reflection;
+using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 
 namespace RuneshapePriceChecker.Pricing;
 
-/// <summary>
-/// Fetches and caches item name translations from the official Path of Exile trade API.
-/// Maps non-English item names (e.g. "Orbe du Chaos") to their English equivalents ("Chaos Orb")
-/// so OCR results in any language can be matched against English pricing data.
-/// </summary>
-public sealed class ItemNameTranslator(HttpClient httpClient, ILogger<ItemNameTranslator> logger)
+public sealed class ItemNameTranslator(ILogger<ItemNameTranslator> logger, TranslationCache? cache = null) : IDisposable
 {
-    private readonly ConcurrentDictionary<string, string> _translations = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, string> _reverse = new(StringComparer.OrdinalIgnoreCase);
-    private volatile bool _loaded;
-    private string? _loadedLanguage;
+    private readonly TranslationCache? _cache = cache;
+    private readonly ILogger<ItemNameTranslator> _logger = logger;
+    private static Lazy<Dictionary<string, string>> _bundledTranslations = new(LoadBundledTranslations);
+    private static Lazy<Dictionary<string, LanguageInfo>> _languageInfo = new(LoadLanguageInfo);
 
-    public bool IsLoaded => _loaded;
+    public bool IsLoaded { get; private set; }
+    public string? LoadedLanguage { get; private set; }
 
-    /// <summary>
-    /// Translates an item name from the game's language to English.
-    /// Returns the original name unchanged if no translation is found or if language is English.
-    /// Triggers lazy loading on first call.
-    /// </summary>
+    public static IReadOnlyDictionary<string, LanguageInfo> Languages => _languageInfo.Value;
+
+    public static void ReloadBundledTranslations()
+    {
+        _bundledTranslations = new Lazy<Dictionary<string, string>>(LoadBundledTranslations);
+        _languageInfo = new Lazy<Dictionary<string, LanguageInfo>>(LoadLanguageInfo);
+    }
+
     public string ToEnglish(string name)
     {
         if (string.IsNullOrEmpty(name)) return name;
-        if (!_loaded && _pendingLanguage is not null)
-        {
-            // Trigger background load (fire-and-forget — next call will have data)
-            _ = LoadAsync(_pendingLanguage, CancellationToken.None);
-            return name;
-        }
-        if (!_loaded) return name;
-        return _translations.TryGetValue(name, out var english) ? english : name;
-    }
 
-    private string? _pendingLanguage;
-
-    /// <summary>
-    /// Sets the target language. Call this when OCR language changes.
-    /// </summary>
-    public void SetLanguage(string language)
-    {
-        if (string.IsNullOrEmpty(language) || language.Equals("eng", StringComparison.OrdinalIgnoreCase))
+        // 1) Try TranslationCache (API-fetched, fastest)
+        if (_cache is not null && LoadedLanguage is not null)
         {
-            _loaded = true;
-            _loadedLanguage = "eng";
-            _translations.Clear();
-            return;
+            var cached = _cache.ToEnglish(name);
+            if (cached is not null) return cached;
         }
 
-        if (_loaded && string.Equals(_loadedLanguage, language, StringComparison.OrdinalIgnoreCase))
-            return;
-
-        _pendingLanguage = language;
-        _loaded = false;
-    }
-
-    /// <summary>
-    /// Fetches the complete item name dictionary for the given language from the trade API.
-    /// Only re-fetches if the language changed since the last load.
-    /// </summary>
-    public async Task LoadAsync(string language, CancellationToken ct)
-    {
-        if (string.IsNullOrEmpty(language) || language.Equals("eng", StringComparison.OrdinalIgnoreCase))
+        // 2) Try bundled translations.json fallback
+        var lang = LoadedLanguage ?? "eng";
+        if (!lang.Equals("eng", StringComparison.OrdinalIgnoreCase) && _bundledTranslations.Value.Count > 0)
         {
-            _loaded = true;
-            _loadedLanguage = "eng";
-            logger.LogInformation("ItemNameTranslator: English selected, no translation needed.");
-            return;
-        }
+            var key = $"{name}##{lang}";
+            if (_bundledTranslations.Value.TryGetValue(key, out var bundledEnglish))
+                return bundledEnglish;
 
-        if (_loaded && string.Equals(_loadedLanguage, language, StringComparison.OrdinalIgnoreCase))
-            return;
-
-        try
-        {
-            var domain = GetDomainForLanguage(language);
-            var url = $"https://{domain}/api/trade2/data/items";
-
-            logger.LogInformation("ItemNameTranslator: fetching item names for '{Lang}' from {Url}...", language, url);
-
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            _ = request.Headers.AcceptLanguage.TryParseAdd(language);
-
-            using var response = await httpClient.SendAsync(request, ct).ConfigureAwait(false);
-            _ = response.EnsureSuccessStatusCode();
-
-            var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            ParseItems(json);
-
-            _loaded = true;
-            _loadedLanguage = language;
-            logger.LogInformation("ItemNameTranslator: loaded {Count} translated item names for '{Lang}'", _translations.Count, language);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "ItemNameTranslator: failed to load translations for '{Lang}'. OCR results will not be translated.", language);
-            _loaded = true; // prevent retry spam, just work in English-only mode
-            _loadedLanguage = language;
-        }
-    }
-
-    private void ParseItems(string json)
-    {
-        using var doc = JsonDocument.Parse(json);
-        var results = doc.RootElement.GetProperty("result");
-
-        _translations.Clear();
-        _reverse.Clear();
-
-        foreach (var category in results.EnumerateArray())
-        {
-            if (!category.TryGetProperty("entries", out var entries)) continue;
-            foreach (var entry in entries.EnumerateArray())
+            var norm = NormalizeToTesseractCode(lang);
+            if (norm is not null)
             {
-                var english = GetString(entry, "type") ?? GetString(entry, "text");
-                var translated = GetString(entry, "text");
+                key = $"{name}##{norm}";
+                if (_bundledTranslations.Value.TryGetValue(key, out bundledEnglish))
+                    return bundledEnglish;
+            }
 
-                if (string.IsNullOrEmpty(english) || string.IsNullOrEmpty(translated))
-                    continue;
+            // Try diacritics-insensitive fallback (e.g. "Orbe exalt" matches "Orbe exalté")
+            var plain = RemoveDiacritics(name);
+            if (!string.Equals(plain, name, StringComparison.OrdinalIgnoreCase))
+            {
+                key = $"{plain}##{lang}";
+                if (_bundledTranslations.Value.TryGetValue(key, out bundledEnglish))
+                    return bundledEnglish;
 
-                // text field is the localized name, type field is the English internal name
-                // Store both directions for robustness
-                if (!string.Equals(english, translated, StringComparison.OrdinalIgnoreCase))
+                if (norm is not null)
                 {
-                    _translations[translated] = english;
-                    _reverse[english] = translated;
+                    key = $"{plain}##{norm}";
+                    if (_bundledTranslations.Value.TryGetValue(key, out bundledEnglish))
+                        return bundledEnglish;
+                }
+            }
+
+            // Try apostrophe-normalized (handles "l t" → "l'été")
+            var noApos = RemoveApostrophes(plain);
+            if (noApos != plain)
+            {
+                key = $"{noApos}##{lang}";
+                if (_bundledTranslations.Value.TryGetValue(key, out bundledEnglish))
+                    return bundledEnglish;
+
+                if (norm is not null)
+                {
+                    key = $"{noApos}##{norm}";
+                    if (_bundledTranslations.Value.TryGetValue(key, out bundledEnglish))
+                        return bundledEnglish;
                 }
             }
         }
 
-        // Add known currency mappings that the API doesn't include in items
-        AddManualMappings();
+        // 3) Not found — return original
+        return name;
+    }
+    private static string RemoveApostrophes(string text)
+    {
+        if (string.IsNullOrEmpty(text) || text.IndexOf('\'') < 0)
+            return text;
+        return text.Replace('\'', ' ');
     }
 
-    private void AddManualMappings()
+    private static string RemoveDiacritics(string text)
     {
-        // Common currency names that the trade API may not list
-        var manual = new (string English, string[] Translated)[]
+        if (string.IsNullOrEmpty(text)) return text;
+        var normalized = text.Normalize(NormalizationForm.FormD);
+        var sb = new StringBuilder(text.Length);
+        foreach (var c in normalized)
         {
-            ("Chaos Orb", ["Orbe du Chaos", "Chaos-Kugel", "Orbe del Caos", "Orbe do Caos", "Сфера Хаоса", "カオスオーブ", "混沌石"]),
-            ("Divine Orb", ["Orbe Divin", "Göttliche Kugel", "Orbe Divino", "Orbe Divino", "Сфера Божеств", "ディヴァインオーブ", "神聖石"]),
-            ("Exalted Orb", ["Orbe Exalté", "Erhabene Kugel", "Orbe Exaltado", "Orbe Exaltado", "Сфера Возвышения", "エグザルトオーブ", "崇高石"]),
-            ("Mirror of Kalandra", ["Miroir de Kalandra", "Spiegel von Kalandra", "Espejo de Kalandra", "Espelho de Kalandra", "Зеркало Каландры", "カランドラの鏡", "卡蘭德的魔鏡"]),
-        };
+            if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
+                _ = sb.Append(c);
+        }
+        return sb.ToString().Normalize(NormalizationForm.FormC);
+    }
 
-        foreach (var (english, translated) in manual)
+    private static string? NormalizeToTesseractCode(string lang)
+    {
+        return lang.ToLowerInvariant() switch
         {
-            foreach (var t in translated)
+            "ru" => "rus",
+            "de" => "deu",
+            "fr" => "fra",
+            "es" => "spa",
+            "pt" => "por",
+            "ko" => "kor",
+            "ja" => "jpn",
+            "cmn-hant" => "chi_tra",
+            "cht" => "chi_tra",
+            _ => null
+        };
+    }
+
+    public void SetLanguage(string language)
+    {
+        if (string.IsNullOrEmpty(language) || language.Equals("eng", StringComparison.OrdinalIgnoreCase))
+        {
+            IsLoaded = true;
+            LoadedLanguage = "eng";
+            return;
+        }
+
+        if (IsLoaded && string.Equals(LoadedLanguage, language, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        IsLoaded = false;
+        LoadedLanguage = language;
+    }
+    public async Task LoadAsync(string language, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(language) || language.Equals("eng", StringComparison.OrdinalIgnoreCase))
+        {
+            IsLoaded = true;
+            LoadedLanguage = "eng";
+            _logger.LogInformation("ItemNameTranslator: English selected, no translation needed.");
+            return;
+        }
+
+        if (IsLoaded && string.Equals(LoadedLanguage, language, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        LoadedLanguage = language;
+
+        if (_cache is not null)
+        {
+            await _cache.LoadAsync(language, ct).ConfigureAwait(false);
+            if (_cache.IsLoaded)
             {
-                _translations[t] = english;
-                _reverse[english] = t;
+                IsLoaded = true;
+                _logger.LogInformation("ItemNameTranslator: {Count} translations loaded via cache for '{Lang}'", _cache.Count, language);
+                return;
             }
         }
+
+        // No cache or cache failed — mark loaded to prevent retry spam
+        // (bundled fallback still works in ToEnglish)
+        IsLoaded = true;
+        _logger.LogWarning("ItemNameTranslator: no TranslationCache available for '{Lang}', using bundled fallback only", language);
+    }
+    public void WatchForChanges()
+    {
+        // Watch bundled translations.json
+        var translationsPath = FindTranslationsPath();
+        if (translationsPath is not null)
+        {
+            var dir = Path.GetDirectoryName(translationsPath);
+            var fileName = Path.GetFileName(translationsPath);
+            if (dir is not null)
+            {
+                var jsonWatcher = new FileSystemWatcher(dir, fileName)
+                {
+                    NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size,
+                    EnableRaisingEvents = true
+                };
+
+                var lastReload = DateTime.MinValue;
+                jsonWatcher.Changed += (_, e) =>
+                {
+                    var now = DateTime.UtcNow;
+                    if ((now - lastReload).TotalMilliseconds < 500) return;
+                    lastReload = now;
+
+                    Thread.Sleep(100);
+                    try
+                    {
+                        ReloadBundledTranslations();
+                        _logger.LogInformation("ItemNameTranslator: translations.json changed — reloaded.");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to reload translations.json");
+                    }
+                };
+            }
+        }
+
+        // Also watch TranslationCache .dat files
+        _cache?.WatchForChanges();
+    }
+
+    private static string? FindTranslationsPath()
+    {
+        var baseDir = AppContext.BaseDirectory;
+        var candidates = new[]
+        {
+            Path.Combine(baseDir, "ocr", "tesseract", "translations.json"),
+            Path.Combine(baseDir, "..", "..", "..", "ocr", "tesseract", "translations.json"),
+            Path.Combine(baseDir, "..", "..", "..", "src", "Pricing", "translations.json"),
+        };
+
+        foreach (var candidate in candidates)
+        {
+            var resolved = Path.GetFullPath(candidate);
+            if (File.Exists(resolved))
+                return resolved;
+        }
+
+        return null;
+    }
+
+    private static Stream? OpenTranslationsStream()
+    {
+        // Try embedded resource (from main assembly)
+        var assembly = Assembly.GetExecutingAssembly();
+        var stream = assembly.GetManifestResourceStream("ocr.tesseract.translations.json")
+            ?? assembly.GetManifestResourceStream("tesseract.translations.json")
+            ?? assembly.GetManifestResourceStream("RuneshapePriceChecker.ocr.tesseract.translations.json")
+            ?? assembly.GetManifestResourceStream("RuneshapePriceChecker.tesseract.translations.json");
+        if (stream is not null) return stream;
+
+        // Also try calling assembly (test project might inherit via reference)
+        try
+        {
+            var callingAsm = Assembly.GetCallingAssembly();
+            if (callingAsm != assembly)
+            {
+                stream = callingAsm.GetManifestResourceStream("ocr.tesseract.translations.json")
+                    ?? callingAsm.GetManifestResourceStream("tesseract.translations.json");
+                if (stream is not null) return stream;
+            }
+        }
+        catch { }
+
+        // Fall back to file system for development / testing
+        var rootSearchPaths = new[]
+        {
+            AppContext.BaseDirectory,
+            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."),
+            Path.Combine(AppContext.BaseDirectory, "..", "..", ".."),
+            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."),
+        };
+
+        foreach (var basePath in rootSearchPaths)
+        {
+            var resolved = Path.GetFullPath(basePath);
+            var candidates = new[]
+            {
+                Path.Combine(resolved, "ocr", "tesseract", "translations.json"),
+                Path.Combine(resolved, "src", "Pricing", "translations.json"),
+                Path.Combine(resolved, "Pricing", "translations.json"),
+            };
+
+            foreach (var candidate in candidates)
+            {
+                if (File.Exists(candidate))
+                    return File.OpenRead(candidate);
+            }
+        }
+
+        return null;
+    }
+
+    private static Dictionary<string, string> LoadBundledTranslations()
+    {
+        try
+        {
+            using var stream = OpenTranslationsStream();
+            if (stream is null) return [];
+
+            using var reader = new StreamReader(stream);
+            var json = reader.ReadToEnd();
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (root.TryGetProperty("items", out var items))
+            {
+                foreach (var item in items.EnumerateArray())
+                {
+                    var english = GetString(item, "name");
+                    if (string.IsNullOrEmpty(english)) continue;
+
+                    foreach (var prop in item.EnumerateObject())
+                    {
+                        if (prop.Name == "name" || prop.Value.ValueKind != JsonValueKind.String)
+                            continue;
+                        var langCode = prop.Name;
+                        var translated = prop.Value.GetString();
+                        if (!string.IsNullOrEmpty(translated) && !string.Equals(translated, english, StringComparison.OrdinalIgnoreCase))
+                        {
+                            result[$"{translated}##{langCode}"] = english;
+                        }
+                    }
+                }
+            }
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Failed to load bundled translations: {ex.Message}");
+            return [];
+        }
+    }
+
+    private static Dictionary<string, LanguageInfo> LoadLanguageInfo()
+    {
+        // The languages section was removed from translations.json since the
+        // language dropdown was eliminated. Return the hardcoded defaults.
+        return GetDefaultLanguageInfo();
     }
 
     private static string? GetString(JsonElement element, string property)
@@ -164,19 +340,27 @@ public sealed class ItemNameTranslator(HttpClient httpClient, ILogger<ItemNameTr
             : null;
     }
 
-    private static string GetDomainForLanguage(string language)
+    private static Dictionary<string, LanguageInfo> GetDefaultLanguageInfo()
     {
-        return language switch
+        return new(StringComparer.OrdinalIgnoreCase)
         {
-            "ru" => "ru.pathofexile.com",
-            "de" => "de.pathofexile.com",
-            "fr" => "fr.pathofexile.com",
-            "es" => "es.pathofexile.com",
-            "pt" => "br.pathofexile.com",
-            "ko" => "poe.game.daum.net",
-            "ja" => "jp.pathofexile.com",
-            "cmn-Hant" => "pathofexile.tw",
-            _ => "www.pathofexile.com"
+            ["eng"] = new("English", true),
+            ["fra"] = new("Français", true),
+            ["deu"] = new("Deutsch", true),
+            ["por"] = new("Português", true),
+            ["rus"] = new("Русский", true),
+            ["tha"] = new("ไทย", true),
+            ["chi_tra"] = new("繁體中文", true),
+            ["spa"] = new("Español", true),
+            ["kor"] = new("한국어", true),
+            ["jpn"] = new("日本語", true),
         };
     }
+
+    public void Dispose()
+    {
+        _cache?.Dispose();
+    }
 }
+
+public sealed record LanguageInfo(string DisplayName, bool SupportsWindowsOcr);

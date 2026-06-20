@@ -8,7 +8,10 @@ public static class AppSettingsBootstrapper
     private const string DefaultAppSettingsJson = """
 {
     "App": {
-        "LogLevel": "Information"
+        "LogLevel": "Information",
+        "BringToForeground": true,
+        "AlwaysOnTop": false,
+        "RememberDebugPanel": false
     },
     "Pricing": {
         "PricingSource": "poe2scout",
@@ -24,7 +27,8 @@ public static class AppSettingsBootstrapper
         "DebugOverlay": false,
         "HideDebugOverlayWhenInterfaceNotDetected": false,
         "ShowPricingOverlay": true,
-        "ShowBanner": true
+        "ShowBanner": true,
+        "OcrBackend": "windows"
     },
     "Update": {
         "AutoUpdate": true,

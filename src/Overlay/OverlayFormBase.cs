@@ -7,6 +7,14 @@ internal class OverlayFormBase : Form
     protected static readonly Color TransparencyChroma = Color.FromArgb(1, 2, 3);
     internal volatile bool IsHidden;
 
+    protected virtual bool ClickThrough => false;
+
+    private const int WS_EX_TOOLWINDOW = 0x00000080;
+    private const int WS_EX_LAYERED = 0x00080000;
+    private const int WS_EX_NOACTIVATE = 0x08000000;
+    private const int WS_EX_TRANSPARENT = 0x00000020;
+    private const int WM_SETCURSOR = 0x0020;
+
     protected OverlayFormBase()
     {
         FormBorderStyle = FormBorderStyle.None;
@@ -20,8 +28,6 @@ internal class OverlayFormBase : Form
     }
 
     protected override bool ShowWithoutActivation => true;
-
-    private const int WM_SETCURSOR = 0x0020;
 
     protected override void WndProc(ref Message m)
     {
@@ -45,9 +51,11 @@ internal class OverlayFormBase : Form
         get
         {
             var cp = base.CreateParams;
-            cp.ExStyle |= 0x00000080;  // WS_EX_TOOLWINDOW
-            cp.ExStyle |= 0x00080000;  // WS_EX_LAYERED
-            cp.ExStyle |= 0x08000000;  // WS_EX_NOACTIVATE
+            cp.ExStyle |= WS_EX_TOOLWINDOW;
+            cp.ExStyle |= WS_EX_LAYERED;
+            cp.ExStyle |= WS_EX_NOACTIVATE;
+            if (ClickThrough)
+                cp.ExStyle |= WS_EX_TRANSPARENT;
             return cp;
         }
     }

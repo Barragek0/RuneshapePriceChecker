@@ -32,6 +32,9 @@ public sealed class DashboardViewModel(string configPath)
     public string OcrLanguage { get; set; } = "eng";
     public string OcrBackend { get; set; } = "windows";
     public bool AutoUpdate { get; set; } = true;
+    public bool BringToForeground { get; set; } = true;
+    public bool AlwaysOnTop { get; set; }
+    public bool RememberDebugPanel { get; set; }
 
     public Action<IProgress<int>>? OnUpdateTriggered { get; set; }
     public Action? OnSetupContinue { get; set; }
@@ -88,7 +91,12 @@ public sealed class DashboardViewModel(string configPath)
             if (root is null) return;
 
             if (root["App"] is JsonNode app)
+            {
                 LogLevel = app.Str("LogLevel", "Information");
+                BringToForeground = app.Val("BringToForeground", true);
+                AlwaysOnTop = app.Val("AlwaysOnTop", false);
+                RememberDebugPanel = app.Val("RememberDebugPanel", false);
+            }
 
             if (root["Pricing"] is JsonNode pricing)
             {
@@ -113,6 +121,9 @@ public sealed class DashboardViewModel(string configPath)
 
             if (root["Update"] is JsonNode update)
                 AutoUpdate = update.Val("AutoUpdate", true);
+
+            if (root["Window"] is JsonNode win)
+                _ = win; // Window section kept for layout settings
         }
         catch { }
     }
@@ -143,8 +154,14 @@ public sealed class DashboardViewModel(string configPath)
             rootObj["OCR"] ??= new JsonObject();
             rootObj["Update"] ??= new JsonObject();
 
-            if (rootObj["App"] is JsonObject app)
+            JsonObject? app = rootObj["App"] as JsonObject;
+            if (app is not null)
+            {
                 app["LogLevel"] = LogLevel;
+                app["BringToForeground"] = BringToForeground;
+                app["AlwaysOnTop"] = AlwaysOnTop;
+                app["RememberDebugPanel"] = RememberDebugPanel;
+            }
 
             if (rootObj["Pricing"] is JsonObject pricing)
             {
@@ -319,6 +336,39 @@ public sealed class DashboardViewModel(string configPath)
             windowNode["Width"] = (int)width;
             windowNode["Height"] = (int)height;
 
+            var json = root.ToJsonString(new() { WriteIndented = true });
+            File.WriteAllText(_configPath, json + Environment.NewLine, Encoding.UTF8);
+        }
+        catch { }
+    }
+
+    public void SaveRememberDebugPanel()
+    {
+        try
+        {
+            var configDir = Path.GetDirectoryName(_configPath);
+            if (!string.IsNullOrEmpty(configDir) && !Directory.Exists(configDir))
+                _ = Directory.CreateDirectory(configDir);
+
+            JsonNode root;
+            if (File.Exists(_configPath))
+            {
+                var existingJson = File.ReadAllText(_configPath, Encoding.UTF8);
+                root = JsonNode.Parse(existingJson) ?? new JsonObject();
+            }
+            else
+            {
+                root = new JsonObject();
+            }
+
+            var appNode = root["App"] as JsonObject;
+            if (appNode is null)
+            {
+                appNode = [];
+                root["App"] = appNode;
+            }
+
+            appNode["RememberDebugPanel"] = RememberDebugPanel;
             var json = root.ToJsonString(new() { WriteIndented = true });
             File.WriteAllText(_configPath, json + Environment.NewLine, Encoding.UTF8);
         }

@@ -76,4 +76,54 @@ public class ItemNameParserTests
         Assert.All(results, r => Assert.Equal("Chaos Orb", r.Name));
         Assert.All(results, r => Assert.True(r.Quantity > 0));
     }
+
+    [Theory]
+    [InlineData("Uncut Skill Gem Level 19", "Uncut Skill Gem")]
+    [InlineData("Uncut Skill Cem Level 19", "Uncut Skill Cem")]
+    [InlineData("Uncut Support Gem Level 5", "Uncut Support Gem")]
+    [InlineData("Uncut Spirit Gem Level 1", "Uncut Spirit Gem")]
+    [InlineData("Gemme d'aptitude brute Niveau 19", "Gemme d'aptitude brute")]
+    [InlineData("Gemme d'aptitude brute Nivieau 19", "Gemme d'aptitude brute")]
+    [InlineData("Roher Fertigkeitsedelstein Stufe 19", "Roher Fertigkeitsedelstein")]
+    [InlineData("Gema de Habilidad Bruta Nivel 19", "Gema de Habilidad Bruta")]
+    [InlineData("1x Uncut Skill Gem Level 19", "Uncut Skill Gem")]
+    [InlineData("Ix Gemme d'aptitude brute Niveau 19", "Gemme d'aptitude brute")]
+    [InlineData("1x xx Rune of Consistency", "Rune of Consistency")]
+    [InlineData("1x x Artificer Orb", "Artificer Orb")]
+    [InlineData("1x xxx Item Name", "Item Name")]
+    // Portuguese
+    [InlineData("Gema de Habilidade Bruta Nível 19", "Gema de Habilidade Bruta")]
+    [InlineData("Gema de Suporte Bruta Nível 5", "Gema de Suporte Bruta")]
+    // Russian
+    [InlineData("Неогранённый самоцвет умений Уровень 19", "Неогранённый самоцвет умений")]
+    [InlineData("Неогранённый самоцвет поддержки Уровень 5", "Неогранённый самоцвет поддержки")]
+    [InlineData("Неогранённый самоцвет духа Уровень 1", "Неогранённый самоцвет духа")]
+    // Japanese
+    [InlineData("スキルジェム LV 19", "スキルジェム")]
+    [InlineData("サポートジェム LV 5", "サポートジェム")]
+    // Korean
+    [InlineData("스킬 젬 레벨 19", "스킬 젬")]
+    [InlineData("서포트 젬 레벨 5", "서포트 젬")]
+    // Chinese Traditional
+    [InlineData("技能寶石 等級 19", "技能寶石")]
+    [InlineData("輔助寶石 等級 5", "輔助寶石")]
+    public void ParseDetectedItem_StripsLevelSuffix(string raw, string expectedName)
+    {
+        var result = ItemNameParser.ParseDetectedItem(raw);
+        Assert.Equal(expectedName, result.Name);
+    }
+
+    [Fact]
+    public void ParseDetectedItem_NormalItem_DoesNotStripAnything()
+    {
+        var result = ItemNameParser.ParseDetectedItem("Chaos Orb");
+        Assert.Equal("Chaos Orb", result.Name);
+    }
+
+    [Fact]
+    public void ParseDetectedItem_UncutGemWithoutLevel_KeepsName()
+    {
+        var result = ItemNameParser.ParseDetectedItem("Uncut Skill Gem");
+        Assert.Equal("Uncut Skill Gem", result.Name);
+    }
 }

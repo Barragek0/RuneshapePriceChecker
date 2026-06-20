@@ -48,7 +48,9 @@ internal static partial class MarkdownRenderer
             FontSize = 13,
             Foreground = TextBrush,
             PagePadding = new Thickness(0, 0, 32, 0),
-            LineHeight = 3
+            TextAlignment = TextAlignment.Left,
+            IsOptimalParagraphEnabled = true,
+            LineHeight = 20
         };
 
         try
@@ -79,8 +81,8 @@ internal static partial class MarkdownRenderer
         var inCodeBlock = false;
         var inDetails = false;
         var detailsSummary = "";
-        var detailsLines = new List<string>();
-        var codeLines = new List<string>();
+        List<string> detailsLines = [];
+        List<string> codeLines = [];
 
         for (var i = 0; i < lines.Length; i++)
         {
@@ -264,7 +266,7 @@ internal static partial class MarkdownRenderer
     private static void ToggleSpoilerBlocks(FlowDocument doc, Paragraph header, string tag, List<string> lines)
     {
         var expanded = false;
-        var afterBlocks = new List<Block>();
+        List<Block> afterBlocks = [];
 
         var pastHeader = false;
         foreach (Block block in doc.Blocks.ToList())
@@ -308,7 +310,7 @@ internal static partial class MarkdownRenderer
             }
 
             Paragraph? p;
-            if (string.IsNullOrWhiteSpace(line)) { p = new Paragraph { Margin = new Thickness(16, 2, 0, 2) }; }
+            if (string.IsNullOrWhiteSpace(line)) p = new Paragraph { Margin = new Thickness(16, 2, 0, 2) };
             else
             {
                 var trimmed = line.TrimStart();

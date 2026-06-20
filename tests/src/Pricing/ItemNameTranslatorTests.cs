@@ -1,3 +1,4 @@
+﻿using System.IO;
 using System.Net;
 using System.Net.Http;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -10,10 +11,18 @@ public sealed class ItemNameTranslatorTests
 {
     private static ItemNameTranslator CreateTranslator(HttpMessageHandler? handler = null)
     {
-        var client = handler is not null
-            ? new HttpClient(handler) { BaseAddress = new Uri("https://www.pathofexile.com") }
-            : new HttpClient();
-        return new ItemNameTranslator(client, NullLogger<ItemNameTranslator>.Instance);
+        var logger = NullLogger<ItemNameTranslator>.Instance;
+        if (handler is null)
+            return new ItemNameTranslator(logger);
+        var cache = CreateCache(handler);
+        return new ItemNameTranslator(logger, cache);
+    }
+
+    private static TranslationCache CreateCache(HttpMessageHandler handler)
+    {
+        var client = new HttpClient(handler);
+        var ocrDir = Path.Combine(Path.GetTempPath(), "RPC-Tests", Guid.NewGuid().ToString());
+        return new TranslationCache(client, NullLogger<TranslationCache>.Instance, ocrDir);
     }
 
     [Fact]
@@ -60,33 +69,21 @@ public sealed class ItemNameTranslatorTests
     }
 
     [Fact]
-    public async Task LoadAsync_ValidApiResponse_ParsesTranslations()
+    public async Task LoadAsync_ValidNdjsonResponse_ParsesTranslations()
     {
-        var json = """
-        {
-            "result": [
-                {
-                    "label": "Currency",
-                    "entries": [
-                        { "type": "Chaos Orb", "text": "Orbe du Chaos" },
-                        { "type": "Divine Orb", "text": "Orbe Divin" },
-                        { "type": "Exalted Orb", "text": "Orbe Exalté" }
-                    ]
-                },
-                {
-                    "label": "Unique",
-                    "entries": [
-                        { "type": "Headhunter", "text": "Chasseur de Têtes" }
-                    ]
-                }
-            ]
-        }
-        """;
+        var frNdjson = """
+{"name":"Orbe du Chaos","refName":"Chaos Orb","namespace":"ITEM"}
+{"name":"Orbe Divin","refName":"Divine Orb","namespace":"ITEM"}
+{"name":"Orbe Exalté","refName":"Exalted Orb","namespace":"ITEM"}
+{"name":"Chasseur de Têtes","refName":"Headhunter","namespace":"UNIQUE"}
+""";
 
-        var handler = new FakeHttpMessageHandler(json);
-        var t = CreateTranslator(handler);
+        var ocrDir = Path.Combine(Path.GetTempPath(), "RPC-Tests", Guid.NewGuid().ToString());
+        var cache = new TranslationCache(new HttpClient(), NullLogger<TranslationCache>.Instance, ocrDir);
+        cache.LoadFromString("fr", frNdjson);
+        var t = new ItemNameTranslator(NullLogger<ItemNameTranslator>.Instance, cache);
         t.SetLanguage("fr");
-        await t.LoadAsync("fr", CancellationToken.None);
+        await t.LoadAsync("fr", CancellationToken.None); // safe: _loadedLanguage already "fr"
 
         Assert.True(t.IsLoaded);
         Assert.Equal("Chaos Orb", t.ToEnglish("Orbe du Chaos"));
@@ -102,28 +99,21 @@ public sealed class ItemNameTranslatorTests
     }
 
     [Fact]
-    public async Task LoadAsync_EnglishEntries_SkippedCorrectly()
+    public async Task LoadAsync_IdentityEntries_Skipped()
     {
-        // When type == text (both English), entry should be skipped
-        var json = """
-        {
-            "result": [
-                {
-                    "label": "Currency",
-                    "entries": [
-                        { "type": "Chaos Orb", "text": "Chaos Orb" }
-                    ]
-                }
-            ]
-        }
-        """;
+        // Identity entries (name == refName) should be skipped — no translation needed
+        var ndjson = """
+{"name":"Chaos Orb","refName":"Chaos Orb","namespace":"ITEM"}
+""";
 
-        var handler = new FakeHttpMessageHandler(json);
-        var t = CreateTranslator(handler);
+        var ocrDir = Path.Combine(Path.GetTempPath(), "RPC-Tests", Guid.NewGuid().ToString());
+        var cache = new TranslationCache(new HttpClient(), NullLogger<TranslationCache>.Instance, ocrDir);
+        cache.LoadFromString("fr", ndjson);
+        var t = new ItemNameTranslator(NullLogger<ItemNameTranslator>.Instance, cache);
         t.SetLanguage("fr");
-        await t.LoadAsync("fr", CancellationToken.None);
+        await t.LoadAsync("fr", CancellationToken.None); // safe: _loadedLanguage already "fr"
 
-        // "Chaos Orb" (English) should not have a translation entry since it's identical
+        // "Chaos Orb" is identity, so no translation entry for it
         Assert.Equal("Chaos Orb", t.ToEnglish("Chaos Orb"));
     }
 
@@ -138,11 +128,12 @@ public sealed class ItemNameTranslatorTests
     }
 
     [Fact]
-    public async Task LoadAsync_EmptyResponse_DoesNotThrow()
+    public async Task LoadAsync_EmptyNdjson_LoadsButNoTranslations()
     {
-        var json = """{"result": []}""";
-        var handler = new FakeHttpMessageHandler(json);
-        var t = CreateTranslator(handler);
+        var ocrDir = Path.Combine(Path.GetTempPath(), "RPC-Tests", Guid.NewGuid().ToString());
+        var cache = new TranslationCache(new HttpClient(), NullLogger<TranslationCache>.Instance, ocrDir);
+        cache.LoadFromString("de", "");
+        var t = new ItemNameTranslator(NullLogger<ItemNameTranslator>.Instance, cache);
         t.SetLanguage("de");
         await t.LoadAsync("de", CancellationToken.None);
 
@@ -151,68 +142,54 @@ public sealed class ItemNameTranslatorTests
     }
 
     [Fact]
-    public async Task LoadAsync_ApiError_DoesNotThrow()
+    public async Task LoadAsync_MissingNdjson_FallsBackToFileSystem()
     {
-        var handler = new FakeHttpMessageHandler("not json", HttpStatusCode.InternalServerError);
-        var t = CreateTranslator(handler);
+        // No LoadFromString — TryReadNdjson will find the real deu.ndjson on disk.
+        var ocrDir = Path.Combine(Path.GetTempPath(), "RPC-Tests", Guid.NewGuid().ToString());
+        var cache = new TranslationCache(new HttpClient(), NullLogger<TranslationCache>.Instance, ocrDir);
+        var t = new ItemNameTranslator(NullLogger<ItemNameTranslator>.Instance, cache);
         t.SetLanguage("de");
         await t.LoadAsync("de", CancellationToken.None);
 
-        // Should still be marked loaded (prevents retry spam)
+        // The real deu.ndjson should be found on disk and loaded
         Assert.True(t.IsLoaded);
-        Assert.Equal("Item", t.ToEnglish("Item"));
     }
 
     [Fact]
     public async Task LoadAsync_EnglishLanguage_SkipsFetch()
     {
-        var callCount = 0;
-        var handler = new CountingHandler(() => callCount++);
-        var t = CreateTranslator(handler);
+        var t = CreateTranslator();
         t.SetLanguage("eng");
         await t.LoadAsync("eng", CancellationToken.None);
 
         Assert.True(t.IsLoaded);
-        Assert.Equal(0, callCount); // No HTTP call made
     }
 
     [Fact]
-    public void ManualMappings_CommonCurrencies_Translated()
+    public void BundledFallback_PortalScroll_Translated()
     {
-        var json = """{"result": []}""";
-        var handler = new FakeHttpMessageHandler(json);
-        var t = CreateTranslator(handler);
+        var t = CreateTranslator();
         t.SetLanguage("fr");
         t.LoadAsync("fr", CancellationToken.None).GetAwaiter().GetResult();
 
-        // Manual mappings added for common currencies
-        Assert.Equal("Chaos Orb", t.ToEnglish("Orbe du Chaos"));
-        Assert.Equal("Divine Orb", t.ToEnglish("Orbe Divin"));
-        Assert.Equal("Exalted Orb", t.ToEnglish("Orbe Exalté"));
+        // Portal Scroll is the only remaining item in translations.json with a French translation
+        Assert.Equal("Portal Scroll", t.ToEnglish("Parchemin de Portail"));
     }
 }
-
-/// <summary>
-/// Fake HttpMessageHandler that returns a fixed JSON response.
-/// </summary>
-public sealed class FakeHttpMessageHandler(string responseBody, HttpStatusCode statusCode = HttpStatusCode.OK) : HttpMessageHandler
+public sealed class FakeHttpMessageHandler(string localizedJson, HttpStatusCode statusCode = HttpStatusCode.OK) : HttpMessageHandler
 {
-    private readonly string _responseBody = responseBody;
+    private readonly string _localizedJson = localizedJson;
     private readonly HttpStatusCode _statusCode = statusCode;
 
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         var response = new HttpResponseMessage(_statusCode)
         {
-            Content = new StringContent(_responseBody, System.Text.Encoding.UTF8, "application/json")
+            Content = new StringContent(_localizedJson, System.Text.Encoding.UTF8, "application/json")
         };
         return Task.FromResult(response);
     }
 }
-
-/// <summary>
-/// HttpMessageHandler that counts how many times it's invoked.
-/// </summary>
 public sealed class CountingHandler(Action onSend) : HttpMessageHandler
 {
     private readonly Action _onSend = onSend;

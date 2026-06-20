@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using System.Text.Json.Nodes;
 using RuneshapePriceChecker.Startup;
 using Xunit;
@@ -22,8 +22,6 @@ public class AppSettingsBootstrapperTests
     {
         return (bool)RenameKeyMethod.Invoke(null, [node, oldKey, newKey])!;
     }
-
-    // ── DeepMergeDefaults ──
 
     [Fact]
     public void DeepMerge_MissingTopLevelKey_AddsIt()
@@ -98,8 +96,6 @@ public class AppSettingsBootstrapperTests
         Assert.Equal("Custom", existing["Pricing"]!["League"]!.GetValue<string>());
         Assert.Equal(0.5m, existing["Pricing"]!["RedThreshold"]!.GetValue<decimal>());
     }
-
-    // ── RenameKey ──
 
     [Fact]
     public void RenameKey_OldKeyExists_RenamesAndReturnsTrue()

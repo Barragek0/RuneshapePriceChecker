@@ -67,7 +67,22 @@
     {
         "raw": "Uncut Skill Cem Level 19",
         "qty": 1,
-        "name": "Uncut Skill Cem Level 19"
+        "name": "Uncut Skill Cem"
+    },
+    {
+        "raw": "Gemme d'aptitude brute Nivieau 19",
+        "qty": 1,
+        "name": "Gemme d'aptitude brute"
+    },
+    {
+        "raw": "Gemme d'aptitude brute Niveau 19",
+        "qty": 1,
+        "name": "Gemme d'aptitude brute"
+    },
+    {
+        "raw": "1x Gemme d'aptitude brute Nivieau 19",
+        "qty": 1,
+        "name": "Gemme d'aptitude brute"
     },
     {
         "raw": "1 Orb of Alchemy",

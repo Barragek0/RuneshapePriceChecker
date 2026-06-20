@@ -1,5 +1,7 @@
-using System.Drawing.Imaging;
+﻿using System.Drawing.Imaging;
 using System.Runtime.InteropServices.WindowsRuntime;
+using Microsoft.Extensions.Logging;
+using Windows.Globalization;
 using Windows.Graphics.Imaging;
 using Windows.Media.Ocr;
 
@@ -11,11 +13,79 @@ namespace RuneshapePriceChecker.OCR;
 internal sealed class WindowsOcrEngine : IDisposable
 {
     private readonly OcrEngine _engine;
-
-    public WindowsOcrEngine()
+    private static readonly Dictionary<string, string> AppToWindowsLang = new(StringComparer.OrdinalIgnoreCase)
     {
-        _engine = OcrEngine.TryCreateFromUserProfileLanguages()
-            ?? throw new InvalidOperationException("Windows OCR engine not available on this system.");
+        ["eng"] = "en-US",
+        ["fra"] = "fr-FR",
+        ["deu"] = "de-DE",
+        ["spa"] = "es-ES",
+        ["por"] = "pt-BR",
+        ["rus"] = "ru-RU",
+        ["tha"] = "th-TH",
+        ["chi_tra"] = "zh-TW",
+        ["kor"] = "ko-KR",
+        ["jpn"] = "ja-JP",
+    };
+    public static string LanguageSettingsUri => "ms-settings:regionlanguage-adddisplaylanguage";
+    public static void OpenLanguageSettings()
+    {
+        _ = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(LanguageSettingsUri)
+        { UseShellExecute = true });
+    }
+
+    public WindowsOcrEngine(string? appLanguage, ILogger? logger = null)
+    {
+        if (appLanguage is not null && AppToWindowsLang.TryGetValue(appLanguage, out var winLang))
+        {
+            _engine = TryCreateFromLanguageOrFamily(winLang, appLanguage, logger);
+        }
+        else
+        {
+            _engine = OcrEngine.TryCreateFromUserProfileLanguages() ?? throw new InvalidOperationException("No Windows OCR language available.");
+        }
+
+        _engine = _engine ?? throw new InvalidOperationException("Windows OCR engine not available on this system.");
+    }
+
+    private static OcrEngine? TryCreateFromLanguageOrFamily(string winLang, string appLang, ILogger? logger)
+    {
+        // Try the exact regional variant first
+        var lang = new Language(winLang);
+        var engine = OcrEngine.TryCreateFromLanguage(lang);
+        if (engine is not null)
+        {
+            logger?.LogInformation("Windows OCR language pack for '{AppLang}' ({WinLang}) loaded successfully.",
+                appLang, winLang);
+            return engine;
+        }
+
+        // Exact variant not installed — try to find any installed pack matching the language family
+        var familyPrefix = winLang[..2]; // "en", "fr", "de", etc.
+        foreach (var available in OcrEngine.AvailableRecognizerLanguages)
+        {
+            var tag = available.LanguageTag;
+            if (tag.StartsWith(familyPrefix, StringComparison.OrdinalIgnoreCase) && !string.Equals(tag, winLang, StringComparison.OrdinalIgnoreCase))
+            {
+                engine = OcrEngine.TryCreateFromLanguage(available);
+                if (engine is not null)
+                {
+                    logger?.LogWarning(
+                        "Windows OCR language pack for '{AppLang}' ({WinLang}) is not installed. " +
+                        "Using '{Fallback}' ({FallbackTag}) as a compatible fallback. " +
+                        "Consider installing the exact pack for best accuracy.",
+                        appLang, winLang, available.NativeName, tag);
+                    return engine;
+                }
+            }
+        }
+
+        // No matching language pack found at all — fall back to user profile languages
+        logger?.LogWarning(
+            "Windows OCR language pack for '{AppLang}' ({WinLang}) is not installed. " +
+            "Falling back to user profile languages. Install the language pack to improve OCR accuracy. " +
+            "Press ⊞ Win and search for \"Language & region\" to install it.",
+            appLang, winLang);
+        return OcrEngine.TryCreateFromUserProfileLanguages();
     }
 
     public string Recognize(Bitmap bitmap, out int[] wordYPositions, int upscaleFactor, OcrPerfTiming? perf = null)

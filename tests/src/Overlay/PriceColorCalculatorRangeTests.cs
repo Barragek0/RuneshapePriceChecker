@@ -25,8 +25,6 @@ public class PriceColorCalculatorRangeTests
         Assert.NotEqual(redColor, greenColor);
     }
 
-    // ── GetDivineGlowStrength ──
-
     [Fact]
     public void GetDivineGlowStrength_EmptyString_ReturnsZero()
     {

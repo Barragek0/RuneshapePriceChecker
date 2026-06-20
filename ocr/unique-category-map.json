@@ -1,0 +1,159 @@
+{
+    "TWO HAND MACE": [
+        "ДВУРУЧНАЯ БУЛАВА",
+        "ДВУРУЧНЫЙ ТОПОР",
+        "ДВУРУЧНЫЙ МЕЧ"
+    ],
+    "ONE HAND MACE": [
+        "ОДНОРУЧНАЯ БУЛАВА",
+        "ОДНОРУЧНЫЙ ТОПОР",
+        "ОДНОРУЧНЫЙ МЕЧ",
+        "КИСТЕНЬ"
+    ],
+    "QUARTERSTAFF": [
+        "БОЕВОЙ ПОСОХ",
+        "ПОСОХ",
+        "ЖЕЗЛ"
+    ],
+    "BOW": [
+        "ЛУК"
+    ],
+    "CROSSBOW": [
+        "АРБАЛЕТ"
+    ],
+    "SPEAR": [
+        "КОПЬЁ",
+        "КОПЬЕ"
+    ],
+    "WEAPON": [
+        "WAFFE",
+        "ARME",
+        "ARMA",
+        "武器",
+        "무기",
+        "ОРУЖИЕ"
+    ],
+    "HELMET": [
+        "ШЛЕМ",
+        "МАСКА",
+        "HELM",
+        "CASQUE",
+        "CASCO",
+        "CAPACETE",
+        "頭盔",
+        "ヘルメット",
+        "투구"
+    ],
+    "BODY ARMOUR": [
+        "НАГРУДНИК",
+        "ДОСПЕХ",
+        "ДОСПЕХИ",
+        "БРОНЯ",
+        "RÜSTUNG",
+        "KÖRPERSCHUTZ",
+        "ARMURE",
+        "ARMADURA",
+        "身體護甲",
+        "ボディアーマー",
+        "갑옷"
+    ],
+    "GLOVES": [
+        "ПЕРЧАТКИ",
+        "HANDSCHUHE",
+        "GANTS",
+        "GUANTES",
+        "LUVAS",
+        "手套",
+        "グローブ",
+        "장갑"
+    ],
+    "BOOTS": [
+        "САПОГИ",
+        "STIEFEL",
+        "BOTTES",
+        "BOTAS",
+        "鞋子",
+        "ブーツ",
+        "신발"
+    ],
+    "RING": [
+        "КОЛЬЦО",
+        "RING",
+        "ANNEAU",
+        "ANILLO",
+        "ANEL",
+        "戒指",
+        "リング",
+        "반지"
+    ],
+    "AMULET": [
+        "АМУЛЕТ",
+        "AMULETT",
+        "AMULETTE",
+        "AMULETO",
+        "項鍊",
+        "アミュレット",
+        "목걸이"
+    ],
+    "BELT": [
+        "ПОЯС",
+        "ПАЯС",
+        "КУШАК",
+        "GÜRTEL",
+        "CEINTURE",
+        "CINTURÓN",
+        "CINTO",
+        "腰帶",
+        "ベルト",
+        "허리띠"
+    ],
+    "JEWELLERY": [
+        "SCHMUCK",
+        "BIJOUX",
+        "JOYAS",
+        "JOIAS",
+        "珠寶",
+        "ジュエリー",
+        "장신구",
+        "БИЖУТЕРИЯ"
+    ],
+    "TALISMAN": [
+        "ТАЛИСМАН",
+        "TALISMAN",
+        "TALISMAN",
+        "TALISMÁN",
+        "TALISMÃ",
+        "護身符",
+        "タリスマン",
+        "탈리스만"
+    ],
+    "SHIELD": [
+        "ЩИТ",
+        "SCHILD",
+        "BOUCLIER",
+        "ESCUDO",
+        "盾牌",
+        "盾",
+        "방패"
+    ],
+    "QUIVER": [
+        "КОЛЧАН",
+        "KÖCHER",
+        "CARQUOIS",
+        "CARCAJ",
+        "ALJAVA",
+        "箭袋",
+        "矢筒",
+        "화살통"
+    ],
+    "FOCUS": [
+        "ФОКУС",
+        "FOKUS",
+        "FOCALISATEUR",
+        "ENFOQUE",
+        "FOCO",
+        "法器",
+        "フォーカス",
+        "집중"
+    ]
+}

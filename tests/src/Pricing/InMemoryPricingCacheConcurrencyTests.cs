@@ -20,7 +20,7 @@ public class InMemoryPricingCacheConcurrencyTests
             new StaticOptionsMonitor<PricingCacheOptions>(new PricingCacheOptions()),
             NullLogger<InMemoryPricingCache>.Instance);
 
-        var tasks = new List<Task>();
+        List<Task> tasks = [];
         for (var i = 0; i < 10; i++)
         {
             tasks.Add(Task.Run(async () =>

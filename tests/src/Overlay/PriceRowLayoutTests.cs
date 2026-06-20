@@ -104,8 +104,6 @@ public class PriceRowLayoutTests
         Assert.Empty(result);
     }
 
-    // ── Range parsing edge cases ──
-
     [Fact]
     public void Build_RangeWithoutSeparator_ReturnsSingleSegment()
     {

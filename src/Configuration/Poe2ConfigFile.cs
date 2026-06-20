@@ -1,12 +1,8 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Globalization;
 
 namespace RuneshapePriceChecker.Configuration;
 
-/// <summary>
-/// Shared reader for poe2_Production_Config.ini. Values are cached and auto-refreshed
-/// every 5 seconds so config changes are picked up without re-reading every call.
-/// </summary>
 public static class Poe2ConfigFile
 {
     private static readonly string ConfigPath = Path.Combine(
@@ -15,6 +11,37 @@ public static class Poe2ConfigFile
 
     private static string? _fileText;
     private static long _lastReadTicks;
+    private static FileSystemWatcher? _watcher;
+    private static readonly object _watcherLock = new();
+    public static event Action? ConfigChanged;
+    public static void StartWatching()
+    {
+        lock (_watcherLock)
+        {
+            if (_watcher is not null) return;
+            var dir = Path.GetDirectoryName(ConfigPath);
+            if (!Directory.Exists(dir)) return;
+            _watcher = new FileSystemWatcher(dir, "poe2_Production_Config.ini")
+            {
+                NotifyFilter = NotifyFilters.LastWrite,
+                EnableRaisingEvents = true
+            };
+            _watcher.Changed += OnConfigFileChanged;
+        }
+    }
+
+    private static void OnConfigFileChanged(object sender, FileSystemEventArgs e)
+    {
+        // Debounce: the file system fires multiple events for a single save
+        Thread.Sleep(500);
+        lock (_watcherLock)
+        {
+            // Force re-read by clearing the cache
+            _fileText = null;
+            _lastReadTicks = 0;
+            ConfigChanged?.Invoke();
+        }
+    }
 
     private static string? ReadAllText()
     {
@@ -50,8 +77,6 @@ public static class Poe2ConfigFile
         }
         return null;
     }
-
-    /// <summary>mouse_cursor_size value (1.5–4.0). Returns null if not found.</summary>
     public static double? MouseCursorSize
     {
         get
@@ -61,8 +86,6 @@ public static class Poe2ConfigFile
             return double.TryParse(val, CultureInfo.InvariantCulture, out var d) ? d : null;
         }
     }
-
-    /// <summary>resolution_width value. Returns null if not found.</summary>
     public static int? ResolutionWidth
     {
         get
@@ -71,8 +94,6 @@ public static class Poe2ConfigFile
             return val is not null && int.TryParse(val, out var w) ? w : null;
         }
     }
-
-    /// <summary>resolution_height value. Returns null if not found.</summary>
     public static int? ResolutionHeight
     {
         get
@@ -81,8 +102,6 @@ public static class Poe2ConfigFile
             return val is not null && int.TryParse(val, out var h) ? h : null;
         }
     }
-
-    /// <summary>Whether fullscreen mode is enabled.</summary>
     public static bool IsFullscreen
     {
         get
@@ -91,8 +110,6 @@ public static class Poe2ConfigFile
             return val is not null && val.Equals("true", StringComparison.OrdinalIgnoreCase);
         }
     }
-
-    /// <summary>ui_brigthness value. Returns null if not found.</summary>
     public static float? UiBrightness
     {
         get
@@ -103,14 +120,29 @@ public static class Poe2ConfigFile
         }
     }
 
-    /// <summary>
-    /// Interpolated cursor box width in pixels. Calibrated at 1.5→20, 2.18→28, 4.0→48.
-    /// </summary>
+    private static readonly Dictionary<string, string> GameToTesseractLang = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["en"] = "eng",
+        ["fr"] = "fra",
+        ["de"] = "deu",
+        ["es"] = "spa",
+        ["pt-BR"] = "por",
+        ["ru"] = "rus",
+        ["th"] = "tha",
+        ["zh-TW"] = "chi_tra",
+        ["ko-KR"] = "kor",
+        ["ja-JP"] = "jpn",
+    };
+    public static string? Language
+    {
+        get
+        {
+            var val = GetValue("language=");
+            if (val is null) return null;
+            return GameToTesseractLang.TryGetValue(val, out var code) ? code : null;
+        }
+    }
     public static int CursorBoxWidth => InterpolateCursor(20, 48);
-
-    /// <summary>
-    /// Interpolated cursor box height in pixels. Calibrated at 1.5→25, 2.18→36, 4.0→66.
-    /// </summary>
     public static int CursorBoxHeight => InterpolateCursor(25, 66);
 
     private static int InterpolateCursor(int min, int max)

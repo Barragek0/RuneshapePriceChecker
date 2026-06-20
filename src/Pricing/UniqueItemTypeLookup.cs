@@ -6,7 +6,7 @@ internal static class UniqueItemTypeLookup
 {
     private static readonly FrozenDictionary<string, string> Map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
-        // === One Hand Maces ===
+
         ["BRYNHAND'S MARK"] = "ONE HAND MACE",
         ["FROSTBREATH"] = "ONE HAND MACE",
         ["TRENCHTIMBRE"] = "ONE HAND MACE",
@@ -20,7 +20,6 @@ internal static class UniqueItemTypeLookup
         ["OLROVASARA"] = "ONE HAND MACE",
         ["SADIST'S MERCY"] = "ONE HAND MACE",
 
-        // === Two Hand Maces ===
         ["HOGHUNT"] = "TWO HAND MACE",
         ["HRIMNOR'S HYMN"] = "TWO HAND MACE",
         ["TREPHINA"] = "TWO HAND MACE",
@@ -34,7 +33,6 @@ internal static class UniqueItemTypeLookup
         ["THE HAMMER OF FAITH"] = "TWO HAND MACE",
         ["TWISTED EMPYREAN"] = "TWO HAND MACE",
 
-        // === Bows ===
         ["WIDOWHAIL"] = "BOW",
         ["QUILL RAIN"] = "BOW",
         ["IRONBOUND"] = "BOW",
@@ -47,14 +45,12 @@ internal static class UniqueItemTypeLookup
         ["PERIPHERY"] = "BOW",
         ["VOLTAXIC RIFT"] = "BOW",
 
-        // === Crossbows ===
         ["MIST WHISPER"] = "CROSSBOW",
         ["RAMPART RAPTOR"] = "CROSSBOW",
         ["DOUBLE VISION"] = "CROSSBOW",
         ["REDEMPTION"] = "CROSSBOW",
         ["THE LAST LAMENT"] = "CROSSBOW",
 
-        // === Quarterstaves ===
         ["THE BLOOD THORN"] = "QUARTERSTAFF",
         ["PILLAR OF THE CAGED GOD"] = "QUARTERSTAFF",
         ["THE SENTRY"] = "QUARTERSTAFF",
@@ -63,7 +59,6 @@ internal static class UniqueItemTypeLookup
         ["COLLAPSING HORIZON"] = "QUARTERSTAFF",
         ["DUALITY"] = "QUARTERSTAFF",
 
-        // === Spears ===
         ["SPLINTER OF LORRATA"] = "SPEAR",
         ["TYRANNY'S GRIP"] = "SPEAR",
         ["CHAINSTING"] = "SPEAR",
@@ -75,7 +70,6 @@ internal static class UniqueItemTypeLookup
         ["ATZIRI'S CONTEMPT"] = "SPEAR",
         ["THE ORDAINED"] = "SPEAR",
 
-        // === Staves ===
         ["DUSK VIGIL"] = "STAFF",
         ["EARTHBOUND"] = "STAFF",
         ["TARYN'S SHIVER"] = "STAFF",
@@ -87,7 +81,6 @@ internal static class UniqueItemTypeLookup
         ["THE WHISPERING ICE"] = "STAFF",
         ["THE UNBORN LICH"] = "STAFF",
 
-        // === Wands ===
         ["THE WICKED QUILL"] = "WAND",
         ["LIFESPRIG"] = "WAND",
         ["SANGUINE DIVINER"] = "WAND",
@@ -97,7 +90,6 @@ internal static class UniqueItemTypeLookup
         ["LIMINAL COIL"] = "WAND",
         ["RUNESEEKER'S CALL"] = "WAND",
 
-        // === Sceptres ===
         ["THE DARK DEFILER"] = "SCEPTRE",
         ["FONT OF POWER"] = "SCEPTRE",
         ["SYLVAN'S EFFIGY"] = "SCEPTRE",
@@ -107,7 +99,6 @@ internal static class UniqueItemTypeLookup
         ["PALM OF THE DREAMER"] = "SCEPTRE",
         ["SACRED FLAME"] = "SCEPTRE",
 
-        // === Foci ===
         ["DEATHRATTLE"] = "FOCUS",
         ["THREADED LIGHT"] = "FOCUS",
         ["EFFIGY OF CRUELTY"] = "FOCUS",
@@ -117,7 +108,6 @@ internal static class UniqueItemTypeLookup
         ["APEP'S SUPREMACY"] = "FOCUS",
         ["RATHPITH GLOBE"] = "FOCUS",
 
-        // === Shields ===
         ["DIONADAIR"] = "SHIELD",
         ["WULFSBANE"] = "SHIELD",
         ["DOOMGATE"] = "SHIELD",
@@ -139,7 +129,6 @@ internal static class UniqueItemTypeLookup
         ["MAHUXOTL'S MACHINATION"] = "SHIELD",
         ["PRISM GUARDIAN"] = "SHIELD",
 
-        // === Quivers ===
         ["ASPHYXIA'S WRATH"] = "QUIVER",
         ["BLACKGLEAM"] = "QUIVER",
         ["THE LETHAL DRAW"] = "QUIVER",
@@ -149,7 +138,6 @@ internal static class UniqueItemTypeLookup
         ["BEYOND REACH"] = "QUIVER",
         ["CADIRO'S GAMBIT"] = "QUIVER",
 
-        // === Talismans ===
         ["AMOR MANDRAGORA"] = "TALISMAN",
         ["SPITEFUL FLORET"] = "TALISMAN",
         ["HYSSEG'S CLAW"] = "TALISMAN",
@@ -157,7 +145,6 @@ internal static class UniqueItemTypeLookup
         ["SURGE OF THE TIDE"] = "TALISMAN",
         ["FURY OF THE KING"] = "TALISMAN",
 
-        // === Body Armours ===
         ["BRAMBLEJACK"] = "BODY ARMOUR",
         ["BLACKBRAID"] = "BODY ARMOUR",
         ["EDYRN'S TUSKS"] = "BODY ARMOUR",
@@ -230,7 +217,6 @@ internal static class UniqueItemTypeLookup
         ["SKIN OF THE LOYAL"] = "BODY ARMOUR",
         ["TABULA RASA"] = "BODY ARMOUR",
 
-        // === Helmets ===
         ["HORNS OF BYNDEN"] = "HELMET",
         ["WINGS OF CAELYN"] = "HELMET",
         ["EZOMYTE PEAK"] = "HELMET",
@@ -283,7 +269,6 @@ internal static class UniqueItemTypeLookup
         ["ERIAN'S COBBLE"] = "HELMET",
         ["SOLUS IPSE"] = "HELMET",
 
-        // === Gloves ===
         ["FACEBREAKER"] = "GLOVES",
         ["TREEFINGERS"] = "GLOVES",
         ["LOCHTONIAL CARESS"] = "GLOVES",
@@ -321,7 +306,6 @@ internal static class UniqueItemTypeLookup
         ["THUNDERFIST"] = "GLOVES",
         ["SINE AEQUO"] = "GLOVES",
 
-        // === Boots ===
         ["LEGIONSTRIDE"] = "BOOTS",
         ["CORPSEWADE"] = "BOOTS",
         ["THE INFINITE PURSUIT"] = "BOOTS",
@@ -347,7 +331,6 @@ internal static class UniqueItemTypeLookup
         ["BEETLEBITE"] = "BOOTS",
         ["AB AETERNO"] = "BOOTS",
 
-        // === Rings ===
         ["BLACKHEART"] = "RING",
         ["DOEDRE'S DAMNING"] = "RING",
         ["GLOWSWARM"] = "RING",
@@ -388,7 +371,6 @@ internal static class UniqueItemTypeLookup
         ["BURSTING DECAY"] = "RING",
         ["VENTOR'S GAMBLE"] = "RING",
 
-        // === Amulets ===
         ["THE EVERLASTING GAZE"] = "AMULET",
         ["CARNAGE HEART"] = "AMULET",
         ["REVERED RESIN"] = "AMULET",
@@ -416,7 +398,6 @@ internal static class UniqueItemTypeLookup
         ["IGNIFERIS"] = "AMULET",
         ["CHOIR OF THE STORM"] = "AMULET",
 
-        // === Belts ===
         ["KEELHAUL"] = "BELT",
         ["MEGINORD'S GIRDLE"] = "BELT",
         ["MIDNIGHT BRAID"] = "BELT",
@@ -444,9 +425,13 @@ internal static class UniqueItemTypeLookup
         if (string.IsNullOrWhiteSpace(normalizedItemName))
             return null;
 
+        // Strip apostrophes from the input so keys like "BRUTUS' LEAD SPRINKLER"
+        // match normalized names where Normalize() removed the apostrophe.
+        var clean = normalizedItemName.Replace("'", string.Empty);
+
         foreach (var kvp in Map)
         {
-            if (normalizedItemName.StartsWith(kvp.Key, StringComparison.OrdinalIgnoreCase))
+            if (clean.StartsWith(kvp.Key.Replace("'", string.Empty), StringComparison.OrdinalIgnoreCase))
                 return kvp.Value;
         }
 

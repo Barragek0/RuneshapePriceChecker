@@ -1,4 +1,4 @@
-using System.Text.Json.Nodes;
+﻿using System.Text.Json.Nodes;
 using RuneshapePriceChecker.App.Dashboard;
 using Xunit;
 
@@ -6,7 +6,6 @@ namespace RuneshapePriceChecker.Tests.Dashboard;
 
 public class JsonNodeExtensionsTests
 {
-    // ── Str ──
 
     [Fact]
     public void Str_NullNode_ReturnsFallback()
@@ -49,8 +48,6 @@ public class JsonNodeExtensionsTests
         _ = Assert.Throws<InvalidOperationException>(() => node.Str("key", "fallback"));
     }
 
-    // ── Val ──
-
     [Fact]
     public void Val_NullNode_ReturnsFallback()
     {
@@ -78,8 +75,6 @@ public class JsonNodeExtensionsTests
         var node = JsonNode.Parse("""{"key":"hello"}""");
         _ = Assert.Throws<InvalidOperationException>(() => node.Val("key", 99));
     }
-
-    // ── ValOrNull ──
 
     [Fact]
     public void ValOrNull_NullNode_ReturnsNull()

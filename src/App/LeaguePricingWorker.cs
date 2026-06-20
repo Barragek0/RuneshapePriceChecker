@@ -13,20 +13,19 @@ using StructLinq;
 namespace RuneshapePriceChecker.App;
 
 public sealed class LeaguePricingWorker(
-    ILeagueWindowReader reader,
-    IPricingCache pricingCache,
-    IOverlayRenderer overlayRenderer,
+    OcrLeagueWindowReader reader,
+    InMemoryPricingCache pricingCache,
+    PricingOverlayRenderer overlayRenderer,
     DebugOverlayService debugOverlay,
     DashboardService dashboard,
     IOptionsMonitor<PricingCacheOptions> pricingOptions,
     IOptionsMonitor<AppOptions> appOptions,
     IOptionsMonitor<OcrOptions> ocrOptions,
-    IPoe2WindowResolutionProvider windowResolutionProvider,
-    ILogger<LeaguePricingWorker> logger) : BackgroundService
+    ILogger<LeaguePricingWorker> logger,
+    ItemNameTranslator? translator = null) : BackgroundService
 {
     private static readonly TimeSpan MinOcrInterval = TimeSpan.FromMilliseconds(50);
     private static readonly TimeSpan StaleRenderTimeout = TimeSpan.FromMilliseconds(180);
-    private string[] _previousItemNames = [];
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -63,46 +62,48 @@ public sealed class LeaguePricingWorker(
                         logger.LogTrace("Worker: starting OCR task");
                         inFlightSnapshotTask = StartSnapshotReadTask(reader, stoppingToken);
                     }
-                }
-
-                if (inFlightSnapshotTask is not null)
-                {
-                    var completed = await Task.WhenAny(
-                        inFlightSnapshotTask,
-                        Task.Delay(StaleRenderTimeout, stoppingToken)).ConfigureAwait(false);
-
-                    if (completed == inFlightSnapshotTask)
-                    {
-                        try
-                        {
-                            logger.LogTrace("Worker: OCR task completed, reading snapshot");
-                            latestSnapshot = await inFlightSnapshotTask.ConfigureAwait(false);
-                            hasCompletedSnapshot = true;
-                            logger.LogTrace("Worker: snapshot has {Count} items, interfaceDetected={Detected}", latestSnapshot.ItemNames.Count, latestSnapshot.InterfaceDetected);
-                        }
-                        catch (Exception ex)
-                        {
-                            logger.LogError(ex, "OCR snapshot read failed.");
-                        }
-
-                        inFlightSnapshotTask = null;
-                    }
                     else
                     {
-                        logger.LogTrace("Worker: OCR task timed out, waiting for completion");
-                        try
-                        {
-                            latestSnapshot = await inFlightSnapshotTask.ConfigureAwait(false);
-                            hasCompletedSnapshot = true;
-                            logger.LogTrace("Worker: late snapshot has {Count} items", latestSnapshot.ItemNames.Count);
-                        }
-                        catch (Exception ex) { logger.LogWarning(ex, "OCR task threw after timeout."); }
-                        inFlightSnapshotTask = null;
+                        // Wait just until the minimum interval has elapsed, then loop to start a new scan
+                        var remaining = MinOcrInterval - sinceLastOcr;
+                        await Task.Delay(remaining, stoppingToken).ConfigureAwait(false);
+                        continue;
                     }
+                }
+
+                Debug.Assert(inFlightSnapshotTask is not null);
+
+                var completed = await Task.WhenAny(
+                    inFlightSnapshotTask,
+                    Task.Delay(StaleRenderTimeout, stoppingToken)).ConfigureAwait(false);
+
+                if (completed == inFlightSnapshotTask)
+                {
+                    try
+                    {
+                        logger.LogTrace("Worker: OCR task completed, reading snapshot");
+                        latestSnapshot = await inFlightSnapshotTask.ConfigureAwait(false);
+                        hasCompletedSnapshot = true;
+                        logger.LogTrace("Worker: snapshot has {Count} items, interfaceDetected={Detected}", latestSnapshot.ItemNames.Count, latestSnapshot.InterfaceDetected);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(ex, "OCR snapshot read failed.");
+                    }
+
+                    inFlightSnapshotTask = null;
                 }
                 else
                 {
-                    await Task.Delay(20, stoppingToken).ConfigureAwait(false);
+                    logger.LogTrace("Worker: OCR task timed out, waiting for completion");
+                    try
+                    {
+                        latestSnapshot = await inFlightSnapshotTask.ConfigureAwait(false);
+                        hasCompletedSnapshot = true;
+                        logger.LogTrace("Worker: late snapshot has {Count} items", latestSnapshot.ItemNames.Count);
+                    }
+                    catch (Exception ex) { logger.LogWarning(ex, "OCR task threw after timeout."); }
+                    inFlightSnapshotTask = null;
                 }
 
                 var snapshot = hasCompletedSnapshot
@@ -127,38 +128,16 @@ public sealed class LeaguePricingWorker(
                 {
                     logger.LogTrace("Worker: resolving {Count} prices", snapshot.ItemNames.Count);
 
-                    var currentItems = snapshot.ItemNames;
-                    var cursorRows = GetRowsUnderCursor(snapshot);
-                    debugOverlay.SetCursorIndicator(null, CursorBoxWidth, CursorBoxHeight);
-
-                    for (var i = 0; i < currentItems.Count; i++)
+                    for (var i = 0; i < snapshot.ItemNames.Count; i++)
                     {
-                        var itemName = currentItems[i];
-                        var (normalizedItemName, quantity) = ParseItemAndQuantity(itemName);
-                        var quote = pricingCache.TryGetPriceQuote(normalizedItemName, quantity);
+                        var itemName = snapshot.ItemNames[i];
+                        var (normalizedItemName, quantity, level) = ParseItemAndQuantity(itemName);
+                        // Translate first, then append level for more specific pricing
+                        var englishName = translator?.ToEnglish(normalizedItemName) ?? normalizedItemName;
+                        var priceName = level > 0 ? $"{englishName} (Level {level})" : englishName;
+                        var quote = pricingCache.TryGetPriceQuote(priceName, quantity);
 
-                        // Cursor artifact recovery: if the cursor is over this row and the current
-                        // reading didn't price (null or negative), use the previous frame's price.
-                        if ((quote is null || quote.RepresentativeChaosValue < 0)
-                            && cursorRows.Contains(i)
-                            && i < _previousItemNames.Length)
-                        {
-                            var (prevName, prevQty) = ParseItemAndQuantity(_previousItemNames[i]);
-                            if (prevName.Length > 0 && prevName != normalizedItemName)
-                            {
-                                var prevQuote = pricingCache.TryGetPriceQuote(prevName, prevQty);
-                                if (prevQuote?.RepresentativeChaosValue > 0)
-                                {
-                                    quote = prevQuote with
-                                    {
-                                        Label = prevQuote.Label + " ?",
-                                        MatchDetail = $"(cursor fix: {prevName})"
-                                    };
-                                }
-                            }
-                        }
-
-                        if (quote is null && IsRareUniqueItem(normalizedItemName))
+                        if (quote is null && (IsRareUniqueItem(normalizedItemName) || IsRareUniqueItem(englishName)))
                         {
                             quote = new PriceQuote("?", pricingOptions.CurrentValue.OrangeThreshold, false);
                         }
@@ -167,8 +146,6 @@ public sealed class LeaguePricingWorker(
 
                         prices[itemName] = quote;
                     }
-
-                    _previousItemNames = [.. currentItems];
                 }
                 else
                 {
@@ -176,17 +153,52 @@ public sealed class LeaguePricingWorker(
                         prices[itemName] = new PriceQuote("...", -1m, false);
                 }
 
-                var unpricedBanner = BuildUnpriceableBanner(snapshot.ItemNames);
+                var unpricedBanner = BuildUnpriceableBanner(snapshot.ItemNames, translator);
 
                 if (appOptions.CurrentValue.LogLevel <= LogLevel.Debug)
-                {
                     LogVerboseSnapshot(snapshot, prices, logger);
-                }
 
                 logger.LogTrace("Worker: calling SetBannerMessage");
                 debugOverlay.SetBannerMessage(unpricedBanner);
                 logger.LogTrace("Worker: calling SetDebugText");
-                debugOverlay.SetDebugText(snapshot.ItemNames, snapshot.RowYPositions, snapshot.InterfaceDetected, statusLine: snapshot.CaptureMethod, cropBounds: snapshot.CropBounds);
+
+                // Build translated lines for debug overlay (purple text below each OCR line)
+                string[]? translatedLines = null;
+                if (translator is not null)
+                {
+                    translatedLines = new string[snapshot.ItemNames.Count];
+                    for (var i = 0; i < snapshot.ItemNames.Count; i++)
+                    {
+                        var (normalizedItemName, quantity, _) = ParseItemAndQuantity(snapshot.ItemNames[i]);
+                        var translated = translator.ToEnglish(normalizedItemName) ?? normalizedItemName;
+                        if (string.Equals(translated, normalizedItemName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            var isRare = IsRareUniqueItem(normalizedItemName) || IsRareUniqueItem(translated);
+                            translated = isRare ? "Rare Unique Item" : translated;
+
+                            if (string.Equals(translated, normalizedItemName, StringComparison.OrdinalIgnoreCase))
+                            {
+                                var normalized = InMemoryPricingCache.Normalize(normalizedItemName);
+                                foreach (var candidate in ItemNameParser.BuildUniqueCategoryLookupCandidates(normalized))
+                                {
+                                    if (candidate.StartsWith("UNIQUE ", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        var category = candidate["UNIQUE ".Length..].Trim();
+                                        if (category.Length > 0)
+                                            category = char.ToUpperInvariant(category[0]) + category[1..].ToLowerInvariant();
+                                        translated = $"Unique {category}";
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        translatedLines[i] = $"{quantity}x {translated}";
+                    }
+                }
+
+                debugOverlay.SetDebugText(snapshot.ItemNames, snapshot.RowYPositions, snapshot.InterfaceDetected, statusLine: snapshot.CaptureMethod, cropBounds: snapshot.CropBounds, retryRegions: snapshot.RetryRegions, translatedLines: translatedLines);
+                if (dashboard.Metrics is { } m)
+                    m.DebugOverlayActive = ocrOptions.CurrentValue.DebugOverlay;
                 logger.LogTrace("Worker: calling Render");
                 overlayRenderer.Render(snapshot, prices);
                 logger.LogTrace("Worker: Render complete");
@@ -200,57 +212,53 @@ public sealed class LeaguePricingWorker(
 
 
 
-    private static Task<LeagueWindowSnapshot> StartSnapshotReadTask(ILeagueWindowReader reader, CancellationToken stoppingToken)
+    private static Task<LeagueWindowSnapshot> StartSnapshotReadTask(OcrLeagueWindowReader reader, CancellationToken stoppingToken)
     {
         return Task.Run(reader.ReadSnapshot, stoppingToken);
     }
 
-    private static (string ItemName, int Quantity) ParseItemAndQuantity(string itemName)
+    private static (string ItemName, int Quantity, int Level) ParseItemAndQuantity(string itemName)
     {
         var parsed = ItemNameParser.ParseDetectedItem(itemName);
-        return (parsed.Name, parsed.Quantity);
-    }
-
-    private static int CursorBoxWidth => Poe2ConfigFile.CursorBoxWidth;
-    private static int CursorBoxHeight => Poe2ConfigFile.CursorBoxHeight;
-
-    private HashSet<int> GetRowsUnderCursor(LeagueWindowSnapshot snapshot)
-    {
-        var region = windowResolutionProvider.CurrentCaptureRegion;
-        var ctx = windowResolutionProvider.CurrentWindowCaptureContext;
-        if (region is null || ctx is null || snapshot.RowYPositions is not { Count: > 0 } rowYs)
-            return [];
-
-        var cursorPos = Cursor.Position;
-        var relX = cursorPos.X - ctx.ClientX - region.X;
-        var relY = cursorPos.Y - ctx.ClientY - region.Y;
-
-        var boxRight = relX + CursorBoxWidth;
-        var boxBottom = relY + CursorBoxHeight;
-
-        if (boxRight < 0 || relX > region.Width || boxBottom < 0 || relY > region.Height)
-            return [];
-
-        var result = new HashSet<int>();
-        for (var i = 0; i < rowYs.Count; i++)
-        {
-            var rowTop = rowYs[i] - 4;
-            var rowBottom = (i + 1 < rowYs.Count) ? rowYs[i + 1] + 4 : region.Height;
-            if (boxBottom >= rowTop && relY <= rowBottom)
-                _ = result.Add(i);
-        }
-        return result;
+        return (parsed.Name, parsed.Quantity, parsed.Level);
     }
 
     private static bool IsRareUniqueItem(string itemName)
     {
-        return itemName.Equals("Rare Unique Item", StringComparison.OrdinalIgnoreCase)
-            || itemName.Equals("Very Rare Unique Item", StringComparison.OrdinalIgnoreCase)
-            || StrComp.IsOneCharAway(itemName, "Rare Unique Item")
+        if (string.IsNullOrWhiteSpace(itemName)) return false;
+
+        // English exact + fuzzy (these are hit most often)
+        if (itemName.Equals("Rare Unique Item", StringComparison.OrdinalIgnoreCase)
+            || itemName.Equals("Very Rare Unique Item", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (StrComp.IsOneCharAway(itemName, "Rare Unique Item")
             || StrComp.IsOneCharAway(itemName, "Very Rare Unique Item")
             || StrComp.IsTwoCharsAway(itemName, "Rare Unique Item")
-            || StrComp.IsTwoCharsAway(itemName, "Very Rare Unique Item");
+            || StrComp.IsTwoCharsAway(itemName, "Very Rare Unique Item"))
+            return true;
+
+        // Non-English translations: [StartsWith prefix, full string for exact/fuzzy]
+        foreach (var (prefix, full) in s_rareTranslations)
+        {
+            if (itemName.Equals(full, StringComparison.OrdinalIgnoreCase)
+                || itemName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                || StrComp.IsOneCharAway(itemName, full)
+                || StrComp.IsTwoCharsAway(itemName, full))
+                return true;
+        }
+
+        return false;
     }
+
+    private static readonly (string Prefix, string Full)[] s_rareTranslations =
+    [
+        ("Редкий уникальный", "Редкий уникальный предмет"),
+        ("Seltener einzigartiger", "Seltener einzigartiger Gegenstand"),
+        ("Objet rare unique", "Objet rare unique"),
+        ("Objeto raro único", "Objeto raro único"),
+        ("Item raro único", "Item raro único"),
+    ];
 
     private static readonly string[] UnpriceableExactNames =
     [
@@ -270,7 +278,7 @@ public sealed class LeaguePricingWorker(
         "Uncut Spirit Gem"
     ];
 
-    private static string? BuildUnpriceableBanner(IReadOnlyList<string> itemNames)
+    private static string? BuildUnpriceableBanner(IReadOnlyList<string> itemNames, ItemNameTranslator? translator = null)
     {
         foreach (var name in itemNames)
         {
@@ -288,6 +296,19 @@ public sealed class LeaguePricingWorker(
 
             if (IsUnpriceablePrefix(normalized))
                 return "Some items can't be priced, new Skills\nand Supports aren't on poe.ninja";
+
+            // Also check the translated name for non-English skill/support gems
+            if (translator is not null)
+            {
+                var english = translator.ToEnglish(normalized);
+                if (!string.Equals(english, normalized, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (IsUnpriceableExact(english))
+                        return "Some items can't be priced, new Skills\nand Supports aren't on poe.ninja";
+                    if (IsUnpriceablePrefix(english))
+                        return "Some items can't be priced, new Skills\nand Supports aren't on poe.ninja";
+                }
+            }
         }
 
         return null;
@@ -341,9 +362,7 @@ public sealed class LeaguePricingWorker(
         ILogger<LeaguePricingWorker> logger)
     {
         if (snapshot.ItemNames.Count == 0)
-        {
             return;
-        }
 
         var entries = snapshot.ItemNames
             .ToStructEnumerable()
@@ -358,7 +377,7 @@ public sealed class LeaguePricingWorker(
             })
             .ToArray();
 
-        if (logger.IsEnabled(LogLevel.Trace))
-            logger.LogTrace("Detected {Count} items with prices: {Entries}", snapshot.ItemNames.Count, string.Join(" | ", entries));
+        if (logger.IsEnabled(LogLevel.Debug))
+            logger.LogDebug("Detected {Count} items with prices: {Entries}", snapshot.ItemNames.Count, string.Join(" | ", entries));
     }
 }

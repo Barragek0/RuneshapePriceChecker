@@ -1,17 +1,22 @@
-using System.Globalization;
+﻿using System.Globalization;
+using System.Reflection;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace RuneshapePriceChecker.Pricing;
 
 public static class ItemNameParser
 {
+    private static readonly Regex MultiWhitespace = StrComp.MultiWhitespace;
     private static readonly Regex QuantityPrefixWithX = new("^(?<quantity>\\d+|[AaIiLlTt|Oo0])\\s*[xX]\\s+(?<name>.+)$", RegexOptions.Compiled);
     private static readonly Regex QuantityPrefixWithoutX = new("^(?<quantity>\\d+|[IiLl|Oo0])\\s+(?<name>.+)$", RegexOptions.Compiled);
-    private static readonly Regex LeadingQuantityEchoToken = new("^(?:[xX]\\s+)+(?<name>.+)$", RegexOptions.Compiled);
+    private static readonly Regex LeadingQuantityEchoToken = new("^(?:[xX]+(?:\\s+[xX]+)*\\s+)(?<name>.+)$", RegexOptions.Compiled);
     private static readonly Regex IsolatedImToken = new("(?<=\\s)im(?=\\s)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
-    private static readonly Regex MultiWhitespace = new("\\s+", RegexOptions.Compiled);
     private static readonly Regex TieredOrb = new("^(?:GREATER|PERFECT)\\s+(ORB OF .+)$", RegexOptions.Compiled);
     private static readonly Regex TieredRune = new("^(?:GREATER|PERFECT)\\s+(.+\\s+RUNE)$", RegexOptions.Compiled);
+    private static readonly Regex LevelSuffix = new(@"\s+\S+\s*\d+\s*$", RegexOptions.Compiled);
+    private static readonly Regex QuantitySuffixWithX = new(@"^(?<name>.+)\s[xX]\s*(?<quantity>\d+|[AaIiLlTt|Oo0])\s*$", RegexOptions.Compiled);
+    private static readonly Regex TrailingQuantityNumber = new(@"^(?<name>.+)\s+(?<quantity>\d+)\s*$", RegexOptions.Compiled);
 
     private static readonly Dictionary<string, int> OcrQuantityTokenMap = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -54,6 +59,53 @@ public static class ItemNameParser
         ["wisdom"] = ["Scroll of Wisdom"]
     };
 
+    // Cross-language base-type keywords loaded from ocr/unique-category-map.json.
+    // Maps foreign words (e.g. "ДВУРУЧНАЯ БУЛАВА", "RING") to their English
+    // UNIQUE category (e.g. "WEAPON", "HELMET"). The lookup is language-agnostic:
+    // any word in the item name that matches a key will map to the category.
+    private static readonly Lazy<Dictionary<string, string>> BaseTypeKeywords = new(LoadBaseTypeKeywords);
+
+    private static Dictionary<string, string> LoadBaseTypeKeywords()
+    {
+        try
+        {
+            var asm = Assembly.GetExecutingAssembly();
+            var name = asm.GetManifestResourceNames()
+                .FirstOrDefault(n => n.EndsWith("unique-category-map.json", StringComparison.OrdinalIgnoreCase));
+
+            if (name is not null)
+            {
+                using var stream = asm.GetManifestResourceStream(name);
+                using var reader = new StreamReader(stream!);
+                return ParseCategoryMap(reader.ReadToEnd());
+            }
+
+            // Development fallback: file on disk relative to the project
+            var projectDir = Path.Combine(AppContext.BaseDirectory, "..", "..", "..");
+            var filePath = Path.Combine(projectDir, "ocr", "unique-category-map.json");
+            if (File.Exists(filePath))
+                return ParseCategoryMap(File.ReadAllText(filePath));
+        }
+        catch
+        {
+        }
+
+        return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static Dictionary<string, string> ParseCategoryMap(string json)
+    {
+        var raw = JsonSerializer.Deserialize<Dictionary<string, string[]>>(json);
+        if (raw is null) return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (category, keywords) in raw)
+            foreach (var word in keywords)
+                if (!string.IsNullOrWhiteSpace(word) && !map.ContainsKey(word))
+                    map[word] = category;
+        return map;
+    }
+
     public static readonly string[] UncutGemFamilies =
     [
         "UNCUT SUPPORT GEM",
@@ -61,98 +113,111 @@ public static class ItemNameParser
         "UNCUT SPIRIT GEM"
     ];
 
-    public static ParsedDetectedItem ParseDetectedItem(string raw)
+    public static ParsedDetectedItem ParseDetectedItem(string raw, string? language = null)
     {
         if (string.IsNullOrWhiteSpace(raw))
-        {
             return new ParsedDetectedItem(string.Empty, 1);
-        }
 
         var cleanedRaw = MultiWhitespace.Replace(IsolatedImToken.Replace(raw, string.Empty), " ").Trim();
         if (string.IsNullOrWhiteSpace(cleanedRaw))
-        {
             return new ParsedDetectedItem(string.Empty, 1);
-        }
 
+        // Try prefix quantity: "1x Name", "I Name", "O Name"
         var match = QuantityPrefixWithX.Match(cleanedRaw);
         if (!match.Success)
-        {
             match = QuantityPrefixWithoutX.Match(cleanedRaw);
+
+        if (match.Success)
+        {
+            var quantity = NormalizeQuantityToken(match.Groups["quantity"].Value);
+            var name = TrimLeadingEcho(match.Groups["name"].Value.Trim());
+            if (string.IsNullOrWhiteSpace(name))
+                return new ParsedDetectedItem(cleanedRaw, 1);
+            var (stripped, level) = StripLevelSuffix(name);
+            return new ParsedDetectedItem(stripped, quantity, level);
         }
 
+        // Try suffix quantity: "Name x1" (Spanish)
+        var suffixMatch = QuantitySuffixWithX.Match(cleanedRaw);
+        if (suffixMatch.Success)
+        {
+            var namePart = suffixMatch.Groups["name"].Value.Trim();
+            var quantity = NormalizeQuantityToken(suffixMatch.Groups["quantity"].Value);
+            var (stripped, level) = StripLevelSuffix(namePart);
+            return new ParsedDetectedItem(stripped, quantity, level);
+        }
+
+        // Russian trailing number: "Предмет 1"
+        if (string.Equals(language, "rus", StringComparison.OrdinalIgnoreCase))
+        {
+            var trailingMatch = TrailingQuantityNumber.Match(cleanedRaw);
+            if (trailingMatch.Success)
+            {
+                var namePart = trailingMatch.Groups["name"].Value.Trim();
+                var quantity = NormalizeQuantityToken(trailingMatch.Groups["quantity"].Value);
+                var (stripped, level) = StripLevelSuffix(namePart);
+                return new ParsedDetectedItem(stripped, quantity, level);
+            }
+        }
+
+        var (n, l) = StripLevelSuffix(cleanedRaw);
+        return new ParsedDetectedItem(n, 1, l);
+    }
+
+    private static (string Name, int Level) StripLevelSuffix(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return (text, 0);
+
+        var match = LevelSuffix.Match(text);
         if (!match.Success)
+            return (text, 0);
+
+        var suffix = match.Value.Trim(); // e.g. "Niveau 19", "Level 19", "Stufe 19"
+        var parts = suffix.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length >= 2 && int.TryParse(parts[^1], out var level))
         {
-            return new ParsedDetectedItem(cleanedRaw, 1);
+            // If the word before the number is just "x" or "X", it's a quantity
+            // separator (e.g. Spanish "x1"), not a level word.
+            if (parts[^2].Length == 1 && (parts[^2][0] is 'x' or 'X'))
+                return (text, 0);
+
+            var name = LevelSuffix.Replace(text, string.Empty).Trim();
+            return (name, level);
         }
 
-        var rawQuantity = match.Groups["quantity"].Value;
-        var quantity = NormalizeQuantityToken(rawQuantity);
-
-        var name = TrimLeadingQuantityEchoToken(match.Groups["name"].Value.Trim());
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            return new ParsedDetectedItem(cleanedRaw, 1);
-        }
-
-        return new ParsedDetectedItem(name, quantity);
+        return (text, 0);
     }
 
     public static int NormalizeQuantityToken(string rawQuantity)
     {
         if (string.IsNullOrWhiteSpace(rawQuantity))
-        {
             return 1;
-        }
 
         if (int.TryParse(rawQuantity, out var parsed) && parsed > 0)
-        {
             return parsed;
-        }
 
-        var token = rawQuantity.Trim();
-        if (OcrQuantityTokenMap.TryGetValue(token, out var mapped) && mapped > 0)
-        {
-            return mapped;
-        }
-
-        return 1;
+        return OcrQuantityTokenMap.TryGetValue(rawQuantity.Trim(), out var mapped) ? mapped : 1;
     }
 
     public static string ApplyNormalizedWordSwaps(string normalizedUpperText)
     {
         if (string.IsNullOrWhiteSpace(normalizedUpperText))
-        {
             return string.Empty;
-        }
-
         var parts = normalizedUpperText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         for (var i = 0; i < parts.Length; i++)
-        {
             if (NormalizedWordSwaps.TryGetValue(parts[i], out var replacement))
-            {
                 parts[i] = replacement;
-            }
-        }
-
         return string.Join(' ', parts);
     }
 
     public static IEnumerable<string> ExpandIdAliases(string id)
     {
-        if (string.IsNullOrWhiteSpace(id))
-        {
-            yield break;
-        }
-
-        if (IdAliases.TryGetValue(id, out var aliases))
+        if (!string.IsNullOrWhiteSpace(id) && IdAliases.TryGetValue(id, out var aliases))
         {
             foreach (var alias in aliases)
-            {
                 if (!string.IsNullOrWhiteSpace(alias))
-                {
                     yield return alias;
-                }
-            }
         }
     }
 
@@ -160,9 +225,7 @@ public static class ItemNameParser
     {
         fallbackKey = string.Empty;
         if (string.IsNullOrWhiteSpace(normalizedItemName))
-        {
             return false;
-        }
 
         var orbMatch = TieredOrb.Match(normalizedItemName);
         if (orbMatch.Success)
@@ -183,40 +246,49 @@ public static class ItemNameParser
 
     public static IEnumerable<string> BuildUniqueCategoryLookupCandidates(string normalizedItemName)
     {
-        if (string.IsNullOrWhiteSpace(normalizedItemName) ||
-            !normalizedItemName.StartsWith("UNIQUE ", StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrWhiteSpace(normalizedItemName))
+            yield break;
+
+        if (normalizedItemName.StartsWith("UNIQUE ", StringComparison.OrdinalIgnoreCase))
         {
+            foreach (var c in BuildFromEnglishUniqueTail(normalizedItemName["UNIQUE ".Length..].Trim()))
+                yield return c;
             yield break;
         }
 
-        var categoryTail = normalizedItemName["UNIQUE ".Length..].Trim();
-        if (string.IsNullOrWhiteSpace(categoryTail))
+        foreach (var kvp in BaseTypeKeywords.Value)
         {
-            yield break;
+            if (normalizedItemName.Contains(kvp.Key, StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var c in BuildFromEnglishUniqueTail(kvp.Value))
+                    yield return c;
+                yield break;
+            }
         }
+    }
+
+    private static IEnumerable<string> BuildFromEnglishUniqueTail(string categoryTail)
+    {
+        if (string.IsNullOrWhiteSpace(categoryTail))
+            yield break;
 
         var singularTail = categoryTail.EndsWith("S", StringComparison.OrdinalIgnoreCase)
             ? categoryTail[..^1]
             : categoryTail;
 
-        var candidateSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        var candidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             $"UNIQUE {categoryTail}",
             $"UNIQUE {singularTail}",
-            // Spelling normalizations only — same category, different orthography
             $"UNIQUE {categoryTail.Replace("ARMOR", "ARMOUR", StringComparison.OrdinalIgnoreCase)}",
             $"UNIQUE {categoryTail.Replace("ARMOUR", "ARMOR", StringComparison.OrdinalIgnoreCase)}",
             $"UNIQUE {categoryTail.Replace("JEWELRY", "JEWELLERY", StringComparison.OrdinalIgnoreCase)}",
             $"UNIQUE {categoryTail.Replace("JEWELLERY", "JEWELRY", StringComparison.OrdinalIgnoreCase)}",
         };
 
-        foreach (var candidate in candidateSet)
-        {
-            if (!string.IsNullOrWhiteSpace(candidate))
-            {
-                yield return candidate;
-            }
-        }
+        foreach (var c in candidates)
+            if (!string.IsNullOrWhiteSpace(c))
+                yield return c;
     }
 
     public static string FormatAmount(
@@ -268,18 +340,13 @@ public static class ItemNameParser
         return Math.Truncate(value * 10m) / 10m;
     }
 
-    private static string TrimLeadingQuantityEchoToken(string name)
+    private static string TrimLeadingEcho(string name)
     {
         if (string.IsNullOrWhiteSpace(name))
-        {
             return string.Empty;
-        }
-
         var match = LeadingQuantityEchoToken.Match(name);
         return match.Success ? match.Groups["name"].Value.Trim() : name;
     }
-
-
 
     internal static readonly string[] UniqueCategoryKeywords =
     [
@@ -318,4 +385,4 @@ public static class ItemNameParser
     }
 }
 
-public readonly record struct ParsedDetectedItem(string Name, int Quantity);
+public readonly record struct ParsedDetectedItem(string Name, int Quantity, int Level = 0);

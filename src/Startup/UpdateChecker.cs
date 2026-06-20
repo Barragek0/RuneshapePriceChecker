@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Globalization;
 using System.IO.Compression;
 using System.Net.Http.Json;
@@ -222,11 +222,6 @@ internal sealed class UpdateChecker(
         {
             logger.LogInformation("Already up to date ({Current} >= {Latest}).", currentVersion, latestVersion);
 
-            if (latestVersion == currentVersion && zipAsset is not null)
-            {
-                await RepairUpdaterIfNeededAsync(zipAsset, currentVersionText, installDir);
-            }
-
             if (latestVersion == currentVersion && !string.IsNullOrWhiteSpace(latest.Body))
             {
                 _changelogVersion = latestVersionText;
@@ -370,104 +365,6 @@ internal sealed class UpdateChecker(
         return Task.CompletedTask;
     }
 
-    private async Task RepairUpdaterIfNeededAsync(
-        GitHubAsset? zipAsset, string expectedVersionText, string installDir)
-    {
-        const string updaterExeName = "Update.exe";
-        var updaterPath = Path.Combine(installDir, updaterExeName);
-
-        if (!File.Exists(updaterPath))
-        {
-            logger.LogInformation("Update.exe not present; nothing to repair.");
-            return;
-        }
-
-        _ = TryParseVersion(expectedVersionText, out Version? expectedVersion);
-
-        Version? diskVersion = null;
-        try
-        {
-            var fvi = FileVersionInfo.GetVersionInfo(updaterPath);
-            if (fvi.FileVersion is not null)
-            {
-                var clean = fvi.FileVersion;
-                var plusIdx = clean.IndexOf('+');
-                if (plusIdx >= 0) clean = clean[..plusIdx];
-                if (!TryParseVersion(clean, out diskVersion))
-                {
-                    var lastDot = clean.LastIndexOf('.');
-                    if (lastDot >= 0) _ = TryParseVersion(clean[..lastDot], out diskVersion);
-                }
-            }
-        }
-        catch
-        {
-            logger.LogWarning("Could not read Update.exe file version.");
-        }
-
-        if (diskVersion is not null && expectedVersion is not null && diskVersion >= expectedVersion)
-        {
-            return;
-        }
-
-        logger.LogWarning(
-            "Update.exe is outdated (disk={DiskVersion}, expected={ExpectedVersion}). Repairing...",
-            diskVersion,
-            expectedVersion);
-
-        if (zipAsset?.BrowserDownloadUrl is null)
-        {
-            logger.LogWarning("No release zip URL available. Cannot repair Update.exe.");
-            return;
-        }
-
-        logger.LogInformation("Downloading current release zip to extract Update.exe...");
-
-        var tempZip = Path.Combine(Path.GetTempPath(), $"runeshape-selfrepair-{Guid.NewGuid():N}.zip");
-        try
-        {
-            using var http = httpClientFactory.CreateClient("GitHub");
-            await using var stream = await http.GetStreamAsync(zipAsset.BrowserDownloadUrl);
-            await using var fileStream = File.Create(tempZip);
-            await stream.CopyToAsync(fileStream);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to download zip for Update.exe repair.");
-            try { File.Delete(tempZip); } catch { }
-            return;
-        }
-
-        try
-        {
-            using var archive = ZipFile.OpenRead(tempZip);
-            var updaterEntry = archive.Entries.FirstOrDefault(e =>
-                e.Name.Equals(updaterExeName, StringComparison.OrdinalIgnoreCase));
-
-            if (updaterEntry is null)
-            {
-                logger.LogWarning("Update.exe not found in release zip.");
-                return;
-            }
-
-            var tempExtracted = updaterPath + ".repairtmp";
-            updaterEntry.ExtractToFile(tempExtracted, overwrite: true);
-
-            try { File.Delete(updaterPath); } catch { }
-            File.Move(tempExtracted, updaterPath);
-
-            logger.LogInformation("Update.exe repaired successfully.");
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to extract Update.exe from zip.");
-        }
-        finally
-        {
-            try { File.Delete(tempZip); } catch { }
-        }
-    }
-
     private async Task<GitHubRelease?> FetchLatestReleaseWithRetryAsync(string owner, string repo, bool ignorePrereleases)
     {
         for (var attempt = 0; attempt < 3; attempt++)
@@ -543,9 +440,7 @@ internal sealed class UpdateChecker(
         LogRateLimitHeaders(response);
 
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
             return null;
-        }
 
         if (response.StatusCode is System.Net.HttpStatusCode.Forbidden or (System.Net.HttpStatusCode)429)
         {
@@ -578,7 +473,7 @@ internal sealed class UpdateChecker(
                 ? bodyProp.GetString()
                 : null;
 
-            var assets = new List<GitHubAsset>();
+            List<GitHubAsset> assets = [];
             if (release.TryGetProperty("assets", out var assetsProp) && assetsProp.ValueKind == JsonValueKind.Array)
             {
                 foreach (var asset in assetsProp.EnumerateArray())

@@ -1,5 +1,4 @@
-using System.Runtime.InteropServices;
-using System.Text;
+﻿using System.Text;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -35,23 +34,15 @@ public sealed class DebugOverlayService(
                     EnsureOverlayThreadStarted();
                     RefreshOverlayFrame(options);
                 }
-                else
-                {
-                    CloseOverlay();
-                }
-
-                if (options.ShowBanner)
-                {
-                    EnsureBannerThreadStarted();
-                }
+                else CloseOverlay();
+                if (options.ShowBanner) EnsureBannerThreadStarted();
             }
             catch (Exception ex)
             {
                 logger.LogError(ex, "Failed to refresh OCR bounds overlay.");
             }
 
-            var intervalMs = Math.Max(100, OcrConstants.CaptureBoundsOverlayIntervalMs);
-            await Task.Delay(TimeSpan.FromMilliseconds(intervalMs), stoppingToken).ConfigureAwait(false);
+            await Task.Delay(6, stoppingToken).ConfigureAwait(false);
         }
 
         CloseOverlay();
@@ -60,11 +51,7 @@ public sealed class DebugOverlayService(
     private void RefreshOverlayFrame(OcrOptions options)
     {
         var overlay = GetOverlayForm();
-        if (overlay is null)
-        {
-            return;
-        }
-
+        if (overlay is null) return;
         if (!options.DebugOverlay)
         {
             overlay.SafeHide();
@@ -110,25 +97,14 @@ public sealed class DebugOverlayService(
     {
         lock (_overlaySync)
         {
-            if (_overlayThread is { IsAlive: true })
-            {
-                return;
-            }
-
+            if (_overlayThread is { IsAlive: true }) return;
             _overlayThread = new Thread(() =>
             {
                 using var form = new BoundsOverlayForm();
-                lock (_overlaySync)
-                {
-                    _overlayForm = form;
-                }
-
+                lock (_overlaySync) _overlayForm = form;
                 Application.Run(form);
 
-                lock (_overlaySync)
-                {
-                    _overlayForm = null;
-                }
+                lock (_overlaySync) _overlayForm = null;
             })
             {
                 IsBackground = true,
@@ -142,10 +118,7 @@ public sealed class DebugOverlayService(
 
     private BoundsOverlayForm? GetOverlayForm()
     {
-        lock (_overlaySync)
-        {
-            return _overlayForm;
-        }
+        lock (_overlaySync) return _overlayForm;
     }
 
     private void CloseOverlay()
@@ -157,6 +130,7 @@ public sealed class DebugOverlayService(
     private bool _wasHidden;
     private volatile bool _forceHidden;
     private volatile bool _setupInProgress;
+    private volatile bool _setupComplete; // in-memory guard until IOptionsMonitor picks up the file change
     public bool IsSetupInProgress => _setupInProgress;
     private Thread? _bannerThread;
     private BannerForm? _bannerForm;
@@ -173,13 +147,14 @@ public sealed class DebugOverlayService(
 
     public bool NeedsInitialSetup()
     {
-        return !_windowOptions.CurrentValue.InitialSetupComplete;
+        return !_setupComplete && !_windowOptions.CurrentValue.InitialSetupComplete;
     }
 
     public void RunInitialSetup()
     {
         if (_setupInProgress) return;
         _setupInProgress = true;
+        _setupComplete = false;
 
         logger.LogInformation("RunInitialSetup: starting initial setup flow");
         var region = windowResolutionProvider.CurrentCaptureRegion;
@@ -188,10 +163,7 @@ public sealed class DebugOverlayService(
         if (region is { } r)
         {
             var ctx = windowResolutionProvider.CurrentWindowCaptureContext;
-            if (ctx is not null)
-            {
-                gameBounds = new Rectangle(ctx.ClientX, ctx.ClientY, ctx.ClientWidth, ctx.ClientHeight);
-            }
+            if (ctx is not null) gameBounds = new Rectangle(ctx.ClientX, ctx.ClientY, ctx.ClientWidth, ctx.ClientHeight);
             else
             {
                 var screen = Screen.FromPoint(new Point(r.X, r.Y));
@@ -294,6 +266,7 @@ public sealed class DebugOverlayService(
 
             File.WriteAllText(configPath, root.ToJsonString(new() { WriteIndented = true }) + Environment.NewLine, Encoding.UTF8);
 
+            _setupComplete = true;
             logger.LogInformation("SaveCustomOffsets: setup confirmed, offsets saved (X={RelX} Y={RelY} W={W} H={H})", relX, relY, rect.Width, rect.Height);
         }
         catch (Exception ex)
@@ -358,38 +331,21 @@ public sealed class DebugOverlayService(
         {
             if (_bannerThread is { IsAlive: true }) return;
 
-            _bannerThread = new Thread(() =>
-            {
-                using var form = new BannerForm();
-                var _ = form.Handle;
-                lock (_bannerSync) { _bannerForm = form; Monitor.PulseAll(_bannerSync); }
-                Application.Run(form);
-                lock (_bannerSync) { _bannerForm = null; }
-            })
-            {
-                IsBackground = true,
-                Name = "RuneshapePriceChecker-Banner"
-            };
-            _bannerThread.SetApartmentState(ApartmentState.STA);
-            _bannerThread.Start();
-
-            while (_bannerForm is null)
-            {
-                if (!Monitor.Wait(_bannerSync, TimeSpan.FromSeconds(5)))
-                {
-                    logger.LogWarning("Banner form creation timed out; banner will be unavailable.");
-                    return;
-                }
-            }
+            _bannerThread = OverlayFormRunner.Start<BannerForm>(
+                "RuneshapePriceChecker-Banner",
+                _bannerSync,
+                f => _bannerForm = f,
+                logger,
+                "Banner form creation timed out; banner will be unavailable.");
         }
     }
 
     private BannerForm? GetBannerForm()
     {
-        lock (_bannerSync) { return _bannerForm; }
+        lock (_bannerSync) return _bannerForm;
     }
 
-    public void SetDebugText(IReadOnlyList<string> lines, IReadOnlyList<int>? rowYPositions = null, bool interfaceDetected = true, string? statusLine = null, Rectangle? cropBounds = null)
+    public void SetDebugText(IReadOnlyList<string> lines, IReadOnlyList<int>? rowYPositions = null, bool interfaceDetected = true, string? statusLine = null, Rectangle? cropBounds = null, IReadOnlyList<Rectangle>? retryRegions = null, IReadOnlyList<string>? translatedLines = null)
     {
         if (_setupInProgress) return;
 
@@ -400,7 +356,7 @@ public sealed class DebugOverlayService(
         {
             if (!interfaceDetected)
             {
-                if (!_wasHidden) { _wasHidden = true; logger.LogInformation("Debug overlay HIDDEN: interface not detected."); }
+                if (!_wasHidden) { _wasHidden = true; logger.LogTrace("Debug overlay HIDDEN: interface not detected."); }
                 _forceHidden = true;
                 overlay.SafeHide();
                 return;
@@ -410,7 +366,7 @@ public sealed class DebugOverlayService(
             if (_wasHidden)
             {
                 _wasHidden = false;
-                logger.LogInformation("Debug overlay SHOWN: interface detected.");
+                logger.LogTrace("Debug overlay SHOWN: interface detected.");
             }
         }
         else
@@ -421,86 +377,36 @@ public sealed class DebugOverlayService(
 
         overlay.SetStatusLine(statusLine);
         overlay.SetDebugLines([.. lines], rowYPositions is { } ry ? [.. ry] : null);
+        if (translatedLines is not null)
+            overlay.SetTranslatedLines([.. translatedLines]);
         overlay.SetCropBounds(cropBounds);
+        if (retryRegions is not null)
+            overlay.SetRetryRegions(retryRegions);
+
     }
 
-    public void SetCursorIndicator(Point? localPos, int boxW = 30, int boxH = 30)
+    private sealed class BoundsOverlayForm : OverlayFormBase
     {
-        GetOverlayForm()?.SetCursorIndicator(localPos, boxW, boxH);
-    }
+        protected override bool ClickThrough => true;
 
-    private sealed class BoundsOverlayForm : Form
-    {
-        private static readonly Color TransparencyChroma = Color.FromArgb(1, 2, 3);
         private int _textPanelWidth = 400;
         private const int DebugGap = 120;
         private const int BgPadding = 30;
         private Rectangle _frame;
         private string[] _debugLines = [];
+        private string[] _debugTranslatedLines = [];
         private int[] _debugRowY = [];
+        private IReadOnlyList<Rectangle> _retryRegions = [];
         private bool _showDebugOverlay;
-        private volatile bool _isHidden = true;
         private string? _statusLine;
         private Rectangle? _cropBounds;
-        private Point? _cursorLocal;
-        private Point? _lastCursorDrawn;
-        private int _cursorBoxW = 30;
-        private int _cursorBoxH = 30;
         private static readonly Pen BoxPen = new(Color.Red, 3);
         private static readonly Pen CropPen = new(Color.FromArgb(200, 0, 255, 0), 2f) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash };
-        private static readonly Pen CursorPen = new(Color.FromArgb(200, 180, 80, 255), 1.5f) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash };
+        private static readonly Pen RetryPen = new(Color.FromArgb(220, 200, 50, 220), 2f);
         private static readonly Pen ScanPen = new(Color.FromArgb(220, 255, 255, 0), 2f) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash };
         private static readonly SolidBrush DotBrush = new(Color.FromArgb(255, 255, 60, 60));
         private static readonly Font StatusFont = new("Segoe UI", 14f, FontStyle.Bold, GraphicsUnit.Pixel);
-        private static readonly SolidBrush StatusBrush = new(Color.FromArgb(220, 255, 255, 100));
-        private static readonly Pen StatusOutlinePen = new(Color.FromArgb(220, 0, 0, 0), 2f) { LineJoin = System.Drawing.Drawing2D.LineJoin.Round };
         private static readonly Font DebugFont = new("Segoe UI", 14f, FontStyle.Bold, GraphicsUnit.Pixel);
-        private static readonly SolidBrush DebugFillBrush = new(Color.Red);
-        private static readonly Pen DebugOutlinePen = new(Color.FromArgb(255, 0, 0, 0), 2.2f) { LineJoin = System.Drawing.Drawing2D.LineJoin.Round, StartCap = System.Drawing.Drawing2D.LineCap.Round, EndCap = System.Drawing.Drawing2D.LineCap.Round };
-        private readonly System.Windows.Forms.Timer _cursorTimer;
-
-        public BoundsOverlayForm()
-        {
-            FormBorderStyle = FormBorderStyle.None;
-            ShowInTaskbar = false;
-            StartPosition = FormStartPosition.Manual;
-            TopMost = true;
-            BackColor = TransparencyChroma;
-            TransparencyKey = TransparencyChroma;
-            DoubleBuffered = true;
-            Cursor = Cursors.Default;
-            _cursorTimer = new System.Windows.Forms.Timer { Interval = 16 }; // ~60 FPS
-            _cursorTimer.Tick += OnCursorTimerTick;
-        }
-
-        protected override bool ShowWithoutActivation => true;
-
-        protected override void WndProc(ref Message m)
-        {
-            if (m.Msg == 0x0020 && Cursor is not null)
-            {
-                _ = SetCursor(Cursor.Handle);
-                m.Result = 1;
-                return;
-            }
-            base.WndProc(ref m);
-        }
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr SetCursor(IntPtr hCursor);
-
-        protected override CreateParams CreateParams
-        {
-            get
-            {
-                var cp = base.CreateParams;
-                cp.ExStyle |= 0x00000080;
-                cp.ExStyle |= 0x00080000;
-                cp.ExStyle |= 0x00000020;
-                cp.ExStyle |= 0x08000000;
-                return cp;
-            }
-        }
 
         protected override void OnPaint(PaintEventArgs e)
         {
@@ -524,20 +430,12 @@ public sealed class DebugOverlayService(
             e.Graphics.DrawRectangle(BoxPen, 0, 1, boxWidth - 1, _frame.Height - 1);
 
             // Content-aware crop region (green dashed)
-            if (_cropBounds is { } crop && crop.Width > 0 && crop.Height > 0)
+            if (_cropBounds is { } crop && crop.Width > 0 && crop.Height > 0) e.Graphics.DrawRectangle(CropPen, crop.X, crop.Y, crop.Width - 1, crop.Height - 1);
+            // Per-line retry regions (purple dashed boxes)
+            foreach (var retry in _retryRegions)
             {
-                e.Graphics.DrawRectangle(CropPen, crop.X, crop.Y, crop.Width - 1, crop.Height - 1);
-            }
-
-            // Cursor position indicator (purple dashed box, top-left at cursor hotspot)
-            if (_cursorLocal is { } c)
-            {
-                var bw = _cursorBoxW;
-                var bh = _cursorBoxH;
-                if (c.X + bw > 0 && c.Y + bh > 0 && c.X < boxWidth && c.Y < _frame.Height + 30)
-                {
-                    e.Graphics.DrawRectangle(CursorPen, c.X, c.Y, bw, bh);
-                }
+                if (retry.Width > 0 && retry.Height > 0)
+                    e.Graphics.DrawRectangle(RetryPen, retry.X, retry.Y, retry.Width - 1, retry.Height - 1);
             }
 
             var scanLeft = (int)(boxWidth * LeaguePanelDetector.LeftFraction);
@@ -553,42 +451,77 @@ public sealed class DebugOverlayService(
             var lines = _debugLines;
             var rowY = _debugRowY;
 
+            var defaultLineHeight = 16;
+
             if (_statusLine is { } status)
             {
-                var statusSize = e.Graphics.MeasureString(status, StatusFont, PointF.Empty, StringFormat.GenericTypographic);
-                var statusX = (boxWidth - (int)statusSize.Width) / 2f;
-                var statusY = _frame.Height + 4f;
-                using var path = new System.Drawing.Drawing2D.GraphicsPath();
-                path.AddString(status, StatusFont.FontFamily, (int)StatusFont.Style,
-                    e.Graphics.DpiY * StatusFont.SizeInPoints / 72f,
-                    new PointF(statusX, statusY), StringFormat.GenericTypographic);
-                e.Graphics.DrawPath(StatusOutlinePen, path);
-                e.Graphics.FillPath(StatusBrush, path);
+                var statusSize = TextRenderer.MeasureText(e.Graphics, status, StatusFont);
+                var statusX = (boxWidth - statusSize.Width) / 2;
+                var statusY = _frame.Height + 4;
+                TextRenderer.DrawText(e.Graphics, status, StatusFont,
+                    new Point(statusX, statusY), Color.FromArgb(220, 255, 255, 100), Color.Black,
+                    TextFormatFlags.NoPadding);
             }
 
-            if (lines.Length == 0)
-                return;
-
-            var defaultLineHeight = (int)DebugFont.GetHeight(e.Graphics) + 2;
-            for (var i = 0; i < lines.Length; i++)
+            if (lines.Length > 0)
             {
-                var y = i < rowY.Length ? rowY[i] : 6 + (i * defaultLineHeight);
-                y = Math.Clamp(y, 0, Height - defaultLineHeight);
+                for (var i = 0; i < lines.Length; i++)
+                {
+                    var rowTop = i < rowY.Length ? rowY[i] : 6 + (i * defaultLineHeight);
+                    rowTop = Math.Clamp(rowTop, 0, Height - defaultLineHeight);
+                    var x = debugX + 38;
 
-                var x = debugX + 8;
-                var fontSize = e.Graphics.DpiY * DebugFont.SizeInPoints / 72f;
+                    // Look up the matching purple box height to center text vertically
+                    var rowH = defaultLineHeight;
+                    if (i < rowY.Length)
+                    {
+                        foreach (var r in _retryRegions)
+                        {
+                            if (r.Y == rowY[i])
+                            {
+                                rowH = r.Height;
+                                break;
+                            }
+                        }
+                    }
+                    var textSize = TextRenderer.MeasureText(e.Graphics, lines[i], DebugFont);
+                    var y = rowTop + (rowH - textSize.Height) / 2;
+                    y = Math.Clamp(y, 0, Height - textSize.Height);
 
-                using var path = new System.Drawing.Drawing2D.GraphicsPath();
-                path.AddString(lines[i], DebugFont.FontFamily, (int)DebugFont.Style, fontSize, new PointF(x, y), StringFormat.GenericTypographic);
-                e.Graphics.DrawPath(DebugOutlinePen, path);
-                e.Graphics.FillPath(DebugFillBrush, path);
+                    TextRenderer.DrawText(e.Graphics, lines[i], DebugFont,
+                        new Point(x, y), Color.Red, Color.Black,
+                        TextFormatFlags.NoPadding | TextFormatFlags.NoClipping);
+
+                    // Translated text in purple beneath the OCR-detected line
+                    if (i < _debugTranslatedLines.Length)
+                    {
+                        var translated = _debugTranslatedLines[i];
+                        if (!string.IsNullOrWhiteSpace(translated) &&
+                            !string.Equals(translated, lines[i], StringComparison.OrdinalIgnoreCase))
+                        {
+                            var ty = rowTop + rowH + 2;
+                            ty = Math.Clamp(ty, 0, Height - defaultLineHeight);
+                            TextRenderer.DrawText(e.Graphics, translated, DebugFont,
+                                new Point(x, ty), Color.Purple, Color.Black,
+                                TextFormatFlags.NoPadding | TextFormatFlags.NoClipping);
+                        }
+                    }
+                }
             }
+
         }
 
         public void SetDebugLines(string[] lines, int[]? rowY = null)
         {
             _debugLines = lines;
             _debugRowY = rowY ?? [];
+            if (!IsDisposed && Visible)
+                Invalidate();
+        }
+
+        public void SetTranslatedLines(string[] lines)
+        {
+            _debugTranslatedLines = lines;
             if (!IsDisposed && Visible)
                 Invalidate();
         }
@@ -600,37 +533,11 @@ public sealed class DebugOverlayService(
                 Invalidate();
         }
 
-        public void SetCursorIndicator(Point? localPos, int boxW = 30, int boxH = 30)
+        public void SetRetryRegions(IReadOnlyList<Rectangle> regions)
         {
-            _cursorBoxW = boxW;
-            _cursorBoxH = boxH;
-            if (_cursorTimer.Enabled)
-                return; // fast timer owns _cursorLocal
-            _cursorLocal = localPos;
+            _retryRegions = regions;
             if (!IsDisposed && Visible)
                 Invalidate();
-        }
-
-        private void OnCursorTimerTick(object? sender, EventArgs e)
-        {
-            if (_isHidden || _frame.IsEmpty || IsDisposed || !Visible)
-                return;
-
-            var pos = Cursor.Position;
-            var newLocal = new Point(pos.X - _frame.X, pos.Y - _frame.Y);
-
-            if (newLocal == _lastCursorDrawn)
-                return;
-
-            var clearW = _cursorBoxW + 4;
-            var clearH = _cursorBoxH + 4;
-            if (_lastCursorDrawn is { } old)
-                Invalidate(new Rectangle(old.X - 2, old.Y - 2, clearW, clearH));
-            Invalidate(new Rectangle(newLocal.X - 2, newLocal.Y - 2, clearW, clearH));
-            Update();
-
-            _cursorLocal = newLocal;
-            _lastCursorDrawn = newLocal;
         }
 
         public void SetStatusLine(string? status)
@@ -646,12 +553,12 @@ public sealed class DebugOverlayService(
 
             if (InvokeRequired)
             {
-                _isHidden = false;
+                IsHidden = false;
                 _ = BeginInvoke(new Action<Rectangle, bool, int>(SafeShowFrame), frame, showOverlay, panelWidth);
                 return;
             }
 
-            _isHidden = false;
+            IsHidden = false;
 
             _showDebugOverlay = showOverlay;
             _textPanelWidth = panelWidth;
@@ -665,7 +572,6 @@ public sealed class DebugOverlayService(
 
             _frame = frame;
             Bounds = fullFrame;
-            _lastCursorDrawn = null;
             Invalidate();
 
             PinTopMost();
@@ -674,109 +580,6 @@ public sealed class DebugOverlayService(
             {
                 Show();
                 PinTopMost();
-            }
-
-            _cursorTimer.Start();
-        }
-
-        public void SafeHide()
-        {
-            if (IsDisposed) return;
-
-            if (InvokeRequired)
-            {
-                if (_isHidden) return;
-                _isHidden = true;
-                _ = BeginInvoke(new Action(SafeHide));
-                return;
-            }
-
-            _cursorTimer.Stop();
-            _lastCursorDrawn = null;
-            _cursorLocal = null;
-            Hide();
-        }
-
-        public void SafeClose()
-        {
-            if (IsDisposed) return;
-
-            if (InvokeRequired)
-            {
-                _ = BeginInvoke(new Action(SafeClose));
-                return;
-            }
-
-            Close();
-        }
-
-        protected override void OnDeactivate(EventArgs e)
-        {
-            base.OnDeactivate(e);
-            PinTopMost();
-        }
-
-        protected override void OnShown(EventArgs e)
-        {
-            base.OnShown(e);
-            PinTopMost();
-        }
-
-        private void PinTopMost()
-        {
-            if (!IsHandleCreated)
-            {
-                return;
-            }
-
-            _ = NativeMethods.SetWindowPos(
-                Handle,
-                NativeMethods.HWND_TOPMOST,
-                Left,
-                Top,
-                Width,
-                Height,
-                NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_NOOWNERZORDER | NativeMethods.SWP_NOSENDCHANGING);
-        }
-
-        private static class NativeMethods
-        {
-            public static readonly IntPtr HWND_TOPMOST = new(-1);
-
-            public const uint SWP_NOACTIVATE = 0x0010;
-            public const uint SWP_NOOWNERZORDER = 0x0200;
-            public const uint SWP_NOSENDCHANGING = 0x0400;
-
-            private const uint WDA_EXCLUDEFROMCAPTURE = 0x00000011;
-
-            [DllImport("user32.dll", SetLastError = true)]
-            [return: MarshalAs(UnmanagedType.Bool)]
-            public static extern bool SetWindowPos(
-                IntPtr hWnd,
-                IntPtr hWndInsertAfter,
-                int x,
-                int y,
-                int cx,
-                int cy,
-                uint uFlags);
-
-            [DllImport("user32.dll", SetLastError = true)]
-            [return: MarshalAs(UnmanagedType.Bool)]
-            private static extern bool SetWindowDisplayAffinity(IntPtr hWnd, uint dwAffinity);
-
-            public static void ExcludeFromCapture(IntPtr hWnd)
-            {
-                _ = SetWindowDisplayAffinity(hWnd, WDA_EXCLUDEFROMCAPTURE);
-            }
-
-            [DllImport("user32.dll", SetLastError = true)]
-            private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
-
-            private const int GWLP_HWNDPARENT = -8;
-
-            public static void SetOwner(IntPtr hWnd, IntPtr ownerHandle)
-            {
-                _ = SetWindowLongPtr(hWnd, GWLP_HWNDPARENT, ownerHandle);
             }
         }
     }

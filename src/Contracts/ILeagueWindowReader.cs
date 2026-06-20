@@ -5,4 +5,6 @@ public interface ILeagueWindowReader
     LeagueWindowSnapshot ReadSnapshot();
 
     void Warmup();
+
 }
+

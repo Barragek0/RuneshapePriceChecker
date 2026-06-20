@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 
 namespace RuneshapePriceChecker.OCR;
 
@@ -19,11 +19,11 @@ public sealed class OcrOptions
     [Range(0, 255)]
     public int TextColorTargetB { get; set; } = 34;
     [Range(0, 255)]
-    public int TextColorTolerance { get; set; } = 52;
+    public int TextColorTolerance { get; set; } = 49;
     [Range(0, 255)]
     public int TextColorMaxLuminance { get; set; } = 145;
     [Range(0, 255)]
-    public int TextColorMaxChannelSpread { get; set; } = 34;
+    public int TextColorMaxChannelSpread { get; set; } = 32;
     public bool SaveDebugImages { get; set; }
     [Range(1, 30)]
     public int DebugImageIntervalSeconds { get; set; } = 15;
@@ -32,11 +32,10 @@ public sealed class OcrOptions
     public bool HideDebugOverlayWhenInterfaceNotDetected { get; set; }
     public bool ShowPricingOverlay { get; set; } = true;
     public bool ShowBanner { get; set; } = true;
-
-    /// <summary>Tesseract OCR engine mode: 0=Legacy, 1=LSTM+Legacy, 2=LSTM only (default).</summary>
     [Range(0, 2)]
     public int OcrEngineMode { get; set; } = 2;
 
-    /// <summary>OCR backend: "windows" (default) or "tesseract". Windows.Media.Ocr is faster but requires Win10 1809+.</summary>
     public string OcrBackend { get; set; } = "windows";
+    public bool BypassOcrCache { get; set; }
+    public int PerfMetricsInterval { get; set; }
 }

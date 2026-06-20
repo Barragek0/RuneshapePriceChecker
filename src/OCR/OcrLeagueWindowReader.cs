@@ -1,3 +1,4 @@
+﻿using System.Diagnostics;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using RuneshapePriceChecker.App.Dashboard;
@@ -22,6 +23,8 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
     private readonly TesseractEngineManager _engineManager;
     private WindowsOcrEngine? _windowsOcrEngine;
     private string? _activeOcrBackend;
+    private string? _activeOcrLanguage;
+    private string? _detectedLanguage; // from Poe2ConfigFile, overrides OcrOptions.Language
 
     public OcrLeagueWindowReader(
         IOptionsMonitor<OcrOptions> options,
@@ -29,21 +32,31 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         IPoe2WindowResolutionProvider windowResolutionProvider,
         ILogger<OcrLeagueWindowReader> logger,
         ILoggerFactory loggerFactory,
-        DashboardService dashboard)
+        DashboardService dashboard,
+        DebugMetricsCollector metrics)
     {
         _options = options;
         _appOptions = appOptions;
         _windowResolutionProvider = windowResolutionProvider;
         _logger = logger;
         _dashboard = dashboard;
+        _metrics = metrics;
         _captureStrategy = new OcrCaptureStrategy(loggerFactory.CreateLogger<OcrCaptureStrategy>());
         _engineManager = new TesseractEngineManager(loggerFactory.CreateLogger<TesseractEngineManager>());
 
         var effectiveBackend = ResolveEffectiveOcrBackend(_options.CurrentValue.OcrBackend);
-        if (!_windowsOcrSupported && string.Equals(_options.CurrentValue.OcrBackend, "windows", StringComparison.OrdinalIgnoreCase))
-            _logger.LogWarning("Windows build {Build} < 17763 — OCR backend falling back to Tesseract.", Environment.OSVersion.Version.Build);
+        if (!string.Equals(effectiveBackend, _options.CurrentValue.OcrBackend, StringComparison.OrdinalIgnoreCase))
+            _logger.LogWarning("OCR backend falling back from {Configured} to {Effective} (Windows build too old).",
+                _options.CurrentValue.OcrBackend, effectiveBackend);
         else
             _logger.LogInformation("OCR backend: {Backend}", effectiveBackend);
+        _detectedLanguage = Poe2ConfigFile.Language;
+        _metrics.OcrBackend = effectiveBackend;
+        _metrics.Language = _detectedLanguage ?? _options.CurrentValue.Language;
+        _metrics.OcrEngineMode = _options.CurrentValue.OcrEngineMode.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+        // Listen for PoE2 config file changes (language, brightness, etc.)
+        Poe2ConfigFile.ConfigChanged += OnPoe2ConfigChanged;
 
         _ = _options.OnChange((updated, __) =>
         {
@@ -54,9 +67,16 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
                 var previous = _activeOcrBackend;
                 _activeOcrBackend = null; // force engine re-init on next cycle
                 _lastOcrText = "";        // force non-cached snapshot
+                _metrics.OcrBackend = effective; // update so dashboard toggles slot breakdown
                 if (previous is not null) // only log actual switches, not initial load
                     _logger.LogInformation("OCR backend changed to: {Backend}", effective);
             }
+            // Always invalidate the frame-differencing cache when any OCR option changes
+            // (tolerance, thresholds, binarization, etc.) so the new value takes effect
+            // on the next cycle rather than returning stale cached text.
+            _lastOcrText = "";
+            _lastOcrOptions = null;
+            _runContext = _runContext with { FrameHash = 0 };
         });
     }
 
@@ -76,13 +96,23 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
     private OcrLogState _logState;
     private OcrRunContext _runContext = new(string.Empty, [], 0);
     private string _lastOcrText = "";
+    private OcrOptions? _lastOcrOptions;           // options used for _lastOcrText
     private int[] _lastOcrRowYPositions = [];
     private Rectangle? _lastCropBounds;
     private LeagueWindowSnapshot? _lastSnapshot;
     private bool _lastInterfaceDetected = true;
     private DateTimeOffset _lastDebugImageSavedAtUtc = DateTimeOffset.MinValue;
+    private DateTime _lastPerfMetricsLogAt = DateTime.MinValue;
+    private long _lastDebugFrameHash;
     private readonly LeaguePanelDetector _listDetector = new();
     private readonly OcrPerfTiming _perf = new();
+    private readonly DebugMetricsCollector _metrics;
+
+    // Last captured and preprocessed bitmaps, kept for per-row OCR cropping.
+    private Bitmap? _lastCaptureBitmap;
+    private Bitmap? _lastPreprocessedBitmap;
+    private readonly List<Rectangle> _retryRegions = [];
+    private int[] _lastOcrRowHeights = [];
 
     public void Warmup()
     {
@@ -93,12 +123,13 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
     {
         var prefix = LosslessScaling.IsRunning ? "LS+" : "";
         var method = _runContext.CaptureMethod.Length > 0 ? _runContext.CaptureMethod : "none";
-        return $"{prefix}{method}";
+        var engine = _activeOcrBackend ?? "unknown";
+        return $"{prefix}{method} ({engine})";
     }
 
     private LeagueWindowSnapshot CreateEmptySnapshot(DateTimeOffset capturedAt)
     {
-        return new LeagueWindowSnapshot([], capturedAt, _runContext.RowYPositions, InterfaceDetected: _lastInterfaceDetected, CaptureMethod: ResolveStatusLine());
+        return new LeagueWindowSnapshot([], capturedAt, [], InterfaceDetected: _lastInterfaceDetected, CaptureMethod: ResolveStatusLine());
     }
 
     public LeagueWindowSnapshot ReadSnapshot()
@@ -120,37 +151,53 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
             }
 
             if (fromCache && _lastSnapshot is not null)
-            {
                 return _lastSnapshot;
-            }
 
-            if (!fromCache && _appOptions.CurrentValue.LogLevel <= LogLevel.Debug && !_logState.HasFlag(OcrLogState.TesseractExecutionConfirmed))
+            if (_appOptions.CurrentValue.LogLevel <= LogLevel.Debug && !_logState.HasFlag(OcrLogState.TesseractExecutionConfirmed))
             {
                 _logState |= OcrLogState.TesseractExecutionConfirmed;
                 _logger.LogDebug("OCR engine confirmed: tesseract executed successfully.");
             }
 
-            var lines = OcrTextPostProcessor.ExtractLikelyItemNames(rawText);
-            if (!fromCache && _appOptions.CurrentValue.LogLevel <= LogLevel.Debug)
+            var (lines, matchedYPositions) = OcrTextPostProcessor.ExtractWithYPositions(
+                rawText, _runContext.RowYPositions, _detectedLanguage);
+
+            // Draw purple boxes matching the exact density-detected band bounds.
+            // Clear stale regions from previous cycles first so old positions don't
+            // accumulate (they were never cleared, causing duplicate offset boxes).
+            _retryRegions.Clear();
+            if (_lastOcrRowYPositions.Length > 0)
             {
-                var yPositions = _runContext.RowYPositions;
-                var items = lines.Count == 0
+                var cropX = _lastCropBounds?.Width > 0 ? _lastCropBounds.Value.X : 0;
+                var cropW = _lastCropBounds?.Width > 0
+                    ? Math.Min(_lastCropBounds.Value.Width, (_lastCaptureBitmap?.Width ?? _lastCropBounds.Value.Width) - cropX)
+                    : _lastCaptureBitmap?.Width ?? 0;
+                if (cropW <= 0) cropW = 200;
+
+                for (var i = 0; i < _lastOcrRowYPositions.Length; i++)
+                {
+                    var y = _lastOcrRowYPositions[i];
+                    var h = i < _lastOcrRowHeights.Length ? _lastOcrRowHeights[i] : 16;
+                    _retryRegions.Add(new Rectangle(cropX, y, cropW, h));
+                }
+
+                _lastCropBounds = null; // hide green content-bounds box
+            }
+
+            if (_appOptions.CurrentValue.LogLevel <= LogLevel.Debug)
+            {
+                var items = lines.Length == 0
                     ? "<none>"
-                    : string.Join(" | ", BuildItemDebugStrings(lines, yPositions));
-                _logger.LogDebug("OCR detected {Count} items: {Items}", lines.Count, items);
+                    : string.Join(" | ", BuildItemDebugStrings(lines, matchedYPositions));
+                _logger.LogDebug("OCR detected {Count} items: {Items}", lines.Length, items);
             }
 
             _dashboard.SetStatus("Scanning league panel", "green");
-            _lastSnapshot = new LeagueWindowSnapshot(lines, capturedAt, _runContext.RowYPositions, InterfaceDetected: true, CaptureMethod: ResolveStatusLine(), CropBounds: _lastCropBounds);
+
+            _lastSnapshot = new LeagueWindowSnapshot(lines, capturedAt, matchedYPositions, InterfaceDetected: true, CaptureMethod: ResolveStatusLine(), CropBounds: _lastCropBounds, RetryRegions: _retryRegions.Count > 0 ? [.. _retryRegions] : null);
+            _metrics.ItemsDetected = lines.Length;
+            _metrics.InterfaceDetected = true;
             return _lastSnapshot;
-        }
-        catch (FileNotFoundException ex)
-        {
-            _logState |= OcrLogState.TesseractUnavailable;
-            _logger.LogWarning(
-                "OCR disabled: {Reason} Install Tesseract from https://github.com/UB-Mannheim/tesseract/wiki then restart RuneshapePriceChecker.",
-                ex.Message);
-            return new LeagueWindowSnapshot([], capturedAt, InterfaceDetected: _lastInterfaceDetected);
         }
         catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 2)
         {
@@ -159,10 +206,18 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
                 "OCR disabled: Tesseract not found. Install from https://github.com/UB-Mannheim/tesseract/wiki then restart RuneshapePriceChecker.");
             return new LeagueWindowSnapshot([], capturedAt, InterfaceDetected: _lastInterfaceDetected);
         }
+        catch (Exception ex) when (ex is FileNotFoundException or TypeLoadException or DllNotFoundException)
+        {
+            _logState |= OcrLogState.TesseractUnavailable;
+            _logger.LogWarning(
+                "OCR disabled: {Reason} Install Tesseract from https://github.com/UB-Mannheim/tesseract/wiki then restart RuneshapePriceChecker.",
+                ex.Message);
+            return new LeagueWindowSnapshot([], capturedAt, InterfaceDetected: _lastInterfaceDetected);
+        }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "OCR capture/recognition failed.");
-            return new LeagueWindowSnapshot([], capturedAt, InterfaceDetected: _lastInterfaceDetected);
+            _logger.LogError(ex, "OCR pipeline threw an unhandled exception.");
+            return new LeagueWindowSnapshot([], capturedAt, InterfaceDetected: false);
         }
     }
 
@@ -170,12 +225,21 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
     {
         attemptedRecognition = false;
         fromCache = false;
+        _perf.ResetCycleSlotMs();
         var t0 = _perf.RecordStart(OcrPerfTiming.Slot.Total);
         var options = _options.CurrentValue;
-        if (options.SaveDebugImages)
+        if (_detectedLanguage is not null)
         {
-            EnsureDebugImageDirectoryExists(options);
+            if (!string.Equals(options.Language, _detectedLanguage, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning(
+                    "OCR language mismatch: configured={Configured}, detected={Detected}. Using detected language.",
+                    options.Language, _detectedLanguage);
+            }
+            options.Language = _detectedLanguage;
         }
+        if (options.SaveDebugImages)
+            EnsureDebugImageDirectoryExists(options);
 
         if (!_windowResolutionProvider.IsPoe2WindowForeground || !IsPoe2ForegroundNow())
         {
@@ -183,17 +247,19 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
             if (!_logState.HasFlag(OcrLogState.ForegroundWindowLogged))
             {
                 _logState |= OcrLogState.ForegroundWindowLogged;
-                _logger.LogInformation("OCR paused: waiting for Path of Exile 2 to be the active foreground window.");
+                _logger.LogDebug("OCR paused: waiting for Path of Exile 2 to be the active foreground window.");
             }
 
             _dashboard.SetStatus("Waiting for PoE2 window", "amber");
+            _metrics.IsPoe2Foreground = false;
+            _metrics.InterfaceDetected = false;
             return string.Empty;
         }
 
         if (_logState.HasFlag(OcrLogState.ForegroundWindowLogged))
         {
             _logState &= ~OcrLogState.ForegroundWindowLogged;
-            _logger.LogInformation("PoE2 foreground confirmed; OCR scanning is active.");
+            _logger.LogDebug("PoE2 foreground confirmed; OCR scanning is active.");
         }
 
         if (options.UseWindowClientCapture && _windowResolutionProvider.CurrentWindowCaptureContext is null)
@@ -211,15 +277,26 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
 
         var region = ResolveCaptureRegion();
         ValidateRegion(region);
+        _metrics.RegionInfo = region is not null ? $"{region.Width}x{region.Height}" : "none";
 
-        using var _ = _perf.Measure(OcrPerfTiming.Slot.Capture);
-        var captureResult = _captureStrategy.Capture(region, _windowResolutionProvider.CurrentWindowCaptureContext, options);
+        CaptureResult captureResult;
+        string captureMethod;
+        using (_perf.Measure(OcrPerfTiming.Slot.Capture))
+        {
+            captureResult = _captureStrategy.Capture(region, _windowResolutionProvider.CurrentWindowCaptureContext, options);
+            captureMethod = captureResult.Method;
+        }
         using var capturedBitmap = captureResult.Bitmap;
-        var captureMethod = captureResult.Method;
+
+        // Keep a clone for per-line retry OCR (used when lines fail to price)
+        _lastCaptureBitmap?.Dispose();
+        _lastCaptureBitmap = new Bitmap(capturedBitmap);
+        _lastPreprocessedBitmap?.Dispose();
+        _lastPreprocessedBitmap = null; // Will be set after preprocessing below
 
         if (!string.Equals(_runContext.CaptureMethod, captureMethod, StringComparison.OrdinalIgnoreCase))
         {
-            _logger.LogInformation("OCR capture source active: {CaptureMethod}.", captureMethod);
+            _logger.LogTrace("OCR capture source active: {CaptureMethod}.", captureMethod);
         }
 
         _runContext = _runContext with { CaptureMethod = captureMethod };
@@ -229,19 +306,32 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
             if (!TryDetectPanelOpen(capturedBitmap, options, region))
             {
                 _runContext = _runContext with { FrameHash = 0 };
+                _metrics.AnchorCheckFails++;
+                _metrics.InterfaceDetected = false;
                 return string.Empty;
             }
+            _metrics.AnchorCheckPasses++;
         }
 
         using (_perf.Measure(OcrPerfTiming.Slot.FrameHash))
         {
-            if (TrySkipOcrViaFrameDifferencing(capturedBitmap))
+            if (TrySkipOcrViaFrameDifferencing(capturedBitmap, options))
             {
                 attemptedRecognition = true;
                 fromCache = true;
                 _runContext = _runContext with { RowYPositions = _lastOcrRowYPositions };
+                _perf.RecordEnd(OcrPerfTiming.Slot.Total, t0);
                 _perf.RecordEnd(OcrPerfTiming.Slot.CacheHit, t0);
-                LogPerfIfDue();
+                var totalMs = Stopwatch.GetElapsedTime(t0).TotalMilliseconds;
+                _metrics.RecordCycle(totalMs, fromCache: true, isFullOcr: false);
+                _metrics.CaptureMethod = _runContext.CaptureMethod;
+                _metrics.IsPoe2Foreground = true;
+                _metrics.InterfaceDetected = true;
+                // Record per-cycle slot data so the breakdown stays in sync with Avg Duration
+                var cacheCycleSlots = _perf.GetCycleSlotMs();
+                for (var s = 0; s < cacheCycleSlots.Length; s++)
+                    _metrics.RecordSlotDuration(s, cacheCycleSlots[s]);
+                TryLogPerfMetrics(options);
                 return _lastOcrText;
             }
         }
@@ -251,44 +341,106 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
             : null;
 
         attemptedRecognition = true;
+        using var masked = OcrImagePreprocessor.KeepBlackAndNeighbors(capturedBitmap);
+        using var preprocessed = OcrImagePreprocessor.PreprocessForOcr(masked, options);
+        _lastPreprocessedBitmap?.Dispose();
+        _lastPreprocessedBitmap = new Bitmap(preprocessed);
+        var crop = OcrImagePreprocessor.FindContentBounds(preprocessed);
 
-        if (IsWindowsOcrEnabled(options))
+        var debugDir = debugContext?.DirectoryPath;
+        if (debugDir is not null)
         {
-            EnsureWindowsOcrEngine();
-            using var masked = OcrImagePreprocessor.KeepBlackAndNeighbors(capturedBitmap);
-            using var preprocessed = OcrImagePreprocessor.PreprocessForOcr(masked, options);
-            var crop = OcrImagePreprocessor.FindContentBounds(preprocessed);
-            using var cropped = crop.HasValue
-                ? OcrImagePreprocessor.CropBitmap(preprocessed, crop.Value)
-                : (Bitmap)preprocessed.Clone();
-
-            var rawText = _windowsOcrEngine!.Recognize(cropped, out var rowYs, 1, _perf);
+            OcrImagePreprocessor.SavePng(capturedBitmap, Path.Combine(debugDir, "1 Raw.png"));
+            OcrImagePreprocessor.SavePng(masked, Path.Combine(debugDir, "2 Mask.png"));
+            OcrImagePreprocessor.SavePng(preprocessed, Path.Combine(debugDir, "3 Preprocessed.png"));
             if (crop.HasValue)
             {
-                var cropY = crop.Value.Y;
-                for (var i = 0; i < rowYs.Length; i++) rowYs[i] += cropY;
+                using var croppedDbg = OcrImagePreprocessor.CropBitmap(preprocessed, crop.Value);
+                OcrImagePreprocessor.SavePng(croppedDbg, Path.Combine(debugDir, "4 Cropped.png"));
             }
+        }
 
-            var lines = OcrImagePreprocessor.SplitAndTrim(rawText);
-            _lastOcrText = string.Join(Environment.NewLine, lines);
-            _lastOcrRowYPositions = rowYs;
-            _lastCropBounds = crop;
-            _runContext = _runContext with { RowYPositions = rowYs };
+        var (rowYs, rowHeights) = OcrPipeline.DetectRowPositions(preprocessed, crop);
+        _lastOcrRowHeights = rowHeights;
+        _lastOcrRowYPositions = rowYs;
+        _lastCropBounds = crop;
+        _runContext = _runContext with { RowYPositions = rowYs };
+
+        if (rowYs.Length == 0)
+        {
+            _lastOcrText = string.Empty;
+            _lastOcrOptions = options;
         }
         else
         {
-            var engine = _engineManager.GetEngine(options);
-            var result = OcrImagePreprocessor.Process(capturedBitmap, engine, options, debugContext?.DirectoryPath, _perf);
-            _lastOcrText = result.Text;
-            _lastOcrRowYPositions = result.RowYPositions;
-            _lastCropBounds = result.CropBounds;
-            _runContext = _runContext with { RowYPositions = result.RowYPositions };
+            var rowTexts = new string[rowYs.Length];
+
+            if (IsWindowsOcrEnabled(options))
+            {
+                EnsureWindowsOcrEngine();
+                for (var i = 0; i < rowYs.Length; i++)
+                {
+                    using var rowBitmap = OcrPipeline.PrepareRowBitmap(preprocessed, crop, rowYs[i], rowHeights[i]);
+                    var rawText = _windowsOcrEngine!.Recognize(rowBitmap, out _, 3, null);
+                    var lines = OcrImagePreprocessor.SplitAndTrim(rawText);
+                    rowTexts[i] = lines.Length > 0
+                        ? (OcrTextPostProcessor.ExtractLikelyItemNames(lines[0], _detectedLanguage) is { Count: > 0 } cleaned ? cleaned[0] : lines[0])
+                        : string.Empty;
+
+                    if (debugDir is not null)
+                        OcrPipeline.SaveRowDebugImage(preprocessed, crop, rowYs[i], rowHeights[i], i, debugDir);
+                }
+            }
+            else
+            {
+                _activeOcrBackend = "tesseract";
+                _metrics.OcrBackend = "tesseract";
+                var engine = _engineManager.GetEngine(options);
+                engine.SetPageSegMode(7); // PSM_SINGLE_LINE
+
+                for (var i = 0; i < rowYs.Length; i++)
+                {
+                    string? text;
+                    try
+                    {
+                        using var rowBitmap = OcrPipeline.PrepareRowBitmap(preprocessed, crop, rowYs[i], rowHeights[i]);
+                        text = engine.RecognizeSingleLine(rowBitmap);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Per-row Tesseract recognition failed for row {Row}/{Total}.", i + 1, rowYs.Length);
+                        text = null;
+                    }
+                    rowTexts[i] = text ?? string.Empty;
+
+                    if (debugDir is not null)
+                        OcrPipeline.SaveRowDebugImage(preprocessed, crop, rowYs[i], rowHeights[i], i, debugDir);
+                }
+            }
+
+            if (debugDir is not null)
+                OcrPipeline.SaveRowOverlayDebugImage(preprocessed, crop, rowYs, rowHeights, debugDir);
+
+            _lastOcrText = string.Join(Environment.NewLine, rowTexts);
+            _lastOcrOptions = options;
         }
 
         _perf.RecordEnd(OcrPerfTiming.Slot.Total, t0);
-        LogPerfFullOcrIfDue();
+        var fullOcrMs = Stopwatch.GetElapsedTime(t0).TotalMilliseconds;
+        _metrics.RecordCycle(fullOcrMs, fromCache: false, isFullOcr: true);
+        _metrics.CaptureMethod = _runContext.CaptureMethod;
+        _metrics.IsPoe2Foreground = true;
+        _metrics.InterfaceDetected = true;
+        var cycleSlots = _perf.GetCycleSlotMs();
+        for (var s = 0; s < cycleSlots.Length; s++)
+            _metrics.RecordSlotDuration(s, cycleSlots[s]);
+        TryLogPerfMetrics(options);
+
+        _retryRegions.Clear();
         return _lastOcrText;
     }
+
+    // (Per-row OCR pipeline moved to OcrPipeline.cs)
 
     private static bool IsWindowsOcrEnabled(OcrOptions options)
     {
@@ -304,36 +456,79 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         return configuredBackend;
     }
 
-    private void EnsureWindowsOcrEngine()
+    private void OnPoe2ConfigChanged()
     {
-        var backend = ResolveEffectiveOcrBackend(_options.CurrentValue.OcrBackend);
-        if (_activeOcrBackend == backend && _windowsOcrEngine is not null)
-            return;
+        var detectedLang = Poe2ConfigFile.Language;
+        if (detectedLang is null) return;
+        var effective = _detectedLanguage ?? _options.CurrentValue.Language;
+        if (string.Equals(detectedLang, effective, StringComparison.OrdinalIgnoreCase))
+            return; // no change
 
-        _windowsOcrEngine?.Dispose();
-        _windowsOcrEngine = new WindowsOcrEngine();
-        _activeOcrBackend = backend;
-        _logger.LogInformation("OCR backend: Windows.Media.Ocr");
+        _logger.LogInformation("PoE2 config language changed from '{Old}' to '{New}' — reinitializing OCR engine.",
+            effective, detectedLang);
+
+        _detectedLanguage = detectedLang;
+        _activeOcrLanguage = null; // force engine re-init on next cycle
+        _lastOcrText = "";
+        _lastOcrOptions = null;
     }
 
-    private void LogPerfIfDue()
+    private void EnsureWindowsOcrEngine()
     {
-        if (_perf.ShouldLog() && _logger.IsEnabled(LogLevel.Debug))
+        var lang = _detectedLanguage ?? _options.CurrentValue.Language;
+        var backend = ResolveEffectiveOcrBackend(_options.CurrentValue.OcrBackend);
+        if (_activeOcrBackend == backend && string.Equals(_activeOcrLanguage, lang, StringComparison.OrdinalIgnoreCase) && _windowsOcrEngine is not null)
         {
-            var report = _perf.GetAndResetReport();
-            if (report.Length > "OCR perf (avg us): ".Length)
-                _logger.LogDebug("{Report}", report);
+            // Periodically retry engine creation (every ~15s) so that if the user
+            // installed the language pack after we created a fallback engine, we
+            // pick it up on the next retry without requiring an app restart.
+            if (_lastWindowsOcrRetryUtc is null ||
+                (DateTime.UtcNow - _lastWindowsOcrRetryUtc.Value).TotalSeconds >= 15)
+            {
+                _lastWindowsOcrRetryUtc = DateTime.UtcNow;
+                TryRecreateWindowsOcrEngine(lang, backend);
+            }
+            return;
+        }
+
+        _windowsOcrEngine?.Dispose();
+        _windowsOcrEngine = new WindowsOcrEngine(lang, _logger);
+        _activeOcrBackend = backend;
+        _activeOcrLanguage = lang;
+        _metrics.OcrBackend = backend;
+        _logger.LogInformation("OCR backend: Windows.Media.Ocr ({Lang})", lang);
+    }
+
+    private DateTime? _lastWindowsOcrRetryUtc;
+
+    private void TryRecreateWindowsOcrEngine(string lang, string backend)
+    {
+        try
+        {
+            var newEngine = new WindowsOcrEngine(lang, _logger);
+            _windowsOcrEngine?.Dispose();
+            _windowsOcrEngine = newEngine;
+            _activeOcrBackend = backend;
+            _activeOcrLanguage = lang;
+            _logger.LogInformation("OCR backend reinitialized with exact language pack for '{Lang}'", lang);
+        }
+        catch
+        {
+            // Pack still not available — keep the existing fallback engine
         }
     }
 
-    private void LogPerfFullOcrIfDue()
+    private bool TrySkipOcrViaFrameDifferencing(Bitmap bitmap, OcrOptions currentOptions)
     {
-        if (_perf.ShouldLogFullOcr() && _logger.IsEnabled(LogLevel.Debug))
-            _logger.LogDebug("{Report}", _perf.GetAndResetReport());
-    }
+        if (_options.CurrentValue.BypassOcrCache)
+            return false;
 
-    private bool TrySkipOcrViaFrameDifferencing(Bitmap bitmap)
-    {
+        // When the options object reference changes (meaning IOptionsMonitor created
+        // a new instance after a config reload), invalidate the cache so new values
+        // (tolerance, thresholds, etc.) take effect immediately.
+        if (!ReferenceEquals(_lastOcrOptions, currentOptions))
+            return false;
+
         var hash = ComputeFastFrameHash(bitmap);
         if (hash == 0) return false;
         if (hash == _runContext.FrameHash && _lastOcrText.Length > 0)
@@ -426,7 +621,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
             {
                 try
                 {
-                    var dir = Path.Combine(AppContext.BaseDirectory, "ocr-debug");
+                    var dir = Path.Combine(AppContext.BaseDirectory, "ocr", GetDebugImageSubdir(options));
                     _ = Directory.CreateDirectory(dir);
                     var path = Path.Combine(dir, "panel-check-fail.png");
                     OcrCaptureStrategy.SaveBitmapWithOverwrite(capturedBitmap, path);
@@ -447,12 +642,17 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
     private DebugCaptureContext? TryStartDebugCapture(Bitmap rawImage, OcrCaptureRegion region, string captureMethod)
     {
         var options = _options.CurrentValue;
-        var intervalSeconds = Math.Max(1, options.DebugImageIntervalSeconds);
+        // Allow the configured interval, but never more than once per second.
+        var minIntervalSeconds = Math.Max(1, options.DebugImageIntervalSeconds);
         var now = DateTimeOffset.UtcNow;
-        if (now - _lastDebugImageSavedAtUtc < TimeSpan.FromSeconds(intervalSeconds))
-        {
+        if (now - _lastDebugImageSavedAtUtc < TimeSpan.FromSeconds(minIntervalSeconds))
             return null;
-        }
+
+        // Only save when the frame content has actually changed (different hash).
+        var frameHash = ComputeFastFrameHash(rawImage);
+        if (frameHash == _lastDebugFrameHash)
+            return null;
+        _lastDebugFrameHash = frameHash;
 
         _lastDebugImageSavedAtUtc = now;
 
@@ -472,13 +672,12 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
             OcrCaptureStrategy.SaveBitmapWithOverwrite(rawImage, rawPath);
 
             _logger.LogInformation(
-                "Saved OCR debug images. Method={Method} Region=X={X} Y={Y} W={W} H={H} Raw={RawPath}. Row images overwrite as N.png and backup-guard probes overwrite as Nbg.png.",
+                "Saved OCR debug images. Method={Method} Region=X={X} Y={Y} W={W} H={H}",
                 captureMethod,
                 region.X,
                 region.Y,
                 region.Width,
-                region.Height,
-                rawPath);
+                region.Height);
 
             return new DebugCaptureContext(directory);
         }
@@ -489,11 +688,17 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         }
     }
 
+    private static string GetDebugImageSubdir(OcrOptions options)
+    {
+        var isWindows = string.Equals(options.OcrBackend, "windows", StringComparison.OrdinalIgnoreCase);
+        return isWindows ? Path.Combine("windows", "images") : Path.Combine("tesseract", "images");
+    }
+
     private static string ResolveDebugImageDirectory(OcrOptions options)
     {
         if (string.IsNullOrWhiteSpace(options.DebugImageDirectory))
         {
-            return Path.Combine(AppContext.BaseDirectory, "ocr-debug");
+            return Path.Combine(AppContext.BaseDirectory, "ocr", GetDebugImageSubdir(options));
         }
 
         return Path.IsPathRooted(options.DebugImageDirectory)
@@ -538,6 +743,35 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         _engineManager.Dispose();
     }
 
+    private void TryLogPerfMetrics(OcrOptions options)
+    {
+        var interval = options.PerfMetricsInterval;
+        if (interval <= 0) return;
+        var now = DateTime.UtcNow;
+        if ((now - _lastPerfMetricsLogAt).TotalSeconds < interval) return;
+        _lastPerfMetricsLogAt = now;
+
+        var snap = _metrics.GetSnapshot();
+        // Write to a per-instance temp file so the performance script can read it
+        // (the app is WinExe with no console, so stdout is unavailable).
+        try
+        {
+            var path = Path.Combine(Path.GetTempPath(), "rpc-perf-metrics.txt");
+            var line = $"[Perf] OcrBackend={snap.OcrBackend} " +
+                $"Avg={snap.AverageScanDurationMs:F1}ms " +
+                $"Uncached={snap.AverageUncachedDurationMs:F1}ms " +
+                $"Cached={snap.AverageCachedDurationMs:F1}ms " +
+                $"CacheRate={snap.CacheHitRate:F1}% " +
+                $"Scans/s={snap.ScansPerSecond:F1}" +
+                Environment.NewLine;
+            File.AppendAllText(path, line);
+        }
+        catch
+        {
+            // Best-effort; benchmarking will miss a sample but can continue.
+        }
+    }
+
     private static string[] BuildItemDebugStrings(IReadOnlyList<string> lines, int[] yPositions)
     {
         var result = new string[lines.Count];
@@ -546,39 +780,5 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         return result;
     }
 
-    private static class NativeMethods
-    {
-        [DllImport("user32.dll")]
-        public static extern IntPtr GetForegroundWindow();
 
-        [DllImport("user32.dll")]
-        private static extern IntPtr GetAncestor(IntPtr hWnd, uint gaFlags);
-
-        [DllImport("user32.dll")]
-        private static extern bool IsChild(IntPtr hWndParent, IntPtr hWnd);
-
-        public static bool AreWindowFamilyRelated(IntPtr candidateWindowHandle, IntPtr foregroundWindowHandle)
-        {
-            if (candidateWindowHandle == IntPtr.Zero || foregroundWindowHandle == IntPtr.Zero)
-            {
-                return false;
-            }
-
-            if (candidateWindowHandle == foregroundWindowHandle)
-            {
-                return true;
-            }
-
-            if (IsChild(candidateWindowHandle, foregroundWindowHandle) || IsChild(foregroundWindowHandle, candidateWindowHandle))
-            {
-                return true;
-            }
-
-            const uint gaRoot = 2;
-            var candidateRoot = GetAncestor(candidateWindowHandle, gaRoot);
-            var foregroundRoot = GetAncestor(foregroundWindowHandle, gaRoot);
-
-            return candidateRoot != IntPtr.Zero && candidateRoot == foregroundRoot;
-        }
-    }
 }

@@ -105,6 +105,13 @@ public class DashboardViewModelSettingsTests
     }
 
     [Fact]
+    public void RememberDebugPanel_RoundTrip_PreservesValue()
+    {
+        RoundTrip(vm => vm.RememberDebugPanel = true,
+                  (before, after) => Assert.True(after.RememberDebugPanel));
+    }
+
+    [Fact]
     public void AllSettings_DefaultValues_AreCorrect()
     {
         var path = TempPath();
@@ -127,6 +134,7 @@ public class DashboardViewModelSettingsTests
             Assert.True(vm.ShowPricingOverlay);
             Assert.True(vm.ShowBanner);
             Assert.True(vm.AutoUpdate);
+            Assert.False(vm.RememberDebugPanel);
         }
         finally { TryDelete(path); }
     }

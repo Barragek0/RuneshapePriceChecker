@@ -130,23 +130,23 @@ public class LeaguePricingWorkerTests
     [Fact]
     public void BuildUnpriceableBanner_EmptyList_ReturnsNull()
     {
-        var method = typeof(LeaguePricingWorker).GetMethod("BuildUnpriceableBanner",
-            BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
-        var result = method!.Invoke(null, [Array.Empty<string>()]);
+        var result = InvokeBuildUnpriceableBanner([]);
         Assert.Null(result);
     }
 
     [Fact]
     public void BuildUnpriceableBanner_SkillGem_Detected()
     {
+        var result = InvokeBuildUnpriceableBanner(SkillGemName);
+        Assert.NotNull(result);
+        Assert.Contains("can't be priced", result!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? InvokeBuildUnpriceableBanner(string[] names)
+    {
         var method = typeof(LeaguePricingWorker).GetMethod("BuildUnpriceableBanner",
             BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
-        var result = method!.Invoke(null, [SkillGemName]);
-        Assert.NotNull(result);
-        Assert.Contains("can't be priced", (result as string)!, StringComparison.OrdinalIgnoreCase);
+        if (method is null) return null;
+        return method.Invoke(null, [names, null]) as string;
     }
 }

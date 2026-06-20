@@ -1,16 +1,59 @@
+using System.Diagnostics;
+using System.IO.Compression;
 using System.Net;
 using System.Text;
 using System.Text.Json;
 
 if (args.Length < 1)
 {
-    Console.WriteLine("Usage: UpdateTestServer <release-zip-path> [port]");
+    Console.WriteLine("Usage: UpdateTestServer <release-zip-path> [port] [version]");
     Console.WriteLine("  Serves a mock GitHub API + release zip download on the given port (default 8099).");
+    Console.WriteLine("  version: the release tag to report (default reads from the exe in the zip and bumps patch).");
     return;
 }
 
 var zipPath = args[0];
 var port = args.Length > 1 && int.TryParse(args[1], out var p) ? p : 8099;
+
+// Determine version: explicit arg, or bump patch from the exe in the zip
+string releaseTag;
+if (args.Length > 2)
+{
+    releaseTag = args[2].StartsWith("v", StringComparison.OrdinalIgnoreCase) ? args[2] : $"v{args[2]}";
+}
+else
+{
+    // Extract version from the exe in the zip
+    var tempDir = Path.Combine(Path.GetTempPath(), $"rpc-version-{Guid.NewGuid():N}");
+    _ = Directory.CreateDirectory(tempDir);
+    try
+    {
+        ZipFile.ExtractToDirectory(zipPath, tempDir);
+        var exePath = Directory.GetFiles(tempDir, "RuneshapePriceChecker.exe").FirstOrDefault();
+        if (exePath is not null)
+        {
+            var ver = FileVersionInfo.GetVersionInfo(exePath);
+            var v = ver.ProductVersion ?? "0.0.0";
+            var parts = v.Split('.');
+            if (parts.Length == 3 && int.TryParse(parts[2], out var patch))
+            {
+                releaseTag = $"v{parts[0]}.{parts[1]}.{patch + 1}";
+            }
+            else
+            {
+                releaseTag = $"v{v}";
+            }
+        }
+        else
+        {
+            releaseTag = "v1.0.1";
+        }
+    }
+    finally
+    {
+        try { Directory.Delete(tempDir, recursive: true); } catch { }
+    }
+}
 
 if (!File.Exists(zipPath))
 {
@@ -53,7 +96,7 @@ finally
     listener.Stop();
 }
 
-static void HandleRequest(HttpListenerContext ctx, byte[] zipBytes, string zipName, int port)
+void HandleRequest(HttpListenerContext ctx, byte[] zipBytes, string zipName, int port)
 {
     var path = ctx.Request.Url!.AbsolutePath;
     Console.WriteLine($"{ctx.Request.HttpMethod} {path}");
@@ -72,7 +115,7 @@ static void HandleRequest(HttpListenerContext ctx, byte[] zipBytes, string zipNa
     {
         var mockRelease = new
         {
-            tag_name = "v1.0.1",
+            tag_name = releaseTag,
             prerelease = false,
             html_url = $"http://localhost:{port}",
             body = "# 🎉 Runeshape Price Checker v1.0.0\n\n" +
@@ -148,7 +191,11 @@ static void HandleRequest(HttpListenerContext ctx, byte[] zipBytes, string zipNa
             }
         };
 
-        var json = JsonSerializer.Serialize(new[] { mockRelease }, new JsonSerializerOptions { WriteIndented = true });
+        // /releases/tags/ should return a single object; everything else returns an array
+        var isSingle = path.Contains("/releases/tags/", StringComparison.OrdinalIgnoreCase);
+        var json = isSingle
+            ? JsonSerializer.Serialize(mockRelease, new JsonSerializerOptions { WriteIndented = true })
+            : JsonSerializer.Serialize(new[] { mockRelease }, new JsonSerializerOptions { WriteIndented = true });
         var responseBytes = Encoding.UTF8.GetBytes(json);
         ctx.Response.ContentType = "application/json";
         ctx.Response.ContentLength64 = responseBytes.Length;

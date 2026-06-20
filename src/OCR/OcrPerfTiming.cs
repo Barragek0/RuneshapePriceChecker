@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 
@@ -6,11 +6,9 @@ namespace RuneshapePriceChecker.OCR;
 
 internal sealed class OcrPerfTiming
 {
-    private readonly Stopwatch _sw = Stopwatch.StartNew();
     private readonly long[] _accum = new long[(int)Slot.Count];
     private readonly int[] _counts = new int[(int)Slot.Count];
-    private int _cycleCount;
-    private const int LogInterval = 20;
+    private readonly double[] _cycleSlotMs = new double[(int)Slot.Count];
 
     internal enum Slot
     {
@@ -29,27 +27,27 @@ internal sealed class OcrPerfTiming
         Count
     }
 
-    private int _fullOcrCycleCount;
-
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public TimedRegion Measure(Slot slot)
     {
-        var start = _sw.ElapsedTicks;
+        var start = Stopwatch.GetTimestamp();
         return new TimedRegion(this, slot, start);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public long RecordStart(Slot slot)
+    public long RecordStart(Slot _)
     {
-        return _sw.ElapsedTicks;
+        return Stopwatch.GetTimestamp();
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void RecordEnd(Slot slot, long startTicks)
     {
         var idx = (int)slot;
-        _accum[idx] += _sw.ElapsedTicks - startTicks;
+        var delta = Stopwatch.GetTimestamp() - startTicks;
+        _accum[idx] += delta;
         _counts[idx]++;
+        _cycleSlotMs[idx] = delta * 1000.0 / Stopwatch.Frequency;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -57,19 +55,20 @@ internal sealed class OcrPerfTiming
     {
         RecordEnd(slot, startTicks);
     }
-
-    /// <summary>Call at end of every cycle (cache hit or full OCR).</summary>
-    public bool ShouldLog()
+    public double GetSlotAverageMs(Slot slot)
     {
-        _cycleCount++;
-        return _cycleCount % LogInterval == 0;
+        var idx = (int)slot;
+        var count = _counts[idx];
+        if (count == 0) return 0;
+        return _accum[idx] * 1000.0 / Stopwatch.Frequency / count;
     }
-
-    /// <summary>Only logs when full OCR cycles have run (not just cache hits).</summary>
-    public bool ShouldLogFullOcr()
+    public void ResetCycleSlotMs()
     {
-        _fullOcrCycleCount++;
-        return _fullOcrCycleCount % LogInterval == 0;
+        Array.Clear(_cycleSlotMs);
+    }
+    public double[] GetCycleSlotMs()
+    {
+        return _cycleSlotMs;
     }
 
     public string GetAndResetReport()
@@ -85,7 +84,6 @@ internal sealed class OcrPerfTiming
             _accum[i] = 0;
             _counts[i] = 0;
         }
-        _cycleCount = 0;
         return sb.ToString();
     }
 

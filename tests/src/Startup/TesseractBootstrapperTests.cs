@@ -21,7 +21,7 @@ public class TesseractBootstrapperTests
     [Fact]
     public void IsLanguageDataAvailable_TruncatedFile_ReturnsFalse()
     {
-        var tessDir = Path.Combine(AppContext.BaseDirectory, "tesseract");
+        var tessDir = Path.Combine(AppContext.BaseDirectory, "ocr", "tesseract");
         _ = Directory.CreateDirectory(tessDir);
         var targetFile = Path.Combine(tessDir, "corrupt_test.traineddata");
 
@@ -39,7 +39,7 @@ public class TesseractBootstrapperTests
     [Fact]
     public async Task RepairLanguageData_English_ReextractsValidFile()
     {
-        var tessDir = Path.Combine(AppContext.BaseDirectory, "tesseract");
+        var tessDir = Path.Combine(AppContext.BaseDirectory, "ocr", "tesseract");
         _ = Directory.CreateDirectory(tessDir);
         var engFile = Path.Combine(tessDir, "eng.traineddata");
 
@@ -57,7 +57,7 @@ public class TesseractBootstrapperTests
     [Fact]
     public void IsLanguageDataAvailable_EmptyFile_ReturnsFalse()
     {
-        var tessDir = Path.Combine(AppContext.BaseDirectory, "tesseract");
+        var tessDir = Path.Combine(AppContext.BaseDirectory, "ocr", "tesseract");
         _ = Directory.CreateDirectory(tessDir);
         var targetFile = Path.Combine(tessDir, "empty_test.traineddata");
 

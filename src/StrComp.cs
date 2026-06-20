@@ -1,7 +1,18 @@
+using System.Text.RegularExpressions;
+
 namespace RuneshapePriceChecker;
 
 internal static class StrComp
 {
+    public static readonly Regex MultiWhitespace = new(@"\s+", RegexOptions.Compiled);
+
+    public static bool ContainsLetter(string s)
+    {
+        foreach (var c in s)
+            if (char.IsLetter(c)) return true;
+        return false;
+    }
+
     public const StringComparison Ordinal = StringComparison.Ordinal;
     public const StringComparison OrdinalIgnoreCase = StringComparison.OrdinalIgnoreCase;
 
@@ -66,5 +77,43 @@ internal static class StrComp
         }
         d += longer.Length - Math.Min(longer.Length, shorter.Length + d);
         return d <= 2;
+    }
+
+    public static bool AreFewCharsAway(ReadOnlySpan<char> source, ReadOnlySpan<char> target, int maxDistance)
+    {
+        if (maxDistance < 1) return false;
+
+        var absLenDiff = Math.Abs(source.Length - target.Length);
+        if (absLenDiff > maxDistance) return false;
+
+        if (source.Length == 0) return target.Length <= maxDistance;
+        if (target.Length == 0) return source.Length <= maxDistance;
+
+        ReadOnlySpan<char> a, b;
+        if (source.Length <= target.Length) { a = source; b = target; }
+        else { a = target; b = source; }
+
+        var m = a.Length;
+        var n = b.Length;
+
+        Span<int> prev = stackalloc int[m + 1];
+        Span<int> curr = stackalloc int[m + 1];
+
+        for (var j = 0; j <= m; j++) prev[j] = j;
+
+        for (var i = 1; i <= n; i++)
+        {
+            curr[0] = i;
+            var best = curr[0];
+            for (var j = 1; j <= m; j++)
+            {
+                var cost = a[j - 1] == b[i - 1] ? 0 : 1;
+                curr[j] = Math.Min(Math.Min(curr[j - 1] + 1, prev[j] + 1), prev[j - 1] + cost);
+                if (curr[j] < best) best = curr[j];
+            }
+            if (best > maxDistance) return false;
+            var temp = prev; prev = curr; curr = temp;
+        }
+        return prev[m] <= maxDistance;
     }
 }

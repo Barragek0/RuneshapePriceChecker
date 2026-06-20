@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 
 namespace RuneshapePriceChecker.Configuration;
 
@@ -10,7 +11,7 @@ public sealed class SettingsController(
 {
     private const string SettingsFileName = "appsettings.json";
     private FileSystemWatcher? _watcher;
-    private bool _ignoreNextChange = true;
+    private DateTime _lastReloadUtc = DateTime.MinValue;
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -26,13 +27,16 @@ public sealed class SettingsController(
                 EnableRaisingEvents = true
             };
 
+            // Debounce: OS often fires multiple Changed events per save.
+            // Ignore events within 500ms of the last reload so the first
+            // real edit is never skipped (unlike the old _ignoreNextChange
+            // approach which discarded the first event entirely).
             _watcher.Changed += (_, _) =>
             {
-                if (_ignoreNextChange)
-                {
-                    _ignoreNextChange = false;
+                var now = DateTime.UtcNow;
+                if ((now - _lastReloadUtc).TotalMilliseconds < 500)
                     return;
-                }
+                _lastReloadUtc = now;
                 try { RefreshConfiguration(); }
                 catch (Exception ex) { logger.LogError(ex, "Failed to reload settings."); }
             };
@@ -52,6 +56,26 @@ public sealed class SettingsController(
         {
             logger.LogWarning("Configuration root does not support reload.");
             return;
+        }
+
+        var settingsPath = ResolveSettingsPath();
+        if (settingsPath is not null && File.Exists(settingsPath))
+        {
+            try
+            {
+                var text = File.ReadAllText(settingsPath);
+                _ = JsonDocument.Parse(text);
+            }
+            catch (JsonException ex)
+            {
+                logger.LogError(ex, "Settings file contains invalid JSON — reload skipped. Fix the syntax error in {Path}", settingsPath);
+                return;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Could not read settings file — reload skipped.");
+                return;
+            }
         }
 
         root.Reload();

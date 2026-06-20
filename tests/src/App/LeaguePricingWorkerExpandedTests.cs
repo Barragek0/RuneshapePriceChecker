@@ -44,25 +44,25 @@ public class LeaguePricingWorkerExpandedTests
     [Fact]
     public void BuildUnpriceableBanner_UncutGems_NotFlagged()
     {
-        var method = typeof(LeaguePricingWorker).GetMethod("BuildUnpriceableBanner",
-            BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
         // Uncut gems are priced, should NOT appear in banner
-        var result = method!.Invoke(null, [UncutGemNames]);
+        var result = InvokeBuildUnpriceableBanner(UncutGemNames);
         Assert.Null(result);
     }
 
     [Fact]
     public void BuildUnpriceableBanner_SupportGem_Flagged()
     {
+        // "Support Gem" (without Uncut) matches UnpriceablePrefixes
+        var result = InvokeBuildUnpriceableBanner(SupportGemName);
+        Assert.NotNull(result);
+    }
+
+    private static string? InvokeBuildUnpriceableBanner(string[] names)
+    {
         var method = typeof(LeaguePricingWorker).GetMethod("BuildUnpriceableBanner",
             BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
-        // "Support Gem" (without Uncut) matches UnpriceablePrefixes
-        var result = method!.Invoke(null, [SupportGemName]);
-        Assert.NotNull(result);
+        if (method is null) return null;
+        return method.Invoke(null, [names, null]) as string;
     }
 
     [Fact]

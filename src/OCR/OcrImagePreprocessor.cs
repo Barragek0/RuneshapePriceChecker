@@ -4,63 +4,8 @@ using StructLinq;
 
 namespace RuneshapePriceChecker.OCR;
 
-internal sealed record OcrResult(string Text, int[] RowYPositions, Rectangle? CropBounds = null);
-
 internal static class OcrImagePreprocessor
 {
-    private static readonly int[] EmptyRowPositions = [];
-
-    public static OcrResult Process(Bitmap captured, NativeTesseractEngine engine, OcrOptions options, string? debugDirectory, OcrPerfTiming? perf = null)
-    {
-        Bitmap masked;
-        using (perf?.Measure(OcrPerfTiming.Slot.KeepBlack))
-            masked = KeepBlackAndNeighbors(captured);
-
-        Bitmap preprocessed;
-        using (perf?.Measure(OcrPerfTiming.Slot.Preprocess))
-            preprocessed = PreprocessForOcr(masked, options);
-
-        // Find black-pixel bounding box and crop to reduce Tesseract work area
-        var crop = FindContentBounds(preprocessed);
-        using var cropped = crop.HasValue
-            ? CropBitmap(preprocessed, crop.Value)
-            : (Bitmap)preprocessed.Clone();
-
-        Bitmap bordered;
-        using (perf?.Measure(OcrPerfTiming.Slot.Upscale))
-        {
-            using var upscaled = UpscaleForOcr(cropped, OcrConstants.RowUpscaleFactor);
-            bordered = AddWhiteBorder(upscaled, 2);
-        }
-
-        if (debugDirectory is not null)
-        {
-            SavePng(masked, Path.Combine(debugDirectory, "text-extract.png"));
-            SavePng(preprocessed, Path.Combine(debugDirectory, "preprocessed.png"));
-        }
-
-        engine.SetPageSegMode(4);
-        var recognizedText = engine.Recognize(bordered, out var lineYPositions, OcrConstants.RowUpscaleFactor, perf);
-
-        var lines = SplitAndTrim(recognizedText);
-
-        // Adjust Y positions: undo crop offset
-        if (crop.HasValue)
-        {
-            var cropY = crop.Value.Y;
-            for (var i = 0; i < lineYPositions.Length; i++)
-                lineYPositions[i] += cropY;
-        }
-
-        int[] finalRowPositions;
-        if (lineYPositions.Length >= lines.Length)
-            finalRowPositions = [.. lineYPositions.AsSpan(0, lines.Length)];
-        else
-            finalRowPositions = ComputeRowPositions(preprocessed, lines.Length);
-
-        return new OcrResult(string.Join(Environment.NewLine, lines), finalRowPositions, crop);
-    }
-
     public static string[] SplitAndTrim(string text)
     {
         return text
@@ -71,7 +16,7 @@ internal static class OcrImagePreprocessor
             .ToArray();
     }
 
-    private static void SavePng(Bitmap bitmap, string path)
+    internal static void SavePng(Bitmap bitmap, string path)
     {
         if (File.Exists(path))
             File.Delete(path);
@@ -93,7 +38,7 @@ internal static class OcrImagePreprocessor
         // Flat 1D byte array for mask: 0=discard, 1=keep. Better cache locality than bool[,].
         var keep = new byte[width * height];
 
-        // First pass: for each black pixel, mark an 11x11 neighborhood as kept
+        // First pass: for each sufficiently dark pixel, mark a 15x15 neighborhood as kept.
         for (var y = 0; y < height; y++)
         {
             var rowOffset = y * stride;
@@ -101,14 +46,13 @@ internal static class OcrImagePreprocessor
             for (var x = 0; x < width; x++)
             {
                 var idx = rowOffset + x * 3;
-                if (srcBytes[idx] != 0 || srcBytes[idx + 1] != 0 || srcBytes[idx + 2] != 0)
+                if (srcBytes[idx] > 15 || srcBytes[idx + 1] > 15 || srcBytes[idx + 2] > 15)
                     continue;
 
-                // Mark 11x11 block around black pixel
-                var y0 = Math.Max(0, y - 5);
-                var y1 = Math.Min(height - 1, y + 5);
-                var x0 = Math.Max(0, x - 5);
-                var x1 = Math.Min(width - 1, x + 5);
+                var y0 = Math.Max(0, y - 6);
+                var y1 = Math.Min(height - 1, y + 6);
+                var x0 = Math.Max(0, x - 6);
+                var x1 = Math.Min(width - 1, x + 6);
                 for (var ny = y0; ny <= y1; ny++)
                 {
                     var keepNY = ny * width;
@@ -251,7 +195,7 @@ internal static class OcrImagePreprocessor
 
     public static Bitmap UpscaleForOcr(Bitmap source, int scaleFactor)
     {
-        var scale = Math.Clamp(scaleFactor, 1, 4);
+        var scale = Math.Clamp(scaleFactor, 1, 6);
         if (scale == 1)
             return (Bitmap)source.Clone();
 
@@ -456,52 +400,6 @@ internal static class OcrImagePreprocessor
         {
             source.UnlockBits(srcData);
             dest.UnlockBits(dstData);
-        }
-    }
-
-    public static int[] ComputeRowPositions(Bitmap binarized, int itemCount)
-    {
-        var width = binarized.Width;
-        var height = binarized.Height;
-        var rect = new Rectangle(0, 0, width, height);
-        var data = binarized.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
-        try
-        {
-            var stride = data.Stride;
-            var length = Math.Abs(stride) * height;
-            var bytes = new byte[length];
-            Marshal.Copy(data.Scan0, bytes, 0, length);
-
-            var blackCounts = new int[height];
-            for (var y = 0; y < height; y++)
-            {
-                var rowOffset = y * stride;
-                for (var x = 0; x < width; x++)
-                {
-                    if (bytes[rowOffset + (x * 3)] == 0)
-                        blackCounts[y]++;
-                }
-            }
-
-            var threshold = Math.Max(1, width / 30);
-            var textTop = -1;
-            var textBottom = -1;
-            for (var y = 0; y < height; y++)
-            {
-                if (blackCounts[y] >= threshold) { if (textTop < 0) textTop = y; textBottom = y; }
-            }
-
-            if (textTop < 0) return EmptyRowPositions;
-
-            var rowH = (float)(textBottom - textTop + 1) / itemCount;
-            var positions = new int[itemCount];
-            for (var i = 0; i < itemCount; i++)
-                positions[i] = textTop + (int)((i + 0.5f) * rowH);
-            return positions;
-        }
-        finally
-        {
-            binarized.UnlockBits(data);
         }
     }
 

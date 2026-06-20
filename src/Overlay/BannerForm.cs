@@ -2,17 +2,9 @@ namespace RuneshapePriceChecker.Overlay;
 
 internal sealed class BannerForm : OverlayFormBase
 {
-    private string? _message;
+    protected override bool ClickThrough => true;
 
-    protected override CreateParams CreateParams
-    {
-        get
-        {
-            var cp = base.CreateParams;
-            cp.ExStyle |= 0x00000020;  // WS_EX_TRANSPARENT (click-through, display only)
-            return cp;
-        }
-    }
+    private string? _message;
 
     public void SetMessage(string? message)
     {

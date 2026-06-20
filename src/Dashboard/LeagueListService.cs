@@ -32,7 +32,7 @@ public sealed class LeagueListService
             if (!json.TryGetProperty("result", out var result))
                 return FallbackLeagues;
 
-            var leagues = new List<string>();
+            List<string> leagues = [];
             foreach (var league in result.EnumerateArray())
             {
                 var id = league.GetProperty("id").GetString();

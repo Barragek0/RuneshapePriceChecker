@@ -11,7 +11,7 @@ public sealed class InMemoryPricingCache(
     IPricingSource pricingSource,
     IOptionsMonitor<PricingCacheOptions> pricingOptions,
     ILogger<InMemoryPricingCache> logger,
-    ItemNameTranslator? translator = null) : IPricingCache
+    ItemNameTranslator? translator = null)
 {
     private readonly ConcurrentDictionary<string, decimal> _exactPrices = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, decimal> _fallbackPrices = new(StringComparer.OrdinalIgnoreCase);
@@ -31,13 +31,13 @@ public sealed class InMemoryPricingCache(
         translator?.SetLanguage(language);
         if (translator is not null && !translator.IsLoaded && !language.Equals("eng", StringComparison.OrdinalIgnoreCase))
         {
-            _ = translator.LoadAsync(language, CancellationToken.None);
+            translator.LoadAsync(language, CancellationToken.None).GetAwaiter().GetResult();
         }
     }
-    private static readonly Regex NonAlphaNumeric = new("[^A-Za-z0-9]+", RegexOptions.Compiled);
+    private static readonly Regex NonAlphaNumeric = new("[^\\p{L}\\p{N}]+", RegexOptions.Compiled);
     private static readonly Regex LeadingQuantityWithX = new("^(?:\\d+|[AaIiLlTt|])\\s*[Xx]\\s+", RegexOptions.Compiled);
     private static readonly Regex LeadingQuantityWithoutX = new("^(?:\\d+|[IiLl|])\\s+", RegexOptions.Compiled);
-    private static readonly Regex SplitPossessive = new("\\b([A-Z]+)\\s+[S5]\\s+([A-Z]+)\\b", RegexOptions.Compiled);
+    private static readonly Regex SplitPossessive = new("\\b([\\p{L}]+)\\s+[S5]\\s+([\\p{L}]+)\\b", RegexOptions.Compiled);
     private static readonly Regex TrailingLevelNumber = new("\\s+LEVEL\\s+(?<level>\\d+)$", RegexOptions.Compiled);
     private static readonly Regex TrailingLevel = new("\\s+LEVEL\\s+\\d+$", RegexOptions.Compiled);
     private static readonly Regex TrailingOrb = new("\\s+ORB$", RegexOptions.Compiled);
@@ -65,7 +65,7 @@ public sealed class InMemoryPricingCache(
         {
             if (logger.IsEnabled(LogLevel.Debug))
             {
-                logger.LogDebug("[Quote] All {Count} candidates failed for '{Name}'. Keys: {Keys}", keys.Length, itemName, string.Join(", ", keys));
+                logger.LogDebug("Quote: {Count} fail '{Name}'", keys.Length, itemName);
             }
         }
 
@@ -89,18 +89,27 @@ public sealed class InMemoryPricingCache(
         if (_exactPrices.TryGetValue(key, out var exactChaosValue))
         {
             var totalChaosValue = exactChaosValue * quantity;
-            return new PriceQuote(FormatAmount(totalChaosValue), totalChaosValue, false);
+            return new PriceQuote(FormatAmount(totalChaosValue), totalChaosValue, false)
+            {
+                MatchDetail = $"exact: {key}={FormatAmount(exactChaosValue)}"
+            };
         }
 
-        if (TryResolveRandomCurrency(key, quantity, out var currencyQuote))
+        if (TryResolveRandomCurrency(key, quantity, out var currencyQuote) && currencyQuote is not null)
         {
-            return currencyQuote;
+            return currencyQuote with
+            {
+                MatchDetail = $"random currency: {key}={currencyQuote.Label}"
+            };
         }
 
         if (_fallbackPrices.TryGetValue(key, out var fallbackChaosValue))
         {
             var totalChaosValue = fallbackChaosValue * quantity;
-            return new PriceQuote(FormatAmount(totalChaosValue), totalChaosValue, false);
+            return new PriceQuote(FormatAmount(totalChaosValue), totalChaosValue, false)
+            {
+                MatchDetail = $"fallback: {key}={FormatAmount(fallbackChaosValue)}"
+            };
         }
 
         if (TryResolveUniqueCategoryRange(key, out var range))
@@ -108,7 +117,10 @@ public sealed class InMemoryPricingCache(
             var minTotal = range.MinChaos * quantity;
             var maxTotal = range.MaxChaos * quantity;
             var label = $"{FormatAmount(minTotal)} - {FormatAmount(maxTotal)}";
-            return new PriceQuote(label, maxTotal, true);
+            return new PriceQuote(label, maxTotal, true)
+            {
+                MatchDetail = $"unique range: {key}={FormatAmount(range.MinChaos)}-{FormatAmount(range.MaxChaos)}"
+            };
         }
 
         if (TryResolveUncutGemRange(key, out var gemRange))
@@ -116,7 +128,10 @@ public sealed class InMemoryPricingCache(
             var minTotal = gemRange.MinChaos * quantity;
             var maxTotal = gemRange.MaxChaos * quantity;
             var label = $"{FormatAmount(minTotal)} - {FormatAmount(maxTotal)}";
-            return new PriceQuote(label, maxTotal, true);
+            return new PriceQuote(label, maxTotal, true)
+            {
+                MatchDetail = $"gem range: {key}={FormatAmount(gemRange.MinChaos)}-{FormatAmount(gemRange.MaxChaos)}"
+            };
         }
 
         return null;
@@ -482,33 +497,33 @@ public sealed class InMemoryPricingCache(
         if (jewelleryMin.HasValue && jewelleryMax.HasValue)
         {
             _uniqueCategoryRanges["UNIQUE JEWELLERY"] = (jewelleryMin.Value, jewelleryMax.Value);
-            logger.LogDebug("[Aggregates] Added UNIQUE JEWELLERY range: {Min}-{Max}", jewelleryMin.Value, jewelleryMax.Value);
+            logger.LogDebug("Added UNIQUE JEWELLERY range: {Min:F1}-{Max:F1}", jewelleryMin.Value, jewelleryMax.Value);
         }
         if (bodyMin.HasValue && bodyMax.HasValue)
         {
             _uniqueCategoryRanges["UNIQUE BODY ARMOUR"] = (bodyMin.Value, bodyMax.Value);
             _uniqueCategoryRanges["UNIQUE BODY ARMOR"] = (bodyMin.Value, bodyMax.Value);
-            logger.LogDebug("[Aggregates] Added UNIQUE BODY ARMOUR range: {Min}-{Max}", bodyMin.Value, bodyMax.Value);
+            logger.LogDebug("Added UNIQUE BODY ARMOUR range: {Min:F1}-{Max:F1}", bodyMin.Value, bodyMax.Value);
         }
         if (helmetMin.HasValue && helmetMax.HasValue)
         {
             _uniqueCategoryRanges["UNIQUE HELMET"] = (helmetMin.Value, helmetMax.Value);
-            logger.LogDebug("[Aggregates] Added UNIQUE HELMET range: {Min}-{Max}", helmetMin.Value, helmetMax.Value);
+            logger.LogDebug("Added UNIQUE HELMET range: {Min:F1}-{Max:F1}", helmetMin.Value, helmetMax.Value);
         }
         if (glovesMin.HasValue && glovesMax.HasValue)
         {
             _uniqueCategoryRanges["UNIQUE GLOVES"] = (glovesMin.Value, glovesMax.Value);
-            logger.LogDebug("[Aggregates] Added UNIQUE GLOVES range: {Min}-{Max}", glovesMin.Value, glovesMax.Value);
+            logger.LogDebug("Added UNIQUE GLOVES range: {Min:F1}-{Max:F1}", glovesMin.Value, glovesMax.Value);
         }
         if (bootsMin.HasValue && bootsMax.HasValue)
         {
             _uniqueCategoryRanges["UNIQUE BOOTS"] = (bootsMin.Value, bootsMax.Value);
-            logger.LogDebug("[Aggregates] Added UNIQUE BOOTS range: {Min}-{Max}", bootsMin.Value, bootsMax.Value);
+            logger.LogDebug("Added UNIQUE BOOTS range: {Min:F1}-{Max:F1}", bootsMin.Value, bootsMax.Value);
         }
         if (weaponMin.HasValue && weaponMax.HasValue)
         {
             _uniqueCategoryRanges["UNIQUE WEAPON"] = (weaponMin.Value, weaponMax.Value);
-            logger.LogDebug("[Aggregates] Added UNIQUE WEAPON range: {Min}-{Max}", weaponMin.Value, weaponMax.Value);
+            logger.LogDebug("Added UNIQUE WEAPON range: {Min:F1}-{Max:F1}", weaponMin.Value, weaponMax.Value);
         }
     }
 
@@ -637,14 +652,14 @@ public sealed class InMemoryPricingCache(
 
         if (_uniqueCategoryRanges.TryGetValue(normalizedItemName, out range))
         {
-            logger.LogDebug("[UniqueRange] Direct hit: '{Key}' => ({Min}-{Max})", normalizedItemName, range.MinChaos, range.MaxChaos);
+            logger.LogDebug("UniqueRange: hit '{Key}' {Min:F1}-{Max:F1}", normalizedItemName, range.MinChaos, range.MaxChaos);
             return true;
         }
 
         foreach (var candidate in ItemNameParser.BuildUniqueCategoryLookupCandidates(normalizedItemName))
         {
             var normalizedCandidate = Normalize(candidate);
-            logger.LogDebug("[UniqueRange] Candidate: '{Key}' -> '{Candidate}' -> '{Norm}' found={Found}", normalizedItemName, candidate, normalizedCandidate, _uniqueCategoryRanges.ContainsKey(normalizedCandidate));
+            logger.LogDebug("UniqueRange: '{Key}'->'{Norm}'={Found}", normalizedItemName, normalizedCandidate, _uniqueCategoryRanges.ContainsKey(normalizedCandidate));
             if (_uniqueCategoryRanges.TryGetValue(normalizedCandidate, out range))
             {
                 return true;

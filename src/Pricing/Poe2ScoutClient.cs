@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RuneshapePriceChecker.Configuration;
@@ -19,7 +19,7 @@ public sealed class Poe2ScoutClient(HttpClient httpClient, IOptionsMonitor<AppOp
         {
             var url = $"{BaseUrl}/Leagues";
             var items = await FetchJsonArrayAsync(url, cancellationToken).ConfigureAwait(false);
-            var leagues = new List<string>();
+            List<string> leagues = [];
             foreach (var item in items)
             {
                 var fullName = GetString(item, "Value");
@@ -75,7 +75,7 @@ public sealed class Poe2ScoutClient(HttpClient httpClient, IOptionsMonitor<AppOp
         {
             try
             {
-                var url = $"{BaseUrl}/Leagues/{shortLeague}/Currencies/ByCategory?Category={cat}&ReferenceCurrency=chaos&SmoothingDays={PricingConstants.Poe2ScoutSmoothingDays}";
+                var url = $"{BaseUrl}/Leagues/{shortLeague}/Currencies/ByCategory?Category={cat}&ReferenceCurrency=chaos&SmoothingDays={1}";
                 var items = await FetchAllPagesAsync(url, cancellationToken).ConfigureAwait(false);
                 foreach (var item in items)
                 {
@@ -130,7 +130,7 @@ public sealed class Poe2ScoutClient(HttpClient httpClient, IOptionsMonitor<AppOp
                     await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
                 try
                 {
-                    var url = $"{BaseUrl}/Leagues/{shortLeague}/Uniques/ByCategory?Category={cat}&ReferenceCurrency=chaos&SmoothingDays={PricingConstants.Poe2ScoutSmoothingDays}";
+                    var url = $"{BaseUrl}/Leagues/{shortLeague}/Uniques/ByCategory?Category={cat}&ReferenceCurrency=chaos&SmoothingDays={1}";
                     var items = await FetchAllPagesAsync(url, cancellationToken).ConfigureAwait(false);
                     foreach (var item in items)
                     {
@@ -194,7 +194,7 @@ public sealed class Poe2ScoutClient(HttpClient httpClient, IOptionsMonitor<AppOp
             ? items
             : root;
 
-        var list = new List<JsonElement>();
+        List<JsonElement> list = [];
         foreach (var item in itemsProp.EnumerateArray())
             list.Add(item.Clone());
         return list;
@@ -203,7 +203,7 @@ public sealed class Poe2ScoutClient(HttpClient httpClient, IOptionsMonitor<AppOp
     private async Task<List<JsonElement>> FetchAllPagesAsync(string baseUrl, CancellationToken ct)
     {
         const int perPage = 200;
-        var allItems = new List<JsonElement>();
+        List<JsonElement> allItems = [];
         var page = 1;
 
         while (true)

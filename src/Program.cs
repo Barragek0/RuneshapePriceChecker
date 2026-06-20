@@ -12,6 +12,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 var suppressWarning = false;
 foreach (var a in args)
@@ -40,7 +41,18 @@ if (!suppressWarning)
     catch { }
 }
 
-var mutex = new Mutex(true, @"Global\RuneshapePriceChecker_SingleInstance", out var createdNew);
+Mutex? mutex = null;
+var createdNew = false;
+try
+{
+    mutex = new Mutex(true, @"Global\RuneshapePriceChecker_SingleInstance", out createdNew);
+}
+catch (AbandonedMutexException ex)
+{
+    mutex = ex.Mutex!;
+    createdNew = false;
+}
+
 if (!createdNew && !suppressWarning)
 {
     var result = MessageBox.Show(
@@ -60,33 +72,26 @@ if (!createdNew && !suppressWarning)
 
         Thread.Sleep(500);
 
-        mutex.Dispose();
+        mutex?.Dispose();
         mutex = new Mutex(true, @"Global\RuneshapePriceChecker_SingleInstance", out createdNew);
     }
     else
     {
-        mutex.Dispose();
+        mutex?.Dispose();
         return;
     }
 }
 
 var dashboardSink = new DashboardLogSink();
 var dashboardLoggerProvider = new DashboardLoggerProvider(dashboardSink);
-var dashboardService = new DashboardService(dashboardSink);
+var metricsCollector = new DebugMetricsCollector();
+var dashboardService = new DashboardService(dashboardSink, metricsCollector);
 var hostCts = new CancellationTokenSource();
 dashboardService.SetOnWindowClosed(hostCts.Cancel);
 dashboardService.Start();
 
-TryDeleteFile(Path.Combine(AppContext.BaseDirectory, "Update.exe.old"));
 TryDeleteFile(Path.Combine(AppContext.BaseDirectory, "RuneshapePriceChecker.exe.old"));
-
-var updaterNewPath = Path.Combine(AppContext.BaseDirectory, "Update.exe.new");
-if (File.Exists(updaterNewPath))
-{
-    var updaterPath = Path.Combine(AppContext.BaseDirectory, "Update.exe");
-    try { File.Delete(updaterPath); } catch { }
-    try { File.Move(updaterNewPath, updaterPath); } catch { }
-}
+TryDeleteFile(Path.Combine(AppContext.BaseDirectory, "Update.exe"));
 
 var exeNewPath = Path.Combine(AppContext.BaseDirectory, "RuneshapePriceChecker.exe.new");
 if (File.Exists(exeNewPath))
@@ -120,6 +125,7 @@ var host = Host.CreateDefaultBuilder(args)
 
         _ = services.AddSingleton(dashboardSink);
         _ = services.AddSingleton(dashboardService);
+        _ = services.AddSingleton(metricsCollector);
 
         _ = services.AddOptions<PricingCacheOptions>()
             .Bind(context.Configuration.GetSection("Pricing"))
@@ -161,20 +167,29 @@ var host = Host.CreateDefaultBuilder(args)
                 client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
         });
 
-        _ = services.AddSingleton<IPricingSource, PricingSourceRouter>();
+        _ = services.AddSingleton<IPricingSource>(sp =>
+        {
+            var options = sp.GetRequiredService<IOptionsMonitor<PricingCacheOptions>>();
+            return string.Equals(options.CurrentValue.PricingSource, "poe2scout", StringComparison.OrdinalIgnoreCase)
+                ? sp.GetRequiredService<Poe2ScoutClient>()
+                : sp.GetRequiredService<PoeNinjaClient>();
+        });
 
         _ = services.AddSingleton<Poe2WindowResolutionService>();
         _ = services.AddSingleton<IPoe2WindowResolutionProvider>(sp => sp.GetRequiredService<Poe2WindowResolutionService>());
 
-        _ = services.AddSingleton<ILeagueWindowReader, OcrLeagueWindowReader>();
-        _ = services.AddSingleton<IOverlayRenderer, PricingOverlayRenderer>();
-        _ = services.AddHttpClient<ItemNameTranslator>(client =>
+        _ = services.AddSingleton<OcrLeagueWindowReader>();
+        _ = services.AddSingleton<PricingOverlayRenderer>();
+        _ = services.AddSingleton(sp =>
         {
-            client.Timeout = TimeSpan.FromSeconds(30);
+            var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("RuneshapePriceChecker/1.0");
+            var logger = sp.GetRequiredService<ILogger<TranslationCache>>();
+            return new TranslationCache(client, logger);
         });
         _ = services.AddSingleton<ItemNameTranslator>();
 
-        _ = services.AddSingleton<IPricingCache, InMemoryPricingCache>();
+        _ = services.AddSingleton<InMemoryPricingCache>();
 
         _ = services.AddHostedService(sp => sp.GetRequiredService<Poe2WindowResolutionService>());
         _ = services.AddHostedService<SettingsController>();
@@ -207,7 +222,38 @@ var host = Host.CreateDefaultBuilder(args)
 var debugOverlay = host.Services.GetRequiredService<DebugOverlayService>();
 dashboardService.SetReRunSetupTrigger(debugOverlay.RunInitialSetup);
 
-var ocrReader = host.Services.GetRequiredService<ILeagueWindowReader>();
+// Watch for translations.json changes so user edits take effect immediately
+var translator = host.Services.GetRequiredService<ItemNameTranslator>();
+translator.WatchForChanges();
+
+// Seed metrics collector with config values
+try
+{
+    var cfgPath = Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json");
+    if (File.Exists(cfgPath))
+    {
+        var cfgText = File.ReadAllText(cfgPath);
+        using var cfgDoc = JsonDocument.Parse(cfgText);
+        var root = cfgDoc.RootElement;
+        if (root.TryGetProperty("Pricing", out var pricing))
+        {
+            if (pricing.TryGetProperty("PricingSource", out var ps))
+                metricsCollector.PricingSource = ps.GetString() ?? "poe2scout";
+            if (pricing.TryGetProperty("League", out var lg))
+                metricsCollector.CurrentLeague = lg.GetString() ?? "";
+        }
+    }
+}
+catch { }
+
+// Clean up old directory layouts from before v1.0.2
+foreach (var staleDir in new[] { "tesseract", "ocr-debug" })
+{
+    var path = Path.Combine(AppContext.BaseDirectory, staleDir);
+    try { if (Directory.Exists(path)) Directory.Delete(path, recursive: true); } catch { }
+}
+
+var ocrReader = host.Services.GetRequiredService<OcrLeagueWindowReader>();
 _ = Task.Run(() =>
 {
     try { ocrReader.Warmup(); }
@@ -228,7 +274,7 @@ await host.RunAsync(hostCts.Token).ConfigureAwait(false);
 
 dashboardService.Stop();
 dashboardService.Dispose();
-mutex.Dispose();
+mutex?.Dispose();
 
 static void TryDeleteFile(string path)
 {

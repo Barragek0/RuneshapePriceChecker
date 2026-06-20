@@ -1,3 +1,4 @@
+﻿using System.IO;
 using System.Net.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -23,40 +24,22 @@ public sealed class ItemNameTranslatorIntegrationTests
 
     private static ItemNameTranslator CreateTranslatorWithData()
     {
-        var json = """
-        {
-            "result": [
-                {
-                    "label": "Currency",
-                    "entries": [
-                        { "type": "Chaos Orb", "text": "Orbe du Chaos" },
-                        { "type": "Divine Orb", "text": "Orbe Divin" },
-                        { "type": "Exalted Orb", "text": "Orbe Exalté" },
-                        { "type": "Mirror of Kalandra", "text": "Miroir de Kalandra" }
-                    ]
-                },
-                {
-                    "label": "Unique",
-                    "entries": [
-                        { "type": "Headhunter", "text": "Chasseur de Têtes" },
-                        { "type": "Mageblood", "text": "Sang-mage" }
-                    ]
-                },
-                {
-                    "label": "Gems",
-                    "entries": [
-                        { "type": "Uncut Skill Gem", "text": "Gemme de Compétence Brute" },
-                        { "type": "Uncut Support Gem", "text": "Gemme de Soutien Brute" },
-                        { "type": "Uncut Spirit Gem", "text": "Gemme d'Esprit Brute" }
-                    ]
-                }
-            ]
-        }
-        """;
+        var frNdjson = """
+{"name":"Orbe du Chaos","refName":"Chaos Orb","namespace":"ITEM"}
+{"name":"Orbe Divin","refName":"Divine Orb","namespace":"ITEM"}
+{"name":"Orbe Exalté","refName":"Exalted Orb","namespace":"ITEM"}
+{"name":"Miroir de Kalandra","refName":"Mirror of Kalandra","namespace":"ITEM"}
+{"name":"Chasseur de Têtes","refName":"Headhunter","namespace":"UNIQUE"}
+{"name":"Sang-mage","refName":"Mageblood","namespace":"UNIQUE"}
+{"name":"Gemme de Compétence Brute","refName":"Uncut Skill Gem","namespace":"ITEM"}
+{"name":"Gemme de Soutien Brute","refName":"Uncut Support Gem","namespace":"ITEM"}
+{"name":"Gemme d'Esprit Brute","refName":"Uncut Spirit Gem","namespace":"ITEM"}
+""";
 
-        var handler = new FakeHttpMessageHandler(json);
-        var client = new HttpClient(handler);
-        var translator = new ItemNameTranslator(client, NullLogger<ItemNameTranslator>.Instance);
+        var ocrDir = Path.Combine(Path.GetTempPath(), "RPC-Tests", Guid.NewGuid().ToString());
+        var cache = new TranslationCache(new HttpClient(), NullLogger<TranslationCache>.Instance, ocrDir);
+        cache.LoadFromString("fr", frNdjson);
+        var translator = new ItemNameTranslator(NullLogger<ItemNameTranslator>.Instance, cache);
         translator.SetLanguage("fr");
         translator.LoadAsync("fr", CancellationToken.None).GetAwaiter().GetResult();
         return translator;
@@ -154,20 +137,15 @@ public sealed class ItemNameTranslatorIntegrationTests
     [Fact]
     public async Task SetOcrLanguage_English_NoFetch_TranslationsNotLoaded()
     {
-        var callCount = 0;
-        var handler = new CountingHandler(() => callCount++);
-        var client = new HttpClient(handler);
-        var translator = new ItemNameTranslator(client, NullLogger<ItemNameTranslator>.Instance);
+        // No TranslationCache = no HTTP calls for English
+        var translator = new ItemNameTranslator(NullLogger<ItemNameTranslator>.Instance);
         translator.SetLanguage("eng");
 
         var cache = CreateCache(new PricingCacheOptions { League = "Test" }, translator: translator);
         cache.SetOcrLanguage("eng");
         await cache.RefreshAsync(CancellationToken.None);
 
-        // No HTTP call for English
-        Assert.Equal(0, callCount);
-
-        // English works directly
+        // English works directly (no translation needed)
         Assert.NotNull(cache.TryGetPriceQuote("Chaos Orb"));
     }
 
@@ -186,10 +164,6 @@ public sealed class ItemNameTranslatorIntegrationTests
         Assert.Equal(single.RepresentativeChaosValue * 5, five.RepresentativeChaosValue);
     }
 }
-
-/// <summary>
-/// Provides fake pricing data with common PoE2 items for testing translation integration.
-/// </summary>
 public sealed class FakePricingSource : IPricingSource
 {
     public Task<IReadOnlyList<string>> FetchLeaguesAsync(CancellationToken cancellationToken)

@@ -220,7 +220,7 @@ public class AutoUpdaterExtractZipTests : IDisposable
                 }
                 catch (IOException)
                 {
-                    if (retry < 4) { Thread.Sleep(500); }
+                    if (retry < 4) Thread.Sleep(500);
                 }
             }
 

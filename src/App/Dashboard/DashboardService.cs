@@ -1,8 +1,9 @@
-using System.Windows.Threading;
+﻿using System.Windows.Threading;
+using RuneshapePriceChecker.Configuration;
 
 namespace RuneshapePriceChecker.App.Dashboard;
 
-public sealed class DashboardService(DashboardLogSink sink) : IDisposable
+public sealed class DashboardService(DashboardLogSink sink, DebugMetricsCollector? metrics = null) : IDisposable
 {
     public static Action<IProgress<int>>? UpdateTrigger { get; set; }
     private static volatile bool _isUpdating;
@@ -16,10 +17,12 @@ public sealed class DashboardService(DashboardLogSink sink) : IDisposable
 
     private readonly DashboardLogSink _sink = sink;
     private Thread? _wpfThread;
-    private DashboardWindow? _window;
+    public DashboardWindow? Window { get; private set; }
     private readonly ManualResetEventSlim _windowReady = new();
     private volatile Action? _onWindowClosed;
     private volatile Action? _onWindowLoaded;
+
+    public DebugMetricsCollector? Metrics { get; } = metrics;
 
     public void SetOnWindowClosed(Action callback)
     {
@@ -51,7 +54,7 @@ public sealed class DashboardService(DashboardLogSink sink) : IDisposable
         app.DispatcherUnhandledException += (_, e) =>
         {
             _sink.Emit($"Dashboard error: {e.Exception.GetType().Name}: {e.Exception.Message}", "red");
-            _ = _window?.Dispatcher.InvokeAsync(() => _window.SetStatus($"Error: {e.Exception.Message}", "red"))!;
+            _ = Window?.Dispatcher.InvokeAsync(() => Window.SetStatus($"Error: {e.Exception.Message}", "red"))!;
             e.Handled = true;
         };
 
@@ -60,7 +63,7 @@ public sealed class DashboardService(DashboardLogSink sink) : IDisposable
             var msg = e.ExceptionObject?.ToString() ?? "Unknown fatal error";
             var type = e.ExceptionObject?.GetType().Name ?? "Unknown";
             _sink.Emit($"Fatal error: {type}: {msg}", "red");
-            _ = _window?.Dispatcher.InvokeAsync(() => _window.SetStatus($"Fatal: {msg}", "red"))!;
+            _ = Window?.Dispatcher.InvokeAsync(() => Window.SetStatus($"Fatal: {msg}", "red"))!;
         };
 
         TaskScheduler.UnobservedTaskException += (_, e) =>
@@ -69,39 +72,56 @@ public sealed class DashboardService(DashboardLogSink sink) : IDisposable
             var type = inner?.GetType().Name ?? e.Exception.GetType().Name;
             var msg = inner?.Message ?? e.Exception.Message;
             _sink.Emit($"Task error: {type}: {msg}", "red");
-            _ = _window?.Dispatcher.InvokeAsync(() => _window.SetStatus($"Error: {msg}", "red"))!;
+            _ = Window?.Dispatcher.InvokeAsync(() => Window.SetStatus($"Error: {msg}", "red"))!;
             e.SetObserved();
         };
 
-        _window = new DashboardWindow(_sink);
+        Window = new DashboardWindow(_sink, Metrics);
 
-        _window.SetUpdateTrigger(p => UpdateTrigger?.Invoke(p));
 
-        _window.ChangelogShown += ChangelogDismissedEvent.Reset;
-        _window.ChangelogDismissed += ChangelogDismissedEvent.Set;
+        // Auto-detect OCR language from the game's config file
+        Poe2ConfigFile.StartWatching();
+        var gameLang = Poe2ConfigFile.Language ?? "eng";
+        Window.SetGameLanguage(gameLang);
+        Poe2ConfigFile.ConfigChanged += () =>
+        {
+            var effective = Poe2ConfigFile.Language ?? "eng";
+            var current = Window.GameLanguage;
+            if (!string.Equals(effective, current, StringComparison.OrdinalIgnoreCase))
+            {
+                _sink.Emit("[Config] PoE2 game language changed — updating OCR language.");
+                _ = Window.Dispatcher.InvokeAsync(() => Window.SetGameLanguage(effective));
+            }
+        };
 
-        _window.Loaded += (_, _) =>
+        Window.SetUpdateTrigger(p => UpdateTrigger?.Invoke(p));
+
+        Window.ChangelogShown += ChangelogDismissedEvent.Reset;
+        Window.ChangelogDismissed += ChangelogDismissedEvent.Set;
+
+        Window.Loaded += (_, _) =>
         {
             _onWindowLoaded?.Invoke();
-            if (!_window.IsChangelogVisible)
+            if (!Window.IsChangelogVisible)
                 ChangelogDismissedEvent.Set();
         };
 
-        _window.Closed += (_, _) =>
+        Window.Closed += (_, _) =>
         {
             _onWindowClosed?.Invoke();
             app.Shutdown();
         };
 
         _windowReady.Set();
-        _ = app.Run(_window);
+        _ = app.Run(Window);
+
     }
 
     public void Stop()
     {
         try
         {
-            _ = (_window?.Dispatcher.InvokeAsync(_window.Close, DispatcherPriority.Send));
+            _ = (Window?.Dispatcher.InvokeAsync(Window.Close, DispatcherPriority.Send));
         }
         catch (TaskCanceledException) { }
     }
@@ -115,62 +135,62 @@ public sealed class DashboardService(DashboardLogSink sink) : IDisposable
             return;
         _lastStatusText = text;
         _lastStatusColor = color;
-        _ = (_window?.Dispatcher.InvokeAsync(() => _window.SetStatus(text, color)));
+        _ = (Window?.Dispatcher.InvokeAsync(() => Window.SetStatus(text, color)));
     }
 
     public void LogError(string message)
     {
-        _ = (_window?.Dispatcher.InvokeAsync(() => _window.LogError(message)));
+        _ = (Window?.Dispatcher.InvokeAsync(() => Window.LogError(message)));
     }
 
     public void SetOnSetupContinue(Action callback)
     {
-        _ = (_window?.Dispatcher.InvokeAsync(() => _window.SetOnSetupContinue(callback)));
+        _ = (Window?.Dispatcher.InvokeAsync(() => Window.SetOnSetupContinue(callback)));
     }
 
     public void ShowSetupPrompt()
     {
-        _ = (_window?.Dispatcher.InvokeAsync(_window.ShowSetupPrompt));
+        _ = (Window?.Dispatcher.InvokeAsync(Window.ShowSetupPrompt));
     }
 
     public void HideSetupPrompt()
     {
-        _ = (_window?.Dispatcher.InvokeAsync(_window.HideSetupPrompt));
+        _ = (Window?.Dispatcher.InvokeAsync(Window.HideSetupPrompt));
     }
 
     public void ShowUpdateButton()
     {
-        _ = (_window?.Dispatcher.InvokeAsync(_window.ShowUpdateButton));
+        _ = (Window?.Dispatcher.InvokeAsync(Window.ShowUpdateButton));
     }
 
     public void HideUpdateButton()
     {
-        _ = (_window?.Dispatcher.InvokeAsync(_window.HideUpdateButton));
+        _ = (Window?.Dispatcher.InvokeAsync(Window.HideUpdateButton));
     }
 
     public void ShowUpdateOverlay()
     {
-        _ = (_window?.Dispatcher.InvokeAsync(_window.ShowUpdateOverlay));
+        _ = (Window?.Dispatcher.InvokeAsync(Window.ShowUpdateOverlay));
     }
 
     public void HideUpdateOverlay()
     {
-        _ = (_window?.Dispatcher.InvokeAsync(_window.HideUpdateOverlay));
+        _ = (Window?.Dispatcher.InvokeAsync(Window.HideUpdateOverlay));
     }
 
     public void BringToFront()
     {
-        _ = (_window?.Dispatcher.InvokeAsync(_window.BringToFront));
+        _ = (Window?.Dispatcher.InvokeAsync(Window.BringToFront));
     }
 
     public void SetUpdateProgress(int percent)
     {
-        _ = (_window?.Dispatcher.InvokeAsync(() => _window.SetUpdateProgress(percent)));
+        _ = (Window?.Dispatcher.InvokeAsync(() => Window.SetUpdateProgress(percent)));
     }
 
     public void SetReRunSetupTrigger(Action trigger)
     {
-        _ = (_window?.Dispatcher.InvokeAsync(() => _window.SetReRunSetupTrigger(() =>
+        _ = (Window?.Dispatcher.InvokeAsync(() => Window.SetReRunSetupTrigger(() =>
         {
             ResetInitialSetupComplete();
             trigger();
@@ -186,9 +206,9 @@ public sealed class DashboardService(DashboardLogSink sink) : IDisposable
             var json = File.ReadAllText(configPath, System.Text.Encoding.UTF8);
             var root = System.Text.Json.Nodes.JsonNode.Parse(json);
             if (root is null) return;
-            var windowNode = root["Window"] as System.Text.Json.Nodes.JsonObject ?? [];
+            var windowNode = root[nameof(Window)] as System.Text.Json.Nodes.JsonObject ?? [];
             windowNode["InitialSetupComplete"] = false;
-            root["Window"] = windowNode;
+            root[nameof(Window)] = windowNode;
             File.WriteAllText(configPath, root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }) + Environment.NewLine, System.Text.Encoding.UTF8);
         }
         catch { }

@@ -39,8 +39,6 @@ public class PriceColorCalculatorBoundaryTests
         Assert.NotNull(color);
     }
 
-    // ── TryParseDisplayedChaosEquivalent ──
-
     [Fact]
     public void TryParseChaosEquivalent_EmptyString_ReturnsFalse()
     {

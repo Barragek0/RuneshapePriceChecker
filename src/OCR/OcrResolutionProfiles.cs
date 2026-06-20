@@ -18,7 +18,7 @@ public static class OcrResolutionProfiles
 
     public static IReadOnlyList<string> ValidateAll()
     {
-        var warnings = new List<string>();
+        List<string> warnings = [];
         foreach (var (key, profile) in Profiles)
         {
             if (profile.CaptureWidth <= 0 || profile.CaptureHeight <= 0)

@@ -108,14 +108,17 @@ function Build-Latest {
 }
 
 # ---- Place perf config ----
-function Place-Config($exeDir, $ocrBackend) {
+function Place-Config($exeDir, $ocrBackend, $scenario) {
     if (-not (Test-Path $PerfConfigPath)) { return }
     $cfgDir = Join-Path $exeDir "config"
     New-Item -ItemType Directory -Force $cfgDir | Out-Null
     $cfg = Get-Content $PerfConfigPath -Raw | ConvertFrom-Json
     $cfg.OCR | Add-Member -MemberType NoteProperty -Name "OcrBackend" -Value $ocrBackend -Force
+    # Bypass frame-differencing cache when testing scrolling (emulates content changing
+    # every frame so every cycle does a full OCR pass)
+    $cfg.OCR | Add-Member -MemberType NoteProperty -Name "BypassOcrCache" -Value ($scenario -eq "scrolling") -Force
     $cfg | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $cfgDir "appsettings.json") -Force
-    Write-Host "Config OCR backend: $ocrBackend" -ForegroundColor DarkGray
+    Write-Host "Config OCR backend: $ocrBackend, BypassOcrCache=$($scenario -eq 'scrolling')" -ForegroundColor DarkGray
 }
 
 # ==================================================================
@@ -136,8 +139,8 @@ if (-not $SkipBaseline) {
         $BaselinePath = "$extractDir\RuneshapePriceChecker.exe"
     }
     if (Test-Path $BaselinePath) {
-        Place-Config (Split-Path $BaselinePath -Parent) "tesseract"
         foreach ($s in $Scenarios) {
+            Place-Config (Split-Path $BaselinePath -Parent) "tesseract" $s
             if ($s -eq "idle") { Wait-Poe2NotForeground } else { Wait-Poe2Foreground }
             Start-Sleep 1
             $allResults["baseline-$s"] = Measure-Run $BaselinePath "v$BaselineVersion (tesseract) - $($scenarioLabels[$s])"
@@ -149,9 +152,9 @@ if (-not $SkipBaseline) {
 # Latest — run once per OCR backend
 $latestExe = Build-Latest
 foreach ($backend in $OcrBackends) {
-    Place-Config (Split-Path $latestExe -Parent) $backend
     $label = "v1.0.1 ($backend)"
     foreach ($s in $Scenarios) {
+        Place-Config (Split-Path $latestExe -Parent) $backend $s
         if ($s -eq "idle") { Wait-Poe2NotForeground } else { Wait-Poe2Foreground }
         Start-Sleep 1
         $allResults["latest-$backend-$s"] = Measure-Run $latestExe "$label - $($scenarioLabels[$s])"

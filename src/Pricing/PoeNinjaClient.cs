@@ -37,7 +37,7 @@ public sealed class PoeNinjaClient(HttpClient httpClient, IOptionsMonitor<Pricin
             for (var attempt = 0; attempt < 3; attempt++)
             {
                 if (attempt > 0)
-                    await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
+                    await Task.Delay(100, cancellationToken).ConfigureAwait(false);
 
                 try
                 {

@@ -7,7 +7,7 @@ internal static class TesseractBootstrapper
 {
     private const string Category = "Bootstrap.Tesseract[0]";
     private const string TessDataBestBaseUrl = "https://github.com/tesseract-ocr/tessdata_best/raw/main/";
-    private const string TessDataSubDir = "tesseract";
+    private static readonly string TessDataSubDir = Path.Combine("ocr", "tesseract");
     private const string RuntimesSubDir = "runtimes";
 
     static TesseractBootstrapper()
@@ -109,9 +109,11 @@ internal static class TesseractBootstrapper
             var targetFile = Path.Combine(tessDataDir, "eng.traineddata");
 
             var assembly = Assembly.GetExecutingAssembly();
-            var resourceName = $"{assembly.GetName().Name}.tesseract.eng.traineddata";
+            var asmName = assembly.GetName().Name;
+            var resourceName = $"{asmName}.ocr.tesseract.eng.traineddata";
+            var resourceStream = assembly.GetManifestResourceStream(resourceName)
+                ?? assembly.GetManifestResourceStream($"{asmName}.tesseract.eng.traineddata");
 
-            using var resourceStream = assembly.GetManifestResourceStream(resourceName);
             if (resourceStream is null)
             {
                 LogInfo("English traineddata not embedded; will download on first use if needed.");

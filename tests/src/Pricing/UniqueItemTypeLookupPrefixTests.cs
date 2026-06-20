@@ -44,8 +44,6 @@ public class UniqueItemTypeLookupPrefixTests
         Assert.Null(UniqueItemTypeLookup.TryGetCategory("   "));
     }
 
-    // ── Category coverage: one known item per major category ──
-
     [Fact]
     public void TryGetCategory_OneHandMace_ReturnsCategory()
     {
@@ -135,8 +133,6 @@ public class UniqueItemTypeLookupPrefixTests
     {
         Assert.Equal("BELT", UniqueItemTypeLookup.TryGetCategory("ZERPHI'S GENESIS"));
     }
-
-    // ── Prefix match behavior ──
 
     [Fact]
     public void TryGetCategory_PrefixMatchWithSuffix_ReturnsCategory()
