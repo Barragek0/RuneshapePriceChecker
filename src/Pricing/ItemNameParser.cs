@@ -14,7 +14,7 @@ public static class ItemNameParser
     private static readonly Regex IsolatedImToken = new("(?<=\\s)im(?=\\s)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex TieredOrb = new("^(?:GREATER|PERFECT)\\s+(ORB OF .+)$", RegexOptions.Compiled);
     private static readonly Regex TieredRune = new("^(?:GREATER|PERFECT)\\s+(.+\\s+RUNE)$", RegexOptions.Compiled);
-    private static readonly Regex LevelSuffix = new(@"\s+\S+\s*\d+\s*$", RegexOptions.Compiled);
+    private static readonly Regex LevelSuffix = new(@"\s+\S+\s*\d+[)\]]?\s*$", RegexOptions.Compiled);
     private static readonly Regex QuantitySuffixWithX = new(@"^(?<name>.+)\s[xX]\s*(?<quantity>\d+|[AaIiLlTt|Oo0])\s*$", RegexOptions.Compiled);
     private static readonly Regex TrailingQuantityNumber = new(@"^(?<name>.+)\s+(?<quantity>\d+)\s*$", RegexOptions.Compiled);
 
@@ -175,7 +175,7 @@ public static class ItemNameParser
 
         var suffix = match.Value.Trim(); // e.g. "Niveau 19", "Level 19", "Stufe 19"
         var parts = suffix.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length >= 2 && int.TryParse(parts[^1], out var level))
+        if (parts.Length >= 2 && int.TryParse(parts[^1].TrimEnd(')'), out var level))
         {
             // If the word before the number is just "x" or "X", it's a quantity
             // separator (e.g. Spanish "x1"), not a level word.

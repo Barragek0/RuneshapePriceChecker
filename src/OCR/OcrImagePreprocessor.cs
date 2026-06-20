@@ -534,8 +534,6 @@ internal static class OcrImagePreprocessor
                     }
                 }
 
-                if (blackCount <= 2)
-                    pixels[idx] = 255;
             }
         }
     }

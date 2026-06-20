@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using RuneshapePriceChecker.App.Dashboard;
 using RuneshapePriceChecker.Configuration;
 using RuneshapePriceChecker.Contracts;
+using RuneshapePriceChecker.Pricing;
 using RuneshapePriceChecker.Startup;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -88,7 +89,8 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         WindowContextLogged = 1 << 1,
         ForegroundWindowLogged = 1 << 2,
         DebugDirectoryLogged = 1 << 3,
-        TesseractExecutionConfirmed = 1 << 4
+        TesseractExecutionConfirmed = 1 << 4,
+        UnsupportedLanguage = 1 << 5
     }
 
     private sealed record OcrRunContext(string CaptureMethod, int[] RowYPositions, long FrameHash);
@@ -141,6 +143,17 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
             return CreateEmptySnapshot(capturedAt);
         }
 
+        var currentLang = _detectedLanguage ?? _options.CurrentValue.Language;
+        if (!ItemNameTranslator.IsLanguageSupported(currentLang))
+        {
+            if (!_logState.HasFlag(OcrLogState.UnsupportedLanguage))
+            {
+                _logState |= OcrLogState.UnsupportedLanguage;
+                _logger.LogWarning("OCR disabled — language '{Lang}' is not supported", currentLang);
+            }
+            return CreateEmptySnapshot(capturedAt);
+        }
+
         try
         {
             var rawText = CaptureAndRecognize(out var attemptedRecognition, out var fromCache);
@@ -162,23 +175,60 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
             var (lines, matchedYPositions) = OcrTextPostProcessor.ExtractWithYPositions(
                 rawText, _runContext.RowYPositions, _detectedLanguage);
 
-            // Draw purple boxes matching the exact density-detected band bounds.
+            // Draw purple boxes matching each row's individual content bounds.
             // Clear stale regions from previous cycles first so old positions don't
             // accumulate (they were never cleared, causing duplicate offset boxes).
             _retryRegions.Clear();
-            if (_lastOcrRowYPositions.Length > 0)
+            if (_lastOcrRowYPositions.Length > 0 && _lastPreprocessedBitmap is not null)
             {
-                var cropX = _lastCropBounds?.Width > 0 ? _lastCropBounds.Value.X : 0;
-                var cropW = _lastCropBounds?.Width > 0
-                    ? Math.Min(_lastCropBounds.Value.Width, (_lastCaptureBitmap?.Width ?? _lastCropBounds.Value.Width) - cropX)
-                    : _lastCaptureBitmap?.Width ?? 0;
-                if (cropW <= 0) cropW = 200;
-
-                for (var i = 0; i < _lastOcrRowYPositions.Length; i++)
+                var pbmp = _lastPreprocessedBitmap;
+                var rect = new Rectangle(0, 0, pbmp.Width, pbmp.Height);
+                var data = pbmp.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+                try
                 {
-                    var y = _lastOcrRowYPositions[i];
-                    var h = i < _lastOcrRowHeights.Length ? _lastOcrRowHeights[i] : 16;
-                    _retryRegions.Add(new Rectangle(cropX, y, cropW, h));
+                    var stride = data.Stride;
+                    var bytes = new byte[Math.Abs(stride) * pbmp.Height];
+                    Marshal.Copy(data.Scan0, bytes, 0, bytes.Length);
+
+                    for (var i = 0; i < _lastOcrRowYPositions.Length; i++)
+                    {
+                        var y = _lastOcrRowYPositions[i];
+                        var h = i < _lastOcrRowHeights.Length ? _lastOcrRowHeights[i] : 16;
+                        var yEnd = Math.Min(y + h, pbmp.Height);
+
+                        // Find leftmost and rightmost dark pixel within this row band
+                        var minX = pbmp.Width;
+                        var maxX = 0;
+                        for (var ry = y; ry < yEnd; ry++)
+                        {
+                            var rowOffset = ry * stride;
+                            for (var rx = 0; rx < pbmp.Width; rx++)
+                            {
+                                if (bytes[rowOffset + rx * 3] < 128)
+                                {
+                                    if (rx < minX) minX = rx;
+                                    if (rx > maxX) maxX = rx;
+                                }
+                            }
+                        }
+
+                        if (maxX >= minX)
+                        {
+                            const int margin = 4;
+                            var boxX = Math.Max(0, minX - margin);
+                            var boxW = Math.Min(pbmp.Width - boxX, maxX - minX + margin * 2);
+                            _retryRegions.Add(new Rectangle(boxX, y, boxW, h));
+                        }
+                        else
+                        {
+                            // Fallback: use full width
+                            _retryRegions.Add(new Rectangle(0, y, pbmp.Width, h));
+                        }
+                    }
+                }
+                finally
+                {
+                    pbmp.UnlockBits(data);
                 }
 
                 _lastCropBounds = null; // hide green content-bounds box
@@ -341,11 +391,17 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
             : null;
 
         attemptedRecognition = true;
-        using var masked = OcrImagePreprocessor.KeepBlackAndNeighbors(capturedBitmap);
-        using var preprocessed = OcrImagePreprocessor.PreprocessForOcr(masked, options);
+        Bitmap masked;
+        using (_perf.Measure(OcrPerfTiming.Slot.KeepBlack))
+            masked = OcrImagePreprocessor.KeepBlackAndNeighbors(capturedBitmap);
+        Bitmap preprocessed;
+        using (_perf.Measure(OcrPerfTiming.Slot.Preprocess))
+            preprocessed = OcrImagePreprocessor.PreprocessForOcr(masked, options);
         _lastPreprocessedBitmap?.Dispose();
         _lastPreprocessedBitmap = new Bitmap(preprocessed);
-        var crop = OcrImagePreprocessor.FindContentBounds(preprocessed);
+        Rectangle? crop;
+        using (_perf.Measure(OcrPerfTiming.Slot.PostProcess))
+            crop = OcrImagePreprocessor.FindContentBounds(preprocessed);
 
         var debugDir = debugContext?.DirectoryPath;
         if (debugDir is not null)
@@ -360,7 +416,9 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
             }
         }
 
-        var (rowYs, rowHeights) = OcrPipeline.DetectRowPositions(preprocessed, crop);
+        int[] rowYs, rowHeights;
+        using (_perf.Measure(OcrPerfTiming.Slot.PostProcess))
+            (rowYs, rowHeights) = OcrPipeline.DetectRowPositions(preprocessed, crop);
         _lastOcrRowHeights = rowHeights;
         _lastOcrRowYPositions = rowYs;
         _lastCropBounds = crop;
@@ -378,17 +436,25 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
             if (IsWindowsOcrEnabled(options))
             {
                 EnsureWindowsOcrEngine();
-                for (var i = 0; i < rowYs.Length; i++)
+                using (_perf.Measure(OcrPerfTiming.Slot.Recognize))
                 {
-                    using var rowBitmap = OcrPipeline.PrepareRowBitmap(preprocessed, crop, rowYs[i], rowHeights[i]);
-                    var rawText = _windowsOcrEngine!.Recognize(rowBitmap, out _, 3, null);
-                    var lines = OcrImagePreprocessor.SplitAndTrim(rawText);
-                    rowTexts[i] = lines.Length > 0
-                        ? (OcrTextPostProcessor.ExtractLikelyItemNames(lines[0], _detectedLanguage) is { Count: > 0 } cleaned ? cleaned[0] : lines[0])
-                        : string.Empty;
+                    for (var i = 0; i < rowYs.Length; i++)
+                    {
+                        Bitmap rowBitmap;
+                        using (_perf.Measure(OcrPerfTiming.Slot.PixEncode))
+                            rowBitmap = OcrPipeline.PrepareRowBitmap(preprocessed, crop, rowYs[i], rowHeights[i]);
+                        var rawText = _windowsOcrEngine!.Recognize(rowBitmap, out _, 3, null);
+                        rowBitmap.Dispose();
+                        var lines = OcrImagePreprocessor.SplitAndTrim(rawText);
+                        var cleaned = lines.Length > 0
+                            ? (OcrTextPostProcessor.ExtractLikelyItemNames(lines[0], _detectedLanguage) is { Count: > 0 } cl ? cl[0] : lines[0])
+                            : string.Empty;
+                        _logger.LogTrace("OCR: row {Row} raw='{Raw}' cleaned='{Clean}' lang={Lang}", i, rawText, cleaned, _detectedLanguage);
+                        rowTexts[i] = cleaned;
 
-                    if (debugDir is not null)
-                        OcrPipeline.SaveRowDebugImage(preprocessed, crop, rowYs[i], rowHeights[i], i, debugDir);
+                        if (debugDir is not null)
+                            OcrPipeline.SaveRowDebugImage(preprocessed, crop, rowYs[i], rowHeights[i], i, debugDir);
+                    }
                 }
             }
             else
@@ -398,30 +464,45 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
                 var engine = _engineManager.GetEngine(options);
                 engine.SetPageSegMode(7); // PSM_SINGLE_LINE
 
-                for (var i = 0; i < rowYs.Length; i++)
+                using (_perf.Measure(OcrPerfTiming.Slot.Recognize))
                 {
-                    string? text;
-                    try
+                    for (var i = 0; i < rowYs.Length; i++)
                     {
-                        using var rowBitmap = OcrPipeline.PrepareRowBitmap(preprocessed, crop, rowYs[i], rowHeights[i]);
-                        text = engine.RecognizeSingleLine(rowBitmap);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Per-row Tesseract recognition failed for row {Row}/{Total}.", i + 1, rowYs.Length);
-                        text = null;
-                    }
-                    rowTexts[i] = text ?? string.Empty;
+                        string? text;
+                        try
+                        {
+                            Bitmap rowBitmap;
+                            using (_perf.Measure(OcrPerfTiming.Slot.PixEncode))
+                                rowBitmap = OcrPipeline.PrepareRowBitmap(preprocessed, crop, rowYs[i], rowHeights[i]);
+                            text = engine.RecognizeSingleLine(rowBitmap);
+                            rowBitmap.Dispose();
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Per-row Tesseract recognition failed for row {Row}/{Total}.", i + 1, rowYs.Length);
+                            text = null;
+                        }
+                        var tessCleaned = text ?? string.Empty;
+                        // Tesseract frequently misreads ')' as 'j' in Japanese output.
+                        // Japanese item names never contain Latin 'j', so this swap is safe.
+                        if (string.Equals(_detectedLanguage, "jpn", StringComparison.OrdinalIgnoreCase))
+                            tessCleaned = tessCleaned.Replace('j', ')');
+                        _logger.LogTrace("OCR: row {Row} raw='{Raw}' cleaned='{Clean}' lang={Lang} backend=tesseract", i, text, tessCleaned, _detectedLanguage);
+                        rowTexts[i] = tessCleaned;
 
-                    if (debugDir is not null)
-                        OcrPipeline.SaveRowDebugImage(preprocessed, crop, rowYs[i], rowHeights[i], i, debugDir);
+                        if (debugDir is not null)
+                            OcrPipeline.SaveRowDebugImage(preprocessed, crop, rowYs[i], rowHeights[i], i, debugDir);
+                    }
                 }
             }
 
             if (debugDir is not null)
                 OcrPipeline.SaveRowOverlayDebugImage(preprocessed, crop, rowYs, rowHeights, debugDir);
 
-            _lastOcrText = string.Join(Environment.NewLine, rowTexts);
+            string joined;
+            using (_perf.Measure(OcrPerfTiming.Slot.PostProcess))
+                joined = string.Join(Environment.NewLine, rowTexts);
+            _lastOcrText = joined;
             _lastOcrOptions = options;
         }
 
@@ -437,6 +518,8 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         TryLogPerfMetrics(options);
 
         _retryRegions.Clear();
+        masked.Dispose();
+        preprocessed.Dispose();
         return _lastOcrText;
     }
 
@@ -471,6 +554,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         _activeOcrLanguage = null; // force engine re-init on next cycle
         _lastOcrText = "";
         _lastOcrOptions = null;
+        _logState &= ~OcrLogState.UnsupportedLanguage; // re-evaluate on next cycle
     }
 
     private void EnsureWindowsOcrEngine()
@@ -772,10 +856,10 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         }
     }
 
-    private static string[] BuildItemDebugStrings(IReadOnlyList<string> lines, int[] yPositions)
+    private static string[] BuildItemDebugStrings(string[] lines, int[] yPositions)
     {
-        var result = new string[lines.Count];
-        for (var i = 0; i < lines.Count; i++)
+        var result = new string[lines.Length];
+        for (var i = 0; i < lines.Length; i++)
             result[i] = i < yPositions.Length ? $"{lines[i]} @Y={yPositions[i]}" : lines[i];
         return result;
     }

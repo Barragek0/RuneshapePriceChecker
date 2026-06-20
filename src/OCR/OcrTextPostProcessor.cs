@@ -1,5 +1,4 @@
 using System.Text.RegularExpressions;
-using RuneshapePriceChecker.Pricing;
 using StructLinq;
 
 namespace RuneshapePriceChecker.OCR;
@@ -7,7 +6,7 @@ namespace RuneshapePriceChecker.OCR;
 internal static class OcrTextPostProcessor
 {
     private static readonly Regex MultiWhitespace = new("\\s+", RegexOptions.Compiled);
-    private static readonly Regex NonNameChars = new("[^\\p{L}\\p{N} '\\-]+", RegexOptions.Compiled);
+    private static readonly Regex NonNameChars = new("[^\\p{L}\\p{N} '()\\-]+", RegexOptions.Compiled);
 
     public static IReadOnlyList<string> ExtractLikelyItemNames(string rawText)
     {
@@ -61,12 +60,6 @@ internal static class OcrTextPostProcessor
         var normalized = line.Replace("�", "'").Replace('`', '\'');
         normalized = NonNameChars.Replace(normalized, " ");
         normalized = MultiWhitespace.Replace(normalized, " ").Trim();
-
-        var parsed = ItemNameParser.ParseDetectedItem(normalized);
-        if (!string.IsNullOrWhiteSpace(parsed.Name))
-        {
-            normalized = $"{parsed.Quantity}x {parsed.Name}";
-        }
 
         return normalized.Trim(' ', '-', '\'', ',');
     }
