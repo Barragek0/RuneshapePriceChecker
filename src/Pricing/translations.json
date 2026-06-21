@@ -1,119 +1,403 @@
 {
   "version": 1,
   "languages": {
-    "eng": { "name": "English" },
-    "fra": { "name": "Français" },
-    "deu": { "name": "Deutsch" },
-    "por": { "name": "Português" },
-    "rus": { "name": "Русский" },
-    "tha": { "name": "ไทย" },
-    "chi_tra": { "name": "繁體中文" },
-    "spa": { "name": "Español" },
-    "kor": { "name": "한국어" },
-    "jpn": { "name": "日本語" }
+    "eng": {
+      "name": "English"
+    },
+    "fra": {
+      "name": "Français"
+    },
+    "deu": {
+      "name": "Deutsch"
+    },
+    "por": {
+      "name": "Português"
+    },
+    "rus": {
+      "name": "Русский"
+    },
+    "tha": {
+      "name": "ไทย"
+    },
+    "chi_tra": {
+      "name": "繁體中文"
+    },
+    "spa": {
+      "name": "Español"
+    },
+    "kor": {
+      "name": "한국어"
+    },
+    "jpn": {
+      "name": "日本語"
+    }
   },
   "items": [
-    { "name": "Mirror of Kalandra", "fra": "Miroir de Kalandra", "deu": "Spiegel von Kalandra", "spa": "Espejo de Kalandra", "por": "Espelho de Kalandra", "rus": "Зеркало Каландры", "jpn": "カランドラの鏡", "chi_tra": "卡蘭德的魔鏡" },
-    { "name": "Hinekora's Lock" },
-    { "name": "Fracturing Orb" },
-    { "name": "Cryptic Key" },
-    { "name": "Perfect Chaos Orb", "fra": "Orbe du Chaos parfait" },
-    { "name": "Greater Chaos Orb", "fra": "Orbe du Chaos supérieur" },
-    { "name": "Divine Orb", "fra": "Orbe Divin", "deu": "Göttliche Kugel", "por": "Orbe Divino", "rus": "Сфера Божеств", "jpn": "ディヴァインオーブ", "chi_tra": "神聖石" },
-    { "name": "Perfect Exalted Orb", "fra": "Orbe Exalté parfait" },
-    { "name": "Perfect Jeweller's Orb" },
-    { "name": "Greater Exalted Orb", "fra": "Orbe Exalté supérieur" },
-    { "name": "Greater Jeweller's Orb" },
-    { "name": "Chaos Orb", "fra": "Orbe du Chaos", "deu": "Chaos-Kugel", "spa": "Orbe del Caos", "por": "Orbe do Caos", "rus": "Сфера Хаоса", "jpn": "カオスオーブ", "chi_tra": "混沌石" },
-    { "name": "Gemcutter's Prism", "fra": "Prisme de Tailleur de Gemmes" },
-    { "name": "Perfect Regal Orb", "fra": "Orbe Royal parfait" },
-    { "name": "Artificer's Shard", "fra": "Éclat d'artificier" },
-    { "name": "Orb of Chance", "fra": "Orbe de Chance", "deu": "Zufallskugel" },
-    { "name": "Orb of Annulment", "fra": "Orbe d'Annulation", "deu": "Annullierkugel" },
-    { "name": "Arcanist's Etcher" },
-    { "name": "Artificer's Orb", "fra": "Orbe d'Artificier", "deu": "Handwerkerkugel" },
-    { "name": "Orb of Alchemy", "fra": "Orbe d'Alchimie", "deu": "Alchemiekugel" },
-    { "name": "Armourer's Scrap", "fra": "Ferraille d'Armurier", "deu": "Rüstungsschrott" },
-    { "name": "Glassblower's Bauble", "fra": "Colifichet du Souffleur de Verre", "deu": "Glassbläserbombons" },
-    { "name": "Perfect Orb of Augmentation", "fra": "Orbe d'Augmentation parfait" },
-    { "name": "Regal Orb", "fra": "Orbe Royal", "deu": "Erhabene Kugel" },
-    { "name": "Blacksmith's Whetstone", "fra": "Pierre à Aiguiser du Forgeron", "deu": "Schmiedewetzstein" },
-    { "name": "Exalted Orb", "fra": "Orbe Exalté", "deu": "Erhabene Kugel", "por": "Orbe Exaltado", "rus": "Сфера Возвышения", "jpn": "エグザルトオーブ", "chi_tra": "崇高石" },
-    { "name": "Orb of Augmentation", "fra": "Orbe d'Augmentation", "deu": "Augmentationskugel" },
-    { "name": "Orb of Transmutation", "fra": "Orbe de Transmutation", "deu": "Transmutationskugel" },
-    { "name": "Scroll of Wisdom", "fra": "Parchemin de Sagesse", "deu": "Weissheitsrolle" },
-    { "name": "Portal Scroll", "fra": "Parchemin de Portail" },
-    { "name": "Vaal Orb", "fra": "Orbe Vaal", "deu": "Vaal-Kugel" },
-
-    { "name": "Carved Majesty" },
-    { "name": "Carved Tenacity" },
-    { "name": "Carved Cunning" },
-    { "name": "Carved Mischief" },
-    { "name": "Exotic Coinage" },
-    { "name": "Black Scythe Artifact" },
-    { "name": "Broken Circle Artifact" },
-    { "name": "Order Artifact" },
-    { "name": "Sun Artifact" },
-
-    { "name": "Inspiration Rune" },
-    { "name": "Greater Rune of Alacrity" },
-    { "name": "Greater Rune of Leadership" },
-    { "name": "Saqawal's Rune of the Sky" },
-    { "name": "Thane Grannell's Rune of Mastery" },
-    { "name": "The Greatwolf's Rune of Claws" },
-    { "name": "Resolve Rune" },
-    { "name": "The Greatwolf's Rune of Willpower" },
-    { "name": "Greater Rune of Nobility" },
-    { "name": "Hedgewitch Assandra's Rune of Wisdom" },
-    { "name": "Lesser Robust Rune" },
-    { "name": "Farrul's Rune of the Chase" },
-    { "name": "Thane Girt's Rune of Wildness" },
-    { "name": "Countess Seske's Rune of Archery" },
-    { "name": "Lesser Inspiration Rune" },
-    { "name": "Saqawal's Rune of Memory" },
-    { "name": "Craiceann's Rune of Warding" },
-    { "name": "Lesser Resolve Rune" },
-    { "name": "Greater Rune of Tithing" },
-    { "name": "Thane Leld's Rune of Spring" },
-    { "name": "Craiceann's Rune of Recovery" },
-    { "name": "Greater Body Rune" },
-    { "name": "Courtesan Mannan's Rune of Cruelty" },
-    { "name": "Fenumus' Rune of Draining" },
-    { "name": "Fenumus' Rune of Spinning" },
-    { "name": "Lesser Body Rune" },
-    { "name": "Lesser Rune of Alacrity" },
-    { "name": "Lesser Rune of Leadership" },
-    { "name": "Lesser Rune of Nobility" },
-    { "name": "Lesser Rune of Tithing" },
-    { "name": "Body Rune" },
-    { "name": "Rune of Alacrity" },
-    { "name": "Rune of Leadership" },
-    { "name": "Rune of Nobility" },
-    { "name": "Rune of Tithing" },
-    { "name": "Greater Robust Rune" },
-    { "name": "Robust Rune" },
-    { "name": "Greater Resolve Rune" },
-    { "name": "Iron Rune" },
-    { "name": "Lesser Iron Rune" },
-    { "name": "Greater Iron Rune" },
-    { "name": "Soul Rune" },
-    { "name": "Lesser Soul Rune" },
-    { "name": "Greater Soul Rune" },
-    { "name": "Guarding Rune" },
-    { "name": "Lesser Guarding Rune" },
-    { "name": "Greater Guarding Rune" },
-    { "name": "Azmeri Rune" },
-    { "name": "Lesser Azmeri Rune" },
-    { "name": "Greater Azmeri Rune" },
-    { "name": "Saqawal's Rune of Striking" },
-    { "name": "Farrul's Rune of Plenty" },
-    { "name": "Craiceann's Rune of Shaping" },
-    { "name": "Hedgewitch Assandra's Rune of Ingenuity" },
-    { "name": "Thane Girt's Rune of Woe" },
-    { "name": "Countess Seske's Rune of Warding" },
-    { "name": "Courtesan Mannan's Rune of Precision" },
-    { "name": "Thane Leld's Rune of Storms" },
-    { "name": "The Greatwolf's Rune of Brutality" },
-    { "name": "Random Currency", "fra": "Objet monétaire aléatoire", "deu": "Zufällige Währung", "spa": "objetos monetarios aleatorios", "por": "Moedas Aleatórias", "rus": "случайной валюты", "kor": "무작위 화폐", "chi_tra": "隨機通貨" }
+    {
+      "name": "Mirror of Kalandra",
+      "fra": "Miroir de Kalandra",
+      "deu": "Spiegel von Kalandra",
+      "spa": "Espejo de Kalandra",
+      "por": "Espelho de Kalandra",
+      "rus": "Зеркало Каландры",
+      "jpn": "カランドラの鏡",
+      "chi_tra": "卡蘭德的魔鏡"
+    },
+    {
+      "name": "Hinekora's Lock"
+    },
+    {
+      "name": "Fracturing Orb"
+    },
+    {
+      "name": "Cryptic Key"
+    },
+    {
+      "name": "Perfect Chaos Orb",
+      "fra": "Orbe du Chaos parfait"
+    },
+    {
+      "name": "Greater Chaos Orb",
+      "fra": "Orbe du Chaos supérieur"
+    },
+    {
+      "name": "Divine Orb",
+      "fra": "Orbe Divin",
+      "deu": "Göttliche Kugel",
+      "por": "Orbe Divino",
+      "rus": "Сфера Божеств",
+      "jpn": "ディヴァインオーブ",
+      "chi_tra": "神聖石"
+    },
+    {
+      "name": "Perfect Exalted Orb",
+      "fra": "Orbe Exalté parfait"
+    },
+    {
+      "name": "Perfect Jeweller's Orb"
+    },
+    {
+      "name": "Greater Exalted Orb",
+      "fra": "Orbe Exalté supérieur"
+    },
+    {
+      "name": "Greater Jeweller's Orb"
+    },
+    {
+      "name": "Chaos Orb",
+      "fra": "Orbe du Chaos",
+      "deu": "Chaos-Kugel",
+      "spa": "Orbe del Caos",
+      "por": "Orbe do Caos",
+      "rus": "Сфера Хаоса",
+      "jpn": "カオスオーブ",
+      "chi_tra": "混沌石"
+    },
+    {
+      "name": "Gemcutter's Prism",
+      "fra": "Prisme de Tailleur de Gemmes"
+    },
+    {
+      "name": "Perfect Regal Orb",
+      "fra": "Orbe Royal parfait"
+    },
+    {
+      "name": "Artificer's Shard",
+      "fra": "Éclat d'artificier"
+    },
+    {
+      "name": "Orb of Chance",
+      "fra": "Orbe de Chance",
+      "deu": "Zufallskugel"
+    },
+    {
+      "name": "Orb of Annulment",
+      "fra": "Orbe d'Annulation",
+      "deu": "Annullierkugel"
+    },
+    {
+      "name": "Arcanist's Etcher"
+    },
+    {
+      "name": "Artificer's Orb",
+      "fra": "Orbe d'Artificier",
+      "deu": "Handwerkerkugel"
+    },
+    {
+      "name": "Orb of Alchemy",
+      "fra": "Orbe d'Alchimie",
+      "deu": "Alchemiekugel"
+    },
+    {
+      "name": "Armourer's Scrap",
+      "fra": "Ferraille d'Armurier",
+      "deu": "Rüstungsschrott"
+    },
+    {
+      "name": "Glassblower's Bauble",
+      "fra": "Colifichet du Souffleur de Verre",
+      "deu": "Glassbläserbombons"
+    },
+    {
+      "name": "Perfect Orb of Augmentation",
+      "fra": "Orbe d'Augmentation parfait"
+    },
+    {
+      "name": "Regal Orb",
+      "fra": "Orbe Royal",
+      "deu": "Erhabene Kugel"
+    },
+    {
+      "name": "Blacksmith's Whetstone",
+      "fra": "Pierre à Aiguiser du Forgeron",
+      "deu": "Schmiedewetzstein"
+    },
+    {
+      "name": "Exalted Orb",
+      "fra": "Orbe Exalté",
+      "deu": "Erhabene Kugel",
+      "por": "Orbe Exaltado",
+      "rus": "Сфера Возвышения",
+      "jpn": "エグザルトオーブ",
+      "chi_tra": "崇高石"
+    },
+    {
+      "name": "Orb of Augmentation",
+      "fra": "Orbe d'Augmentation",
+      "deu": "Augmentationskugel"
+    },
+    {
+      "name": "Orb of Transmutation",
+      "fra": "Orbe de Transmutation",
+      "deu": "Transmutationskugel"
+    },
+    {
+      "name": "Scroll of Wisdom",
+      "fra": "Parchemin de Sagesse",
+      "deu": "Weissheitsrolle"
+    },
+    {
+      "name": "Portal Scroll",
+      "fra": "Parchemin de Portail"
+    },
+    {
+      "name": "Vaal Orb",
+      "fra": "Orbe Vaal",
+      "deu": "Vaal-Kugel"
+    },
+    {
+      "name": "Carved Majesty"
+    },
+    {
+      "name": "Carved Tenacity"
+    },
+    {
+      "name": "Carved Cunning"
+    },
+    {
+      "name": "Carved Mischief"
+    },
+    {
+      "name": "Exotic Coinage"
+    },
+    {
+      "name": "Black Scythe Artifact"
+    },
+    {
+      "name": "Broken Circle Artifact"
+    },
+    {
+      "name": "Order Artifact"
+    },
+    {
+      "name": "Sun Artifact"
+    },
+    {
+      "name": "Inspiration Rune"
+    },
+    {
+      "name": "Greater Rune of Alacrity"
+    },
+    {
+      "name": "Greater Rune of Leadership"
+    },
+    {
+      "name": "Saqawal's Rune of the Sky"
+    },
+    {
+      "name": "Thane Grannell's Rune of Mastery"
+    },
+    {
+      "name": "The Greatwolf's Rune of Claws"
+    },
+    {
+      "name": "Resolve Rune"
+    },
+    {
+      "name": "The Greatwolf's Rune of Willpower"
+    },
+    {
+      "name": "Greater Rune of Nobility"
+    },
+    {
+      "name": "Hedgewitch Assandra's Rune of Wisdom"
+    },
+    {
+      "name": "Lesser Robust Rune"
+    },
+    {
+      "name": "Farrul's Rune of the Chase"
+    },
+    {
+      "name": "Thane Girt's Rune of Wildness"
+    },
+    {
+      "name": "Countess Seske's Rune of Archery"
+    },
+    {
+      "name": "Lesser Inspiration Rune"
+    },
+    {
+      "name": "Saqawal's Rune of Memory"
+    },
+    {
+      "name": "Craiceann's Rune of Warding"
+    },
+    {
+      "name": "Lesser Resolve Rune"
+    },
+    {
+      "name": "Greater Rune of Tithing"
+    },
+    {
+      "name": "Thane Leld's Rune of Spring"
+    },
+    {
+      "name": "Craiceann's Rune of Recovery"
+    },
+    {
+      "name": "Greater Body Rune"
+    },
+    {
+      "name": "Courtesan Mannan's Rune of Cruelty"
+    },
+    {
+      "name": "Fenumus' Rune of Draining"
+    },
+    {
+      "name": "Fenumus' Rune of Spinning"
+    },
+    {
+      "name": "Lesser Body Rune"
+    },
+    {
+      "name": "Lesser Rune of Alacrity"
+    },
+    {
+      "name": "Lesser Rune of Leadership"
+    },
+    {
+      "name": "Lesser Rune of Nobility"
+    },
+    {
+      "name": "Lesser Rune of Tithing"
+    },
+    {
+      "name": "Body Rune"
+    },
+    {
+      "name": "Rune of Alacrity"
+    },
+    {
+      "name": "Rune of Leadership"
+    },
+    {
+      "name": "Rune of Nobility"
+    },
+    {
+      "name": "Rune of Tithing"
+    },
+    {
+      "name": "Greater Robust Rune"
+    },
+    {
+      "name": "Robust Rune"
+    },
+    {
+      "name": "Greater Resolve Rune"
+    },
+    {
+      "name": "Iron Rune"
+    },
+    {
+      "name": "Lesser Iron Rune"
+    },
+    {
+      "name": "Greater Iron Rune"
+    },
+    {
+      "name": "Soul Rune"
+    },
+    {
+      "name": "Lesser Soul Rune"
+    },
+    {
+      "name": "Greater Soul Rune"
+    },
+    {
+      "name": "Guarding Rune"
+    },
+    {
+      "name": "Lesser Guarding Rune"
+    },
+    {
+      "name": "Greater Guarding Rune"
+    },
+    {
+      "name": "Azmeri Rune"
+    },
+    {
+      "name": "Lesser Azmeri Rune"
+    },
+    {
+      "name": "Greater Azmeri Rune"
+    },
+    {
+      "name": "Saqawal's Rune of Striking"
+    },
+    {
+      "name": "Farrul's Rune of Plenty"
+    },
+    {
+      "name": "Craiceann's Rune of Shaping"
+    },
+    {
+      "name": "Hedgewitch Assandra's Rune of Ingenuity"
+    },
+    {
+      "name": "Thane Girt's Rune of Woe"
+    },
+    {
+      "name": "Countess Seske's Rune of Warding"
+    },
+    {
+      "name": "Courtesan Mannan's Rune of Precision"
+    },
+    {
+      "name": "Thane Leld's Rune of Storms"
+    },
+    {
+      "name": "The Greatwolf's Rune of Brutality"
+    },
+    {
+      "name": "Random Currency",
+      "fra": "Objet monétaire aléatoire",
+      "deu": "Zufällige Währung",
+      "spa": "objetos monetarios aleatorios",
+      "por": "Moedas Aleatórias",
+      "rus": "случайной валюты",
+      "kor": "무작위 화폐",
+      "chi_tra": "隨機通貨"
+    }
   ]
 }
