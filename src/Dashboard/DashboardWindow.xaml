@@ -10,9 +10,9 @@
         SourceInitialized="Window_SourceInitialized"
         MinWidth="500"
         MaxWidth="960"
-        MinHeight="640"
-        Width="500"
-        Height="691"
+        MinHeight="642"
+        MaxHeight="642"
+        Height="642"
         WindowStartupLocation="Manual"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True"
@@ -87,7 +87,9 @@
                                 CornerRadius="5"
                                 Padding="{TemplateBinding Padding}"
                                 IsHitTestVisible="False">
-                            <ContentPresenter>
+                            <ContentPresenter x:Name="TooltipContent"
+                                              Content="{TemplateBinding Content}"
+                                              ContentTemplate="{TemplateBinding ContentTemplate}">
                                 <ContentPresenter.Resources>
                                     <Style TargetType="TextBlock">
                                         <Setter Property="TextWrapping"
@@ -99,6 +101,8 @@
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+            <EventSetter Event="Loaded"
+                         Handler="ToolTip_Loaded"/>
         </Style>
 
         <Style TargetType="ScrollBar">
@@ -363,6 +367,15 @@
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsEnabled"
+                         Value="False">
+                    <Setter Property="Opacity"
+                            Value="0.45"/>
+                    <Setter Property="Cursor"
+                            Value="No"/>
+                </Trigger>
+            </Style.Triggers>
         </Style>
 
         <Style TargetType="ComboBoxItem">
@@ -471,13 +484,20 @@
         <Style x:Key="TooltipIcon"
                TargetType="TextBlock">
             <Setter Property="Text"
-                    Value="&#x1F6C8;"/>
+                    Value="?"/>
             <Setter Property="FontSize"
-                    Value="16"/>
+                    Value="14"/>
+            <Setter Property="Opacity"
+                    Value="1"/>
             <Setter Property="VerticalAlignment"
                     Value="Center"/>
             <Setter Property="Margin"
-                    Value="5,-1,0,0"/>
+                    Value="5,-3,0,0"/>
+            <Setter Property="RenderTransform">
+                <Setter.Value>
+                    <TranslateTransform X="1.5"/>
+                </Setter.Value>
+            </Setter>
             <Setter Property="ToolTipService.IsEnabled"
                     Value="False"/>
             <Setter Property="Cursor"
@@ -491,8 +511,8 @@
             <Style.Triggers>
                 <Trigger Property="IsMouseOver"
                          Value="True">
-                    <Setter Property="Foreground"
-                            Value="#B8BEC6"/>
+                    <Setter Property="Opacity"
+                            Value="1"/>
                 </Trigger>
             </Style.Triggers>
         </Style>
@@ -502,7 +522,7 @@
             <Setter Property="Text"
                     Value="&#x26A0;"/>
             <Setter Property="FontSize"
-                    Value="14"/>
+                    Value="12"/>
             <Setter Property="VerticalAlignment"
                     Value="Center"/>
             <Setter Property="Margin"
@@ -625,19 +645,20 @@
                                    VerticalAlignment="Center"/>
                     </StackPanel>
                     <Button x:Name="SettingsBtn"
-                            Width="26"
-                            Height="26"
+                            Width="24"
+                            Height="24"
                             Style="{StaticResource IconButtonStyle}"
                             HorizontalAlignment="Right"
                             VerticalAlignment="Top"
                             Background="Transparent"
                             BorderThickness="0"
-                            Margin="0,6,38,0"
+                            Margin="0,6,36,0"
                             AutomationProperties.Name="Settings"
-                            Click="Settings_Click">
+                            Click="Settings_Click"
+                            ToolTipService.InitialShowDelay="500">
                         <TextBlock Text="&#x2699;"
                                    Foreground="{StaticResource TextSecondary}"
-                                   FontSize="18"
+                                   FontSize="16"
                                    HorizontalAlignment="Center"
                                    VerticalAlignment="Center"/>
                     </Button>
@@ -658,20 +679,21 @@
                                    FontWeight="Bold"/>
                     </Border>
                     <Button x:Name="LogBtn"
-                            Width="26"
-                            Height="26"
+                            Width="24"
+                            Height="24"
                             Style="{StaticResource IconButtonStyle}"
                             HorizontalAlignment="Right"
                             VerticalAlignment="Top"
                             Background="Transparent"
                             BorderThickness="0"
-                            Margin="0,6,70,0"
+                            Margin="0,6,68,0"
                             AutomationProperties.Name="View Log"
                             Click="LogBtn_Click"
-                            ToolTip="View Log">
+                            ToolTip="View Log"
+                            ToolTipService.InitialShowDelay="500">
                         <TextBlock Text="📋"
                                    Foreground="{StaticResource TextSecondary}"
-                                   FontSize="16"
+                                   FontSize="14"
                                    HorizontalAlignment="Center"
                                    VerticalAlignment="Center"/>
                     </Button>
@@ -692,20 +714,21 @@
                                    VerticalAlignment="Center"/>
                     </Button>
                     <Button x:Name="DebugBtn"
-                            Width="26"
-                            Height="26"
+                            Width="24"
+                            Height="24"
                             Style="{StaticResource IconButtonStyle}"
                             HorizontalAlignment="Right"
                             VerticalAlignment="Bottom"
                             Background="Transparent"
                             BorderThickness="0"
-                            Margin="0,0,6,0"
-                            AutomationProperties.Name="Debug Metrics"
+                            Margin="0,0,8,0"
+                            AutomationProperties.Name="Performance Metrics"
                             Click="Debug_Click"
-                            ToolTip="Debug Metrics">
+                            ToolTip="Performance Metrics"
+                            ToolTipService.InitialShowDelay="500">
                         <TextBlock Text="&#x26A1;"
                                    Foreground="{StaticResource AmberBrush}"
-                                   FontSize="16"
+                                   FontSize="14"
                                    HorizontalAlignment="Center"
                                    VerticalAlignment="Center"/>
                     </Button>
@@ -1017,7 +1040,7 @@
                                                 </CheckBox>
                                                 <CheckBox x:Name="BringToForegroundCheck"
                                                           VerticalAlignment="Center"
-                                                          Margin="16,0,0,0"
+                                                          Margin="16,0,0,4"
                                                           Checked="AutoSetting_Changed"
                                                           Unchecked="AutoSetting_Changed">
                                                     <StackPanel Orientation="Horizontal">
@@ -1025,6 +1048,18 @@
                                                                    VerticalAlignment="Center"/>
                                                         <TextBlock Style="{StaticResource TooltipIcon}"
                                                                    ToolTip="Auto-focus the app window when launched or on update"/>
+                                                    </StackPanel>
+                                                </CheckBox>
+                                                <CheckBox x:Name="CloseWithPoE2Check"
+                                                          VerticalAlignment="Center"
+                                                          Margin="16,0,0,0"
+                                                          Checked="AutoSetting_Changed"
+                                                          Unchecked="AutoSetting_Changed">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Text="Close when PoE2 closes"
+                                                                   VerticalAlignment="Center"/>
+                                                        <TextBlock Style="{StaticResource TooltipIcon}"
+                                                                   ToolTip="Automatically close RuneshapePriceChecker when Path of Exile 2 is no longer running"/>
                                                     </StackPanel>
                                                 </CheckBox>
                                             </StackPanel>
@@ -1049,6 +1084,19 @@
                                                           Margin="14,0,0,0"
                                                           IsEditable="False"
                                                           SelectionChanged="ComboSetting_Changed"/>
+                                                <Button x:Name="ReRunSetupBtn"
+                                                        Width="120"
+                                                        Height="28"
+                                                        Background="{StaticResource SurfaceAltBrush}"
+                                                        Foreground="{StaticResource AccentBrush}"
+                                                        BorderBrush="{StaticResource BorderBrush}"
+                                                        BorderThickness="1"
+                                                        FontSize="11"
+                                                        Margin="14,8,0,0"
+                                                        HorizontalAlignment="Left"
+                                                        Click="ReRunSetup_Click">
+                                                    Re-run initial setup
+                                                </Button>
                                             </StackPanel>
                                         </Grid>
 
@@ -1120,7 +1168,7 @@
                                                                Margin="0,0,0,0"
                                                                VerticalAlignment="Center"/>
                                                     <TextBlock Style="{StaticResource TooltipIcon}"
-                                                               ToolTip="Choose which currency to display prices in — Exalt or Chaos"
+                                                               ToolTip="Choose which currency to display prices in"
                                                                VerticalAlignment="Center"/>
                                                 </StackPanel>
                                                 <StackPanel Orientation="Horizontal"
@@ -1214,7 +1262,7 @@
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="Auto"/>
                                                 <ColumnDefinition Width="Auto"/>
-                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
                                             </Grid.ColumnDefinitions>
                                             <StackPanel Grid.Column="0">
                                                 <StackPanel Orientation="Horizontal"
@@ -1238,21 +1286,77 @@
                                                           IsEditable="False"
                                                           SelectionChanged="OcrBackendCombo_SelectionChanged"/>
                                             </StackPanel>
-                                            <Button x:Name="ReRunSetupBtn"
-                                                    Grid.Column="1"
-                                                    Width="120"
-                                                    Height="28"
-                                                    Background="{StaticResource SurfaceAltBrush}"
-                                                    Foreground="{StaticResource AccentBrush}"
-                                                    BorderBrush="{StaticResource BorderBrush}"
-                                                    BorderThickness="1"
-                                                    FontSize="11"
-                                                    Margin="16,16,12,0"
-                                                    VerticalAlignment="Bottom"
-                                                    HorizontalAlignment="Right"
-                                                    Click="ReRunSetup_Click">
-                                                Re-run initial setup
-                                            </Button>
+                                            <StackPanel Grid.Column="1">
+                                                <StackPanel Orientation="Horizontal"
+                                                            Margin="14,0,0,6">
+                                                    <TextBlock Text="Capture Mode"
+                                                               Foreground="#B8BEC6"
+                                                               FontSize="13"
+                                                               VerticalAlignment="Center"/>
+                                                    <TextBlock x:Name="CaptureModeTooltip"
+                                                               Style="{StaticResource TooltipIcon}"
+                                                               ToolTip="PrintWindow: Fastest, but slightly higher CPU usage.&#10;&#10;Desktop: Slower, but lower CPU usage and compatible with lossless scaling."
+                                                               Visibility="Visible"/>
+                                                    <TextBlock x:Name="CaptureModeWarning"
+                                                               Style="{StaticResource WarningIcon}"
+                                                               ToolTip="Lossless Scaling is running — capture locked to Desktop mode for compatibility."
+                                                               Visibility="Collapsed"/>
+                                                </StackPanel>
+                                                <ComboBox x:Name="CaptureModeCombo"
+                                                          Width="112"
+                                                          HorizontalAlignment="Left"
+                                                          Margin="14,0,0,0"
+                                                          IsEditable="False"
+                                                          SelectionChanged="CaptureModeCombo_SelectionChanged"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="2">
+                                                <StackPanel Orientation="Horizontal"
+                                                            Margin="14,0,0,6">
+                                                    <TextBlock Text="Scan Interval"
+                                                               Foreground="#B8BEC6"
+                                                               FontSize="13"
+                                                               VerticalAlignment="Center"/>
+                                                    <TextBlock Style="{StaticResource TooltipIcon}"
+                                                               ToolTip="How often to scan the game window (ms). &#10;&#10;&#10;&#10;Lower = more frequent scans, higher CPU usage.&#10;Higher = less frequent scans, lower CPU usage."/>
+                                                </StackPanel>
+                                                <StackPanel Orientation="Horizontal"
+                                                            Margin="14,0,0,0">
+                                                    <TextBox x:Name="ScanIntervalBox"
+                                                             Width="52"
+                                                             Height="24"
+                                                             MaxLength="3"
+                                                             FontSize="13"
+                                                             Background="{StaticResource SurfaceAltBrush}"
+                                                             Foreground="{StaticResource TextPrimary}"
+                                                             BorderBrush="{StaticResource BorderBrush}"
+                                                             Padding="0,1"
+                                                             TextAlignment="Center"
+                                                             VerticalContentAlignment="Center"
+                                                             PreviewTextInput="ScanIntervalBox_PreviewTextInput"
+                                                             TextChanged="ScanIntervalBox_TextChanged"/>
+                                                    <StackPanel Width="16"
+                                                                Margin="2,0,0,0">
+                                                        <RepeatButton x:Name="ScanIntervalUp"
+                                                                      Width="16"
+                                                                      Height="11"
+                                                                      FontSize="8"
+                                                                      Padding="0"
+                                                                      Background="{StaticResource SurfaceAltBrush}"
+                                                                      Foreground="{StaticResource TextSecondary}"
+                                                                      BorderBrush="{StaticResource BorderBrush}"
+                                                                      Click="ScanIntervalUp_Click">&#x25B2;</RepeatButton>
+                                                        <RepeatButton x:Name="ScanIntervalDown"
+                                                                      Width="16"
+                                                                      Height="11"
+                                                                      FontSize="8"
+                                                                      Padding="0"
+                                                                      Background="{StaticResource SurfaceAltBrush}"
+                                                                      Foreground="{StaticResource TextSecondary}"
+                                                                      BorderBrush="{StaticResource BorderBrush}"
+                                                                      Click="ScanIntervalDown_Click">&#x25BC;</RepeatButton>
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </StackPanel>
                                         </Grid>
 
                                         <CheckBox x:Name="DebugOverlayCheck"
@@ -1312,18 +1416,9 @@
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
 
-                        <!-- Debug panel header -->
-                        <Border Grid.Row="0"
-                                Background="{StaticResource SurfaceAltBrush}"
-                                Padding="14,6">
-                            <TextBlock Text="Debug Metrics"
-                                       Foreground="{StaticResource TextPrimary}"
-                                       FontSize="13"
-                                       FontWeight="SemiBold"/>
-                        </Border>
-
                         <!-- Debug metrics panel -->
-                        <Border Grid.Row="1"
+                        <Border Grid.Row="0"
+                                Grid.RowSpan="2"
                                 x:Name="DebugSection"
                                 Background="{StaticResource SurfaceBrush}"
                                 CornerRadius="0,0,0,10"
@@ -1807,69 +1902,69 @@
                                                            Grid.Column="0"
                                                            Text="Window"
                                                            Foreground="{StaticResource TextSecondary}"
-                                                           FontSize="11"/>
+                                                           FontSize="11.5"/>
                                                 <TextBlock Grid.Row="0"
                                                            Grid.Column="1"
                                                            x:Name="DbgWindowStatus"
                                                            Text="—"
                                                            Foreground="{StaticResource TextPrimary}"
-                                                           FontSize="12"
+                                                           FontSize="11.5"
                                                            Margin="0,0,10,4"/>
                                                 <TextBlock Grid.Row="0"
                                                            Grid.Column="2"
                                                            Text="Interface"
                                                            Foreground="{StaticResource TextSecondary}"
-                                                           FontSize="11"/>
+                                                           FontSize="11.5"/>
                                                 <TextBlock Grid.Row="0"
                                                            Grid.Column="3"
                                                            x:Name="DbgInterfaceStatus"
                                                            Text="—"
                                                            Foreground="{StaticResource TextPrimary}"
-                                                           FontSize="12"
+                                                           FontSize="11.5"
                                                            Margin="0,0,0,4"/>
 
                                                 <TextBlock Grid.Row="1"
                                                            Grid.Column="0"
                                                            Text="Capture Method"
                                                            Foreground="{StaticResource TextSecondary}"
-                                                           FontSize="11"/>
+                                                           FontSize="11.5"/>
                                                 <TextBlock Grid.Row="1"
                                                            Grid.Column="1"
                                                            x:Name="DbgCaptureMethod"
                                                            Text="—"
                                                            Foreground="{StaticResource TextPrimary}"
-                                                           FontSize="12"
+                                                           FontSize="11"
                                                            Margin="0,0,10,4"/>
                                                 <TextBlock Grid.Row="1"
                                                            Grid.Column="2"
                                                            Text="Lossless Scaling"
                                                            Foreground="{StaticResource TextSecondary}"
-                                                           FontSize="11"/>
+                                                           FontSize="11.5"/>
                                                 <TextBlock Grid.Row="1"
                                                            Grid.Column="3"
                                                            x:Name="DbgLsStatus"
                                                            Text="—"
                                                            Foreground="{StaticResource TextPrimary}"
-                                                           FontSize="12"
+                                                           FontSize="11.5"
                                                            Margin="0,0,0,4"/>
 
                                                 <TextBlock Grid.Row="2"
                                                            Grid.Column="0"
                                                            Text="OCR Backend"
                                                            Foreground="{StaticResource TextSecondary}"
-                                                           FontSize="11"/>
+                                                           FontSize="11.5"/>
                                                 <TextBlock Grid.Row="2"
                                                            Grid.Column="1"
                                                            x:Name="DbgOcrBackend"
                                                            Text="—"
                                                            Foreground="{StaticResource TextPrimary}"
-                                                           FontSize="12"
+                                                           FontSize="11.5"
                                                            Margin="0,0,10,0"/>
                                                 <TextBlock Grid.Row="2"
                                                            Grid.Column="2"
                                                            Text="Scan Region"
                                                            Foreground="{StaticResource TextSecondary}"
-                                                           FontSize="11"/>
+                                                           FontSize="11.5"/>
                                                 <TextBlock Grid.Row="2"
                                                            Grid.Column="3"
                                                            x:Name="DbgRegion"

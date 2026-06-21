@@ -19,23 +19,24 @@ public sealed class OcrOptions
     [Range(0, 255)]
     public int TextColorTargetB { get; set; } = 34;
     [Range(0, 255)]
-    public int TextColorTolerance { get; set; } = 49;
+    public int TextColorTolerance { get; set; } = 46;
     [Range(0, 255)]
     public int TextColorMaxLuminance { get; set; } = 145;
     [Range(0, 255)]
-    public int TextColorMaxChannelSpread { get; set; } = 32;
+    public int TextColorMaxChannelSpread { get; set; } = 29;
     public bool SaveDebugImages { get; set; }
     [Range(1, 30)]
     public int DebugImageIntervalSeconds { get; set; } = 15;
     public string DebugImageDirectory { get; set; } = string.Empty;
     public bool DebugOverlay { get; set; }
     public bool HideDebugOverlayWhenInterfaceNotDetected { get; set; }
-    public bool ShowPricingOverlay { get; set; } = true;
-    public bool ShowBanner { get; set; } = true;
     [Range(0, 2)]
     public int OcrEngineMode { get; set; } = 2;
 
     public string OcrBackend { get; set; } = "windows";
+    public string CaptureMode { get; set; } = "printwindow";
+    [Range(50, 200)]
+    public int ScanIntervalMs { get; set; } = 100;
     public bool BypassOcrCache { get; set; }
     public int PerfMetricsInterval { get; set; }
 }

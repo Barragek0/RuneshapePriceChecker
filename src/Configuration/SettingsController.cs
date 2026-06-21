@@ -38,7 +38,7 @@ public sealed class SettingsController(
                     return;
                 _lastReloadUtc = now;
                 try { RefreshConfiguration(); }
-                catch (Exception ex) { logger.LogError(ex, "Failed to reload settings."); }
+                catch (Exception ex) { logger.LogError(ex, "Failed to reload settings: {Context}", ErrorContext.FromException(ex)); }
             };
         }
         else
@@ -68,7 +68,7 @@ public sealed class SettingsController(
             }
             catch (JsonException ex)
             {
-                logger.LogError(ex, "Settings file contains invalid JSON — reload skipped. Fix the syntax error in {Path}", settingsPath);
+                logger.LogError(ex, "Settings file contains invalid JSON — reload skipped: {Context} ({Path})", ErrorContext.FromException(ex), settingsPath);
                 return;
             }
             catch (Exception ex)

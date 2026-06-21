@@ -27,14 +27,17 @@ public sealed class DashboardViewModel(string configPath)
     public bool DebugOverlay { get; set; }
     public bool HideDebugOverlayWhenInterfaceNotDetected { get; set; }
     public bool SaveDebugImages { get; set; }
-    public bool ShowPricingOverlay { get; set; } = true;
-    public bool ShowBanner { get; set; } = true;
+    public bool PricingOverlay { get; set; } = true;
+    public bool Banner { get; set; } = true;
     public string OcrLanguage { get; set; } = "eng";
     public string OcrBackend { get; set; } = "windows";
     public bool AutoUpdate { get; set; } = true;
     public bool BringToForeground { get; set; } = true;
     public bool AlwaysOnTop { get; set; }
     public bool RememberDebugPanel { get; set; }
+    public bool CloseWithPoE2 { get; set; }
+    public string CaptureMode { get; set; } = "printwindow";
+    public int ScanIntervalMs { get; set; } = 100;
 
     public Action<IProgress<int>>? OnUpdateTriggered { get; set; }
     public Action? OnSetupContinue { get; set; }
@@ -96,6 +99,7 @@ public sealed class DashboardViewModel(string configPath)
                 BringToForeground = app.Val("BringToForeground", true);
                 AlwaysOnTop = app.Val("AlwaysOnTop", false);
                 RememberDebugPanel = app.Val("RememberDebugPanel", false);
+                CloseWithPoE2 = app.Val("CloseWithPoE2", false);
             }
 
             if (root["Pricing"] is JsonNode pricing)
@@ -113,10 +117,16 @@ public sealed class DashboardViewModel(string configPath)
                 DebugOverlay = ocr.Val("DebugOverlay", false);
                 HideDebugOverlayWhenInterfaceNotDetected = ocr.Val("HideDebugOverlayWhenInterfaceNotDetected", false);
                 SaveDebugImages = ocr.Val("SaveDebugImages", false);
-                ShowPricingOverlay = ocr.Val("ShowPricingOverlay", true);
-                ShowBanner = ocr.Val("ShowBanner", true);
                 OcrLanguage = ocr.Str("Language", "eng");
                 OcrBackend = ocr.Str("OcrBackend", "windows");
+                CaptureMode = ocr.Str("CaptureMode", "printwindow");
+                ScanIntervalMs = ocr.Val("ScanIntervalMs", 100);
+            }
+
+            if (root["App"] is JsonNode appSettings)
+            {
+                PricingOverlay = appSettings.Val("PricingOverlay", true);
+                Banner = appSettings.Val("Banner", true);
             }
 
             if (root["Update"] is JsonNode update)
@@ -161,6 +171,16 @@ public sealed class DashboardViewModel(string configPath)
                 app["BringToForeground"] = BringToForeground;
                 app["AlwaysOnTop"] = AlwaysOnTop;
                 app["RememberDebugPanel"] = RememberDebugPanel;
+                app["CloseWithPoE2"] = CloseWithPoE2;
+                app["PricingOverlay"] = PricingOverlay;
+                app["Banner"] = Banner;
+            }
+
+            // Migrate: remove old OCR keys if they exist
+            if (rootObj["OCR"] is JsonObject ocrObj)
+            {
+                _ = ocrObj.Remove("ShowPricingOverlay");
+                _ = ocrObj.Remove("ShowBanner");
             }
 
             if (rootObj["Pricing"] is JsonObject pricing)
@@ -178,10 +198,10 @@ public sealed class DashboardViewModel(string configPath)
                 ocr["DebugOverlay"] = DebugOverlay;
                 ocr["HideDebugOverlayWhenInterfaceNotDetected"] = HideDebugOverlayWhenInterfaceNotDetected;
                 ocr["SaveDebugImages"] = SaveDebugImages;
-                ocr["ShowPricingOverlay"] = ShowPricingOverlay;
-                ocr["ShowBanner"] = ShowBanner;
                 ocr["Language"] = OcrLanguage;
                 ocr["OcrBackend"] = OcrBackend;
+                ocr["CaptureMode"] = CaptureMode;
+                ocr["ScanIntervalMs"] = ScanIntervalMs;
             }
 
             if (rootObj["Update"] is JsonObject update)
@@ -299,8 +319,7 @@ public sealed class DashboardViewModel(string configPath)
             var left = window["Left"]?.GetValue<double>() ?? double.NaN;
             var top = window["Top"]?.GetValue<double>() ?? double.NaN;
             var width = window["Width"]?.GetValue<double>() ?? double.NaN;
-            var height = window["Height"]?.GetValue<double>() ?? double.NaN;
-            return (left, top, width, height);
+            return (left, top, width, 642);
         }
         catch { return null; }
     }
@@ -334,7 +353,6 @@ public sealed class DashboardViewModel(string configPath)
             windowNode["Left"] = (int)left;
             windowNode["Top"] = (int)top;
             windowNode["Width"] = (int)width;
-            windowNode["Height"] = (int)height;
 
             var json = root.ToJsonString(new() { WriteIndented = true });
             File.WriteAllText(_configPath, json + Environment.NewLine, Encoding.UTF8);

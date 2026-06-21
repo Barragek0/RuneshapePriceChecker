@@ -24,11 +24,50 @@ public sealed class LeaguePricingWorker(
     ILogger<LeaguePricingWorker> logger,
     ItemNameTranslator? translator = null) : BackgroundService
 {
-    private const double TargetCycleMs = 50; // Target 20 scans/s
-    private const double MinIntervalMs = 15;  // Never scan faster than this
+    private double TargetCycleMs => ocrOptions.CurrentValue.ScanIntervalMs;
+
+    // Cached PoE2 process check — Process.GetProcesses is expensive (2s interval).
+    private static readonly TimeSpan Poe2CheckInterval = TimeSpan.FromSeconds(2);
+    private static bool _cachedPoe2Running;
+    private static DateTime _lastPoe2CheckAt = DateTime.MinValue;
+
+    private static bool IsPoe2ProcessRunning()
+    {
+        var now = DateTime.UtcNow;
+        if ((now - _lastPoe2CheckAt) < Poe2CheckInterval)
+            return _cachedPoe2Running;
+
+        _lastPoe2CheckAt = now;
+        try
+        {
+            foreach (var p in Process.GetProcesses())
+            {
+                try
+                {
+                    if (p.MainWindowHandle != IntPtr.Zero &&
+                        !string.IsNullOrWhiteSpace(p.MainWindowTitle) &&
+                        p.MainWindowTitle.Equals("Path of Exile 2", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return _cachedPoe2Running = true;
+                    }
+                }
+                finally
+                {
+                    p.Dispose();
+                }
+            }
+            return _cachedPoe2Running = false;
+        }
+        catch
+        {
+            return _cachedPoe2Running = false;
+        }
+    }
+    private const double MinIntervalMs = 50;  // Never scan faster than this
     private static readonly TimeSpan StaleRenderTimeout = TimeSpan.FromMilliseconds(180);
     private string _lastSnapshotHash = string.Empty;
     private double _lastOcrDurationMs;
+    private bool _poe2WasRunning; // tracks whether PoE2 was ever seen running
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -41,6 +80,20 @@ public sealed class LeaguePricingWorker(
         {
             try
             {
+                // Close with PoE2: shut down when the game exits.
+                // Process.GetProcessesByName is expensive so use a 5-second cache.
+                if (appOptions.CurrentValue.CloseWithPoE2)
+                {
+                    if (IsPoe2ProcessRunning())
+                        _poe2WasRunning = true;
+                    else if (_poe2WasRunning)
+                    {
+                        logger.LogInformation("PoE2 process not found — shutting down as requested (CloseWithPoE2 enabled).");
+                        Process.GetCurrentProcess().Kill();
+                        return;
+                    }
+                }
+
                 if (debugOverlay.IsSetupInProgress)
                 {
                     dashboard.SetStatus("Initial setup — configure overlay position", "amber");
@@ -92,7 +145,7 @@ public sealed class LeaguePricingWorker(
                     }
                     catch (Exception ex)
                     {
-                        logger.LogError(ex, "OCR snapshot read failed.");
+                        logger.LogError(ex, "OCR snapshot read failed: {Context} (had {Count} items)", ErrorContext.FromException(ex), latestSnapshot.ItemNames.Count);
                     }
 
                     inFlightSnapshotTask = null;
@@ -225,7 +278,7 @@ public sealed class LeaguePricingWorker(
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Failed to render overlay snapshot.");
+                logger.LogError(ex, "Failed to render overlay snapshot: {Context}", ErrorContext.FromException(ex));
             }
         }
     }

@@ -23,6 +23,27 @@ public sealed partial class DashboardWindow : Window
     private const uint SwpNosize = 0x0001;
     private const uint SwpNomove = 0x0002;
     private const uint SwpNoactivate = 0x0010;
+
+    // Cached LS check — Process.GetProcessesByName is expensive
+    private static readonly TimeSpan LsCheckInterval = TimeSpan.FromSeconds(5);
+    private static bool _cachedLsRunning;
+    private static DateTime _lastLsCheckAt = DateTime.MinValue;
+
+    private static bool IsLosslessScalingRunning()
+    {
+        var now = DateTime.UtcNow;
+        if ((now - _lastLsCheckAt) < LsCheckInterval)
+            return _cachedLsRunning;
+        _lastLsCheckAt = now;
+        try
+        {
+            var processes = Process.GetProcessesByName("LosslessScaling");
+            _cachedLsRunning = processes.Length > 0;
+            foreach (var p in processes) p.Dispose();
+        }
+        catch { _cachedLsRunning = false; }
+        return _cachedLsRunning;
+    }
     private static readonly IntPtr HwndTopmost = new(-1);
 
     [DllImport("user32.dll", SetLastError = true)]
@@ -36,7 +57,7 @@ public sealed partial class DashboardWindow : Window
     private readonly DashboardLogSink _sink;
     private readonly DashboardViewModel _vm;
     private readonly double _baseWindowWidth = 520;
-    private readonly double _baseWindowHeight = 691;
+    private readonly double _baseWindowHeight = 642;
     private const double DebugPanelWidth = 440;
     private bool _loading;
     private bool _setupPending;
@@ -130,6 +151,7 @@ public sealed partial class DashboardWindow : Window
         PopulateOcrBackendCombo();
         PopulatePricingSourceCombo();
         PopulateLogLevelCombo();
+        PopulateCaptureModeCombo();
         _vm.LoadSettings();
         SyncUiFromViewModel();
         RestoreDebugPanelState();
@@ -275,6 +297,13 @@ public sealed partial class DashboardWindow : Window
         AutoUpdateCheck.IsChecked = _vm.AutoUpdate;
         BringToForegroundCheck.IsChecked = _vm.BringToForeground;
         AlwaysOnTopCheck.IsChecked = _vm.AlwaysOnTop;
+        CloseWithPoE2Check.IsChecked = _vm.CloseWithPoE2;
+        // Sync capture mode selection
+        for (var i = 0; i < CaptureModeCombo.Items.Count; i++)
+        {
+            if (string.Equals(CaptureModeCombo.Items[i] as string, _vm.CaptureMode, StringComparison.OrdinalIgnoreCase))
+            { CaptureModeCombo.SelectedIndex = i; break; }
+        }
         if (_vm.AlwaysOnTop)
         {
             ForceTopmost();
@@ -290,6 +319,7 @@ public sealed partial class DashboardWindow : Window
         {
             if (string.Equals((OcrBackendCombo.Items[i] as string)?.ToLowerInvariant(), _vm.OcrBackend, StringComparison.OrdinalIgnoreCase)) { OcrBackendCombo.SelectedIndex = i; break; }
         }
+        ScanIntervalBox.Text = _vm.ScanIntervalMs.ToString(CultureInfo.InvariantCulture);
         _loading = false;
         UpdateOcrBackendWarning();
         HideDebugOverlayCheck.Visibility = _vm.DebugOverlay ? Visibility.Visible : Visibility.Collapsed;
@@ -312,6 +342,9 @@ public sealed partial class DashboardWindow : Window
         _vm.SaveDebugImages = SaveDebugImagesCheck.IsChecked == true;
         // Language is auto-detected from game config - leave _vm.OcrLanguage as-is
         _vm.OcrBackend = (OcrBackendCombo.SelectedItem as string)?.ToLowerInvariant() ?? "windows";
+        _vm.CaptureMode = (CaptureModeCombo.SelectedItem as string)?.ToLowerInvariant() ?? "printwindow";
+        _vm.ScanIntervalMs = int.TryParse(ScanIntervalBox.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var si) ? Math.Clamp(si, 50, 200) : 100;
+        _vm.CloseWithPoE2 = CloseWithPoE2Check.IsChecked == true;
         _vm.AutoUpdate = AutoUpdateCheck.IsChecked == true;
         _vm.BringToForeground = BringToForegroundCheck.IsChecked == true;
         _vm.AlwaysOnTop = AlwaysOnTopCheck.IsChecked == true;
@@ -831,6 +864,13 @@ public sealed partial class DashboardWindow : Window
     {
     }
 
+    private void ToolTip_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is not ToolTip tip || tip.Content is not string text) return;
+        if (text.Contains("\\n"))
+            tip.Content = text.Replace("\\n", Environment.NewLine);
+    }
+
     private void Window_ContentRendered(object sender, EventArgs e)
     {
         FadeIn();
@@ -1143,7 +1183,7 @@ public sealed partial class DashboardWindow : Window
         _ = (SlotBreakdownCompact?.Visibility = isTesseract ? Visibility.Collapsed : Visibility.Visible);
         _ = (SlotBreakdownFull?.Visibility = isTesseract ? Visibility.Visible : Visibility.Collapsed);
 
-        DbgWindowStatus.Text = snap.IsPoe2Foreground ? "Foreground" : "Not active";
+        DbgWindowStatus.Text = snap.IsPoe2Foreground ? "\u25CF Foreground" : "\u2717 Not active";
         DbgWindowStatus.Foreground = snap.IsPoe2Foreground
             ? (Brush)FindResource("GreenBrush")
             : (Brush)FindResource("AmberBrush");
@@ -1156,20 +1196,65 @@ public sealed partial class DashboardWindow : Window
         var method = snap.CaptureMethod;
         if (!string.IsNullOrEmpty(method))
         {
+            // Shorten capture method names: remove prefix and abbreviate
             var dash = method.IndexOf('-');
             if (dash > 0) method = method[(dash + 1)..];
+            method = method switch
+            {
+                "printwindow" => "PrintWindow",
+                "copyfromscreen" => "Desktop",
+                _ when method.StartsWith("desktop-", StringComparison.OrdinalIgnoreCase) => "Desktop",
+                _ => method.Length > 10 ? method[..10] : method
+            };
+            if (method.Length > 0)
+                method = char.ToUpperInvariant(method[0]) + method[1..];
         }
         DbgCaptureMethod.Text = string.IsNullOrEmpty(method) ? "—" : method;
-        var lsRunning = Process.GetProcessesByName("LosslessScaling").Length > 0;
-        DbgLsStatus.Text = lsRunning ? "\u25CF Running" : "Not running";
-        DbgLsStatus.Foreground = lsRunning
-            ? (Brush)FindResource("AmberBrush")
-            : (Brush)FindResource("TextSecondary");
 
-        DbgOcrBackend.Text = string.IsNullOrEmpty(snap.OcrBackend) ? "—" : snap.OcrBackend;
+        // Sync capture mode dropdown when the selected mode actually failed.
+        // Only overrides the user's setting if their chosen mode couldn't work.
+        if (snap is { CaptureMethod.Length: > 0 } && !IsLosslessScalingRunning())
+        {
+            var actualMethod = snap.CaptureMethod;
+            var dash = actualMethod.IndexOf('-');
+            var actualSimple = dash > 0 ? actualMethod[(dash + 1)..] : actualMethod;
+            actualSimple = actualSimple switch
+            {
+                "printwindow" => "printwindow",
+                _ => "desktop"
+            };
+            // Migrate old "auto" setting to the concrete mode we resolved to
+            if (string.Equals(_vm.CaptureMode, "auto", StringComparison.OrdinalIgnoreCase))
+                _vm.CaptureMode = actualSimple;
+            // Only auto-switch when the user's chosen mode is in the failed set
+            if (_metrics?.FailedCaptureModes.Contains(_vm.CaptureMode) == true)
+            {
+                if (!string.Equals(_vm.CaptureMode, actualSimple, StringComparison.OrdinalIgnoreCase))
+                {
+                    _vm.CaptureMode = actualSimple;
+                    PopulateCaptureModeCombo();
+                }
+            }
+            // Re-evaluate warning icon (may need to show/hide based on failed modes)
+            UpdateCaptureModeWarning();
+        }
+
+        var lsRunning = IsLosslessScalingRunning();
+        DbgLsStatus.Text = lsRunning ? "\u25CF Running" : "\u2717 Not running";
+        DbgLsStatus.Foreground = lsRunning
+            ? (Brush)FindResource("GreenBrush")
+            : (Brush)FindResource("RedBrush");
+
+        var backendLabel = snap.OcrBackend;
+        if (!string.IsNullOrEmpty(backendLabel))
+            backendLabel = char.ToUpperInvariant(backendLabel[0]) + backendLabel[1..];
+        DbgOcrBackend.Text = string.IsNullOrEmpty(backendLabel) ? "—" : backendLabel;
         DbgRegion.Text = string.IsNullOrEmpty(snap.RegionInfo) ? "—" : snap.RegionInfo;
 
         DbgOverlayFps.Text = snap.DebugOverlayActive ? $"{snap.ScansPerSecond:F0}" : "—";
+
+        // Periodically re-evaluate capture mode warning so it updates when LS starts/stops
+        UpdateCaptureModeWarning();
 
         DbgUptime.Text = snap.Uptime.TotalHours >= 1
             ? $"{(int)snap.Uptime.TotalHours}h {snap.Uptime.Minutes}m {snap.Uptime.Seconds}s"
@@ -1365,6 +1450,33 @@ public sealed partial class DashboardWindow : Window
             RestartApp();
             return;
         }
+    }
+
+    private void ScanIntervalBox_PreviewTextInput(object sender, TextCompositionEventArgs e)
+    {
+        var box = (TextBox)sender;
+        var proposed = box.Text.Insert(box.SelectionStart, e.Text);
+        if (proposed.Length > box.MaxLength) { e.Handled = true; return; }
+        e.Handled = !int.TryParse(proposed, NumberStyles.None, CultureInfo.InvariantCulture, out _);
+    }
+
+    private void ScanIntervalBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_loading) return;
+        if (int.TryParse(ScanIntervalBox.Text, NumberStyles.None, CultureInfo.InvariantCulture, out var val) && val >= 50 && val <= 200)
+            QueueAutoSave();
+    }
+
+    private void ScanIntervalUp_Click(object sender, RoutedEventArgs e)
+    {
+        if (int.TryParse(ScanIntervalBox.Text, NumberStyles.None, CultureInfo.InvariantCulture, out var val))
+            ScanIntervalBox.Text = Math.Min(val + 10, 200).ToString(CultureInfo.InvariantCulture);
+    }
+
+    private void ScanIntervalDown_Click(object sender, RoutedEventArgs e)
+    {
+        if (int.TryParse(ScanIntervalBox.Text, NumberStyles.None, CultureInfo.InvariantCulture, out var val))
+            ScanIntervalBox.Text = Math.Max(val - 10, 50).ToString(CultureInfo.InvariantCulture);
     }
 
     private void ThresholdBox_PreviewTextInput(object sender, TextCompositionEventArgs e)
@@ -1674,8 +1786,6 @@ public sealed partial class DashboardWindow : Window
             OcrBackendCombo.IsEnabled = false;
         }
         // Sync the info icon's tooltip text with the combo's tooltip
-        _ = (OcrBackendTooltip?.ToolTip = OcrBackendCombo.ToolTip);
-
         // Select the item matching the current backend setting
         var selected = string.Equals(_vm.OcrBackend, "tesseract", StringComparison.OrdinalIgnoreCase) ? "Tesseract" : "Windows";
         var idx = OcrBackendCombo.Items.IndexOf(selected);
@@ -1685,15 +1795,21 @@ public sealed partial class DashboardWindow : Window
 
     private void UpdateOcrBackendWarning()
     {
-        if (OcrBackendWarning is null) return;
+        if (OcrBackendWarning is null || OcrBackendTooltip is null) return;
         var isTesseract = string.Equals(OcrBackendCombo.SelectedItem as string, "Tesseract", StringComparison.OrdinalIgnoreCase);
         var isRussian = string.Equals(_vm.OcrLanguage, "rus", StringComparison.OrdinalIgnoreCase);
         var isKorean = string.Equals(_vm.OcrLanguage, "kor", StringComparison.OrdinalIgnoreCase);
-        // Show warning icon when Tesseract is used but Windows OCR is available —
-        // except for Russian and Korean where Windows OCR doesn't work well, then show the info icon.
-        var showWarning = _windowsOcrSupported && isTesseract && !isRussian && !isKorean;
+        // Show warning icon when Tesseract is used (Russian, Korean, or manual switch)
+        var showWarning = _windowsOcrSupported && isTesseract;
         OcrBackendWarning.Visibility = showWarning ? Visibility.Visible : Visibility.Collapsed;
-        _ = (OcrBackendTooltip?.Visibility = showWarning ? Visibility.Collapsed : Visibility.Visible);
+        OcrBackendTooltip.Visibility = showWarning ? Visibility.Collapsed : Visibility.Visible;
+        // Update tooltip text for language-specific restrictions
+        if (isRussian)
+            OcrBackendWarning.ToolTip = "Russian is only supported with Tesseract — Windows OCR cannot recognize Cyrillic text reliably.";
+        else if (isKorean)
+            OcrBackendWarning.ToolTip = "Korean is only supported with Tesseract — Windows OCR cannot recognize Hangul text reliably.";
+        else
+            OcrBackendWarning.ToolTip = "Tesseract is significantly slower and uses more CPU than Windows OCR. Switch back unless you have issues with Windows OCR.";
     }
 
     private void AutoSetting_Changed(object sender, RoutedEventArgs e)
@@ -1715,6 +1831,42 @@ public sealed partial class DashboardWindow : Window
         QueueAutoSave();
     }
 
+    private void CaptureModeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading) return;
+        UpdateCaptureModeWarning();
+        QueueAutoSave();
+    }
+
+    private void UpdateCaptureModeWarning()
+    {
+        if (CaptureModeWarning is null) return;
+        var lsRunning = IsLosslessScalingRunning();
+        var hasFailedModes = _metrics?.FailedCaptureModes is { Count: > 0 };
+        CaptureModeWarning.Visibility = lsRunning || hasFailedModes ? Visibility.Visible : Visibility.Collapsed;
+        if (lsRunning)
+        {
+            CaptureModeCombo.IsEnabled = false;
+            CaptureModeWarning.ToolTip = "Lossless Scaling is running — capture locked to Desktop mode for compatibility.";
+            // Lock to Desktop mode when LS is running; find and select it
+            for (var i = 0; i < CaptureModeCombo.Items.Count; i++)
+            {
+                if (string.Equals(CaptureModeCombo.Items[i] as string, "Desktop", StringComparison.OrdinalIgnoreCase))
+                { CaptureModeCombo.SelectedIndex = i; break; }
+            }
+        }
+        else if (hasFailedModes)
+        {
+            CaptureModeCombo.IsEnabled = true;
+            var failedList = string.Join(", ", _metrics!.FailedCaptureModes);
+            CaptureModeWarning.ToolTip = $"The following capture modes are not working on your system and will be ignored: {failedList}.\nThe active mode will update automatically.";
+        }
+        else
+        {
+            CaptureModeCombo.IsEnabled = true;
+        }
+    }
+
     private void PopulatePricingSourceCombo()
     {
         PricingSourceCombo.Items.Clear();
@@ -1730,6 +1882,25 @@ public sealed partial class DashboardWindow : Window
         _ = LogLevelCombo.Items.Add(new ComboBoxItem { Content = "Debug", Tag = "Debug" });
         _ = LogLevelCombo.Items.Add(new ComboBoxItem { Content = "Information", Tag = "Information" });
         LogLevelCombo.SelectedIndex = 2; // Information
+    }
+
+    private void PopulateCaptureModeCombo()
+    {
+        CaptureModeCombo.Items.Clear();
+        _ = CaptureModeCombo.Items.Add("PrintWindow");
+        _ = CaptureModeCombo.Items.Add("Desktop");
+
+        // Select the matching item
+        var mode = _vm.CaptureMode;
+        for (var i = 0; i < CaptureModeCombo.Items.Count; i++)
+        {
+            if (string.Equals(CaptureModeCombo.Items[i] as string, mode, StringComparison.OrdinalIgnoreCase))
+            { CaptureModeCombo.SelectedIndex = i; break; }
+        }
+        if (CaptureModeCombo.SelectedIndex < 0)
+            CaptureModeCombo.SelectedIndex = 0;
+
+        UpdateCaptureModeWarning();
     }
 }
 

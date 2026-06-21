@@ -17,6 +17,8 @@ public static class ItemNameParser
     private static readonly Regex LevelSuffix = new(@"\s+\S+\s*\d+[)\]]?\s*$", RegexOptions.Compiled);
     private static readonly Regex QuantitySuffixWithX = new(@"^(?<name>.+)\s[xX]\s*(?<quantity>\d+|[AaIiLlTt|Oo0])\s*$", RegexOptions.Compiled);
     private static readonly Regex TrailingQuantityNumber = new(@"^(?<name>.+)\s+(?<quantity>\d+)\s*$", RegexOptions.Compiled);
+    private static readonly Regex KoreanQuantitySuffix = new(@"^(?<name>.+?)\s+(?<quantity>\d+)\s*개\s*$", RegexOptions.Compiled);
+    private static readonly Regex RussianQuantityPrefix = new(@"^(?<quantity>\d+)\s*шт\s+(?<name>.+)$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private static readonly Dictionary<string, int> OcrQuantityTokenMap = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -124,6 +126,11 @@ public static class ItemNameParser
 
         // Try prefix quantity: "1x Name", "I Name", "O Name"
         var match = QuantityPrefixWithX.Match(cleanedRaw);
+
+        // Russian "шт" prefix
+        if (!match.Success)
+            match = RussianQuantityPrefix.Match(cleanedRaw);
+
         if (!match.Success)
             match = QuantityPrefixWithoutX.Match(cleanedRaw);
 
@@ -158,6 +165,16 @@ public static class ItemNameParser
                 var (stripped, level) = StripLevelSuffix(namePart);
                 return new ParsedDetectedItem(stripped, quantity, level);
             }
+        }
+
+        // Korean trailing quantity: "이름 5개"
+        var koreanMatch = KoreanQuantitySuffix.Match(cleanedRaw);
+        if (koreanMatch.Success)
+        {
+            var namePart = koreanMatch.Groups["name"].Value.Trim();
+            var quantity = NormalizeQuantityToken(koreanMatch.Groups["quantity"].Value);
+            var (stripped, level) = StripLevelSuffix(namePart);
+            return new ParsedDetectedItem(stripped, quantity, level);
         }
 
         var (n, l) = StripLevelSuffix(cleanedRaw);

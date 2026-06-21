@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Hosting;
 using RuneshapePriceChecker.App;
+using RuneshapePriceChecker.OCR;
 using Xunit;
 
 namespace RuneshapePriceChecker.Tests.App;
@@ -86,14 +87,10 @@ public class LeaguePricingWorkerTests
     }
 
     [Fact]
-    public void TargetCycleMs_Is50Milliseconds()
+    public void TargetCycleMs_DefaultsTo100Milliseconds()
     {
-        const double expected = 50;
-        var field = typeof(LeaguePricingWorker).GetField("TargetCycleMs",
-            BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(field);
-        var val = (double)field.GetValue(null)!;
-        Assert.Equal(expected, val);
+        var options = new OcrOptions();
+        Assert.Equal(100, options.ScanIntervalMs);
     }
 
     [Fact]
