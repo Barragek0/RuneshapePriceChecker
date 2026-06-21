@@ -11,7 +11,11 @@ public static class AppSettingsBootstrapper
         "LogLevel": "Information",
         "BringToForeground": true,
         "AlwaysOnTop": false,
-        "RememberDebugPanel": false
+        "RememberDebugPanel": false,
+        "CloseWithPoE2": false,
+        "AllOverlaysDisabled": false,
+        "PricingOverlay": true,
+        "Banner": true
     },
     "Pricing": {
         "PricingSource": "poe2scout",
@@ -26,13 +30,11 @@ public static class AppSettingsBootstrapper
         "SaveDebugImages": false,
         "DebugOverlay": false,
         "HideDebugOverlayWhenInterfaceNotDetected": false,
-        "ShowPricingOverlay": true,
-        "ShowBanner": true,
-        "OcrBackend": "windows"
+        "OcrBackend": "windows",
+        "CaptureMode": "auto"
     },
     "Update": {
-        "AutoUpdate": true,
-        "IgnorePrereleases": false
+        "AutoUpdate": true
     },
     "Window": {
         "InitialSetupComplete": false
@@ -127,6 +129,23 @@ public static class AppSettingsBootstrapper
         {
             if (RenameKey(ocr, "ShowCaptureBoundsOverlay", "DebugOverlay")) renamed = true;
             _ = ocr.AsObject().Remove("BinarizationThreshold");
+
+            // Migrate ShowPricingOverlay and ShowBanner from OCR to App section
+            var appSection = existing["App"] as JsonObject;
+            if (ocr["ShowPricingOverlay"] is not null && appSection is not null)
+            {
+                if (!appSection.ContainsKey("PricingOverlay"))
+                    appSection["PricingOverlay"] = ocr["ShowPricingOverlay"]!.DeepClone();
+                _ = ocr.AsObject().Remove("ShowPricingOverlay");
+                renamed = true;
+            }
+            if (ocr["ShowBanner"] is not null && appSection is not null)
+            {
+                if (!appSection.ContainsKey("Banner"))
+                    appSection["Banner"] = ocr["ShowBanner"]!.DeepClone();
+                _ = ocr.AsObject().Remove("ShowBanner");
+                renamed = true;
+            }
         }
 
         if (existing["Update"] is JsonNode update)

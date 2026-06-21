@@ -46,6 +46,7 @@ public sealed class DebugMetricsCollector
 
     public string CaptureMethod { get; set; } = "";
     public string OcrBackend { get; set; } = "";
+    public HashSet<string> FailedCaptureModes { get; } = new(StringComparer.OrdinalIgnoreCase);
     public string PricingSource { get; set; } = "";
     public string CurrentLeague { get; set; } = "";
     public string RegionInfo { get; set; } = "";

@@ -136,7 +136,7 @@ internal sealed class UpdateChecker(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to launch PowerShell update script.");
+            logger.LogError(ex, "Failed to launch PowerShell update script from {Path}: {Context}", scriptPath, ErrorContext.FromException(ex));
             try { File.Delete(scriptPath); } catch { }
             try { File.Delete(UpdateMarkerPath); } catch { }
             DashboardWindow.IsUpdating = false;
@@ -351,7 +351,7 @@ internal sealed class UpdateChecker(
         {
             try { File.Delete(tempZip); } catch { }
             try { File.Delete(UpdateMarkerPath); } catch { }
-            logger.LogError(ex, "Update failed.");
+            logger.LogError(ex, "Update failed: {Context} (URL: {Url})", ErrorContext.FromException(ex), _downloadUrl ?? "?");
             throw;
         }
         finally
