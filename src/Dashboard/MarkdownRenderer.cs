@@ -221,9 +221,15 @@ internal static partial class MarkdownRenderer
             if (changelogMatch.Success)
             {
                 var url = changelogMatch.Groups[1].Value;
+                if (!Uri.TryCreate(url, UriKind.Absolute, out var linkUri))
+                {
+                    doc.Blocks.Add(new Paragraph(new Run(line) { Foreground = TextBrush })
+                        { Margin = new Thickness(0, 1, 0, 1) });
+                    continue;
+                }
                 var link = new Hyperlink(new Run("Full Changelog") { FontWeight = FontWeights.Bold, Foreground = LinkBrush })
                 {
-                    NavigateUri = new Uri(url),
+                    NavigateUri = linkUri,
                     ToolTip = url
                 };
                 link.RequestNavigate += (_, e) => OpenUrl(e.Uri.ToString());
@@ -436,24 +442,38 @@ internal static partial class MarkdownRenderer
             {
                 var linkedText = linkMatch.Groups[1].Value;
                 var url = linkMatch.Groups[2].Value;
-                var link = new Hyperlink(new Run(linkedText) { Foreground = LinkBrush })
+                if (Uri.TryCreate(url, UriKind.Absolute, out var linkUri))
                 {
-                    NavigateUri = new Uri(url),
-                    ToolTip = url
-                };
-                link.RequestNavigate += (_, e) => OpenUrl(e.Uri.ToString());
-                span.Inlines.Add(link);
+                    var link = new Hyperlink(new Run(linkedText) { Foreground = LinkBrush })
+                    {
+                        NavigateUri = linkUri,
+                        ToolTip = url
+                    };
+                    link.RequestNavigate += (_, e) => OpenUrl(e.Uri.ToString());
+                    span.Inlines.Add(link);
+                }
+                else
+                {
+                    span.Inlines.Add(new Run($"[{linkedText}]({url})") { Foreground = TextBrush });
+                }
             }
             else if (earliestMatch == bareUrlMatch)
             {
                 var url = bareUrlMatch.Value;
-                var link = new Hyperlink(new Run(url) { Foreground = LinkBrush })
+                if (Uri.TryCreate(url, UriKind.Absolute, out var linkUri))
                 {
-                    NavigateUri = new Uri(url),
-                    ToolTip = url
-                };
-                link.RequestNavigate += (_, e) => OpenUrl(e.Uri.ToString());
-                span.Inlines.Add(link);
+                    var link = new Hyperlink(new Run(url) { Foreground = LinkBrush })
+                    {
+                        NavigateUri = linkUri,
+                        ToolTip = url
+                    };
+                    link.RequestNavigate += (_, e) => OpenUrl(e.Uri.ToString());
+                    span.Inlines.Add(link);
+                }
+                else
+                {
+                    span.Inlines.Add(new Run(url) { Foreground = TextBrush });
+                }
             }
             else if (earliestMatch == boldMatch)
                 span.Inlines.Add(new Run(boldMatch.Groups[1].Value) { FontWeight = FontWeights.Bold, Foreground = TextBrush });
