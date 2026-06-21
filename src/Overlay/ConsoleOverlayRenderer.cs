@@ -88,12 +88,15 @@ public sealed class PricingOverlayRenderer(
     private static string BuildContentHash(LeagueWindowSnapshot snapshot,
         IReadOnlyDictionary<string, PriceQuote?> pricesByItemName)
     {
-        // Quick hash of items and their prices — avoid full structural comparison
+        // Quick hash of items, prices, and row Y positions — avoid full structural comparison.
+        // Row positions are included so scrolling triggers a re-render even when items/prices are the same.
         var hash = new System.Text.StringBuilder();
-        foreach (var name in snapshot.ItemNames)
+        var positions = snapshot.RowYPositions;
+        for (var i = 0; i < snapshot.ItemNames.Count; i++)
         {
-            _ = hash.Append(name);
-            if (pricesByItemName.TryGetValue(name, out var quote) && quote is not null)
+            _ = hash.Append(snapshot.ItemNames[i]);
+            _ = hash.Append(i < positions?.Count ? positions[i] : i);
+            if (pricesByItemName.TryGetValue(snapshot.ItemNames[i], out var quote) && quote is not null)
                 _ = hash.Append(quote.Label);
         }
         return hash.ToString();

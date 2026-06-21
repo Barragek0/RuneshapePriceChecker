@@ -513,8 +513,6 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
                             text = null;
                         }
                         var tessCleaned = text ?? string.Empty;
-                        // Tesseract frequently misreads ')' as 'j' in Japanese output.
-                        // Japanese item names never contain Latin 'j', so this swap is safe.
                         _logger.LogTrace("OCR: row {Row} raw='{Raw}' cleaned='{Clean}' lang={Lang} backend=tesseract", i, text, tessCleaned, _detectedLanguage);
                         rowTexts[i] = tessCleaned;
 

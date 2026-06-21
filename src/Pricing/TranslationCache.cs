@@ -30,8 +30,7 @@ public sealed class TranslationCache : IDisposable
         ["ru"] = "rus",
         ["kor"] = "kor",
         ["ko"] = "kor",
-        ["jpn"] = "jpn",
-        ["ja"] = "jpn",
+
         ["chi_tra"] = "chi_tra",
         ["cmn-hant"] = "chi_tra",
         ["cht"] = "chi_tra",

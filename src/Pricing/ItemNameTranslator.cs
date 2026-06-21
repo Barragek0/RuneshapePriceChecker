@@ -161,7 +161,6 @@ public sealed class ItemNameTranslator(ILogger<ItemNameTranslator> logger, Trans
             "es" => "spa",
             "pt" => "por",
             "ko" => "kor",
-            "ja" => "jpn",
             "cmn-hant" => "chi_tra",
             "cht" => "chi_tra",
             _ => null

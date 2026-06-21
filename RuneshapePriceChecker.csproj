@@ -30,7 +30,6 @@
     <EmbeddedResource Include="ocr\translations\por.ndjson" Visible="false" Link="translations\por.ndjson" />
     <EmbeddedResource Include="ocr\translations\rus.ndjson" Visible="false" Link="translations\rus.ndjson" />
     <EmbeddedResource Include="ocr\translations\kor.ndjson" Visible="false" Link="translations\kor.ndjson" />
-    <EmbeddedResource Include="ocr\translations\jpn.ndjson" Visible="false" Link="translations\jpn.ndjson" />
     <EmbeddedResource Include="ocr\translations\chi_tra.ndjson" Visible="false" Link="translations\chi_tra.ndjson" />
     <EmbeddedResource Include="ocr\unique-category-map.json" Visible="false" />
   </ItemGroup>

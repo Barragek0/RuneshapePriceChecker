@@ -489,16 +489,6 @@ public sealed class MultiLanguageWorkerTests
     }
 
     [Fact]
-    public void BuildUnpriceableBanner_JapaneseUncutGemsWithTranslator_NotFlagged()
-    {
-        var translator = CreateTranslator("jpn", JaGemNdjson);
-        var result = InvokeBuildUnpriceableBanner(
-            ["スキルジェムの原石", "サポートジェムの原石", "スピリットジェムの原石"],
-            translator);
-        Assert.Null(result);
-    }
-
-    [Fact]
     public void BuildUnpriceableBanner_KoreanUncutGemsWithTranslator_NotFlagged()
     {
         var translator = CreateTranslator("kor", KoGemNdjson);

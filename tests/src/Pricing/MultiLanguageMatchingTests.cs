@@ -106,17 +106,6 @@ public sealed class MultiLanguageMatchingTests(ITestOutputHelper output)
 {"name":"Неогранённый самоцвет поддержки","refName":"Uncut Support Gem","namespace":"ITEM"}
 {"name":"Неогранённый самоцвет духа","refName":"Uncut Spirit Gem","namespace":"ITEM"}
 """;
-    // Japanese
-    public static readonly string JaNdjson = """
-{"name":"カオスオーブ","refName":"Chaos Orb","namespace":"ITEM"}
-{"name":"神のオーブ","refName":"Divine Orb","namespace":"ITEM"}
-{"name":"高貴なオーブ","refName":"Exalted Orb","namespace":"ITEM"}
-{"name":"カランドラの鏡","refName":"Mirror of Kalandra","namespace":"ITEM"}
-{"name":"錬金術のオーブ","refName":"Orb of Alchemy","namespace":"ITEM"}
-{"name":"スキルジェムの原石","refName":"Uncut Skill Gem","namespace":"ITEM"}
-{"name":"サポートジェムの原石","refName":"Uncut Support Gem","namespace":"ITEM"}
-{"name":"スピリットジェムの原石","refName":"Uncut Spirit Gem","namespace":"ITEM"}
-""";
     // Korean
     public static readonly string KoNdjson = """
 {"name":"카오스 오브","refName":"Chaos Orb","namespace":"ITEM"}
@@ -178,13 +167,6 @@ public sealed class MultiLanguageMatchingTests(ITestOutputHelper output)
         yield return ["rus", "RU exact Chaos", "Хаос", "Chaos Orb"];
         yield return ["rus", "RU exact Divine", "Божественный сфера", "Divine Orb"];
         yield return ["rus", "RU exact Exalted", "Возвышенный сфера", "Exalted Orb"];
-
-        // Japanese - exact matches
-        yield return ["jpn", "JP exact Chaos", "カオスオーブ", "Chaos Orb"];
-        yield return ["jpn", "JP exact Divine", "神のオーブ", "Divine Orb"];
-        yield return ["jpn", "JP exact Exalted", "高貴なオーブ", "Exalted Orb"];
-        yield return ["jpn", "JP exact Mirror", "カランドラの鏡", "Mirror of Kalandra"];
-        yield return ["jpn", "JP exact Skill Gem", "スキルジェムの原石", "Uncut Skill Gem"];
 
         // Korean - exact matches
         yield return ["kor", "KO exact Chaos", "카오스 오브", "Chaos Orb"];
@@ -249,11 +231,6 @@ public sealed class MultiLanguageMatchingTests(ITestOutputHelper output)
         // Portuguese - diacritics (á → a, ó → o)
         yield return ["por", "PT diacritic Lapidário", "Prisma de Lapidario", "Gemcutter's Prism"];
 
-        // Russian should be exact only (no diacritics fallback needed)
-
-        // Japanese - OCR mangling (missing character)
-        yield return ["jpn", "JP OCR miss Chaos", "カオスオフ", "Chaos Orb"];
-
         // Korean - OCR mangling (missing character)
         yield return ["kor", "KO OCR miss Chaos", "카오스 오", "Chaos Orb"];
 
@@ -280,7 +257,6 @@ public sealed class MultiLanguageMatchingTests(ITestOutputHelper output)
         yield return ["spa", "ES nonsense", "Cosa Absurda"];
         yield return ["por", "PT nonsense", "Coisa Absurda"];
         yield return ["rus", "RU nonsense", "Чушь Какая-то"];
-        yield return ["jpn", "JP nonsense", "でたらめな言葉"];
         yield return ["kor", "KO nonsense", "터무니없는 말"];
         yield return ["chi_tra", "ZH nonsense", "胡說八道"];
     }
@@ -305,7 +281,6 @@ public sealed class MultiLanguageMatchingTests(ITestOutputHelper output)
             "spa" => EsNdjson,
             "por" => PtNdjson,
             "rus" => RuNdjson,
-            "jpn" => JaNdjson,
             "kor" => KoNdjson,
             "chi_tra" => ZhNdjson,
             _ => throw new ArgumentException($"Unknown language: {lang}")

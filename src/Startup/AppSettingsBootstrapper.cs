@@ -131,6 +131,15 @@ public static class AppSettingsBootstrapper
             if (RenameKey(ocr, "ShowCaptureBoundsOverlay", "DebugOverlay")) renamed = true;
             _ = ocr.AsObject().Remove("BinarizationThreshold");
 
+            // Migrate UseWindowClientCapture (bool, pre-1.0.2) to CaptureMode (string)
+            if (ocr["UseWindowClientCapture"] is JsonValue oldCapture)
+            {
+                var isDesktop = oldCapture.GetValueKind() == System.Text.Json.JsonValueKind.True;
+                ocr["CaptureMode"] = isDesktop ? "desktop" : "printwindow";
+                _ = ocr.AsObject().Remove("UseWindowClientCapture");
+                renamed = true;
+            }
+
             // Migrate ShowPricingOverlay and ShowBanner from OCR to App section
             var appSection = existing["App"] as JsonObject;
             if (ocr["ShowPricingOverlay"] is not null && appSection is not null)

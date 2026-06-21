@@ -470,8 +470,11 @@ public sealed class DebugOverlayService(
             var scanLeft = (int)(boxWidth * LeaguePanelDetector.LeftFraction);
             var scanRight = (int)(boxWidth * LeaguePanelDetector.RightFraction);
             var scanBottom = (int)(_frame.Height * LeaguePanelDetector.TopRowFraction);
-            var scanRect = new Rectangle(scanLeft, 0, scanRight - scanLeft, scanBottom);
-            e.Graphics.DrawRectangle(ScanPen, scanRect);
+            // Open-bottom bracket (two verticals + top horizontal) so the bottom line
+            // doesn't paint over the debug overlay text.
+            e.Graphics.DrawLine(ScanPen, scanLeft, 0, scanRight, 0);
+            e.Graphics.DrawLine(ScanPen, scanLeft, 0, scanLeft, scanBottom);
+            e.Graphics.DrawLine(ScanPen, scanRight, 0, scanRight, scanBottom);
 
             var lines = _debugLines;
             var rowY = _debugRowY;
