@@ -84,17 +84,17 @@ public class DashboardViewModelSettingsTests
     }
 
     [Fact]
-    public void ShowPricingOverlay_RoundTrip_PreservesValue()
+    public void PricingOverlay_RoundTrip_PreservesValue()
     {
-        RoundTrip(vm => vm.ShowPricingOverlay = false,
-                  (before, after) => Assert.False(after.ShowPricingOverlay));
+        RoundTrip(vm => vm.PricingOverlay = false,
+                  (before, after) => Assert.False(after.PricingOverlay));
     }
 
     [Fact]
-    public void ShowBanner_RoundTrip_PreservesValue()
+    public void Banner_RoundTrip_PreservesValue()
     {
-        RoundTrip(vm => vm.ShowBanner = false,
-                  (before, after) => Assert.False(after.ShowBanner));
+        RoundTrip(vm => vm.Banner = false,
+                  (before, after) => Assert.False(after.Banner));
     }
 
     [Fact]
@@ -131,8 +131,8 @@ public class DashboardViewModelSettingsTests
             Assert.False(vm.DebugOverlay);
             Assert.False(vm.HideDebugOverlayWhenInterfaceNotDetected);
             Assert.False(vm.SaveDebugImages);
-            Assert.True(vm.ShowPricingOverlay);
-            Assert.True(vm.ShowBanner);
+            Assert.True(vm.PricingOverlay);
+            Assert.True(vm.Banner);
             Assert.True(vm.AutoUpdate);
             Assert.False(vm.RememberDebugPanel);
         }

@@ -15,8 +15,8 @@
     "SaveDebugImages": false,
     "DebugOverlay": false,
     "HideDebugOverlayWhenInterfaceNotDetected": false,
-    "ShowPricingOverlay": true,
-    "ShowBanner": true
+    "PricingOverlay": true,
+    "Banner": true
   },
   "Update": {
     "AutoUpdate": true,

@@ -12,11 +12,9 @@ A clear and concise description of what the bug is.
 
 **Additional data**
 Please follow these instructions:
-- Open `config/appsettings.json`
-- Set these options:
-- "DebugLogging": true
-- "SaveDebugImages": true,
-- "DebugOverlay": true,
-- Go back to Path of Exile with the rune window open, then screenshot the full overlay and provide the image here:
-- Go to the command prompt window for RuneshapePriceChecker and copy the full data in there, by dragging across all of it and pressing Ctrl + C, then come back to this page and press Ctrl + V to paste the data here:
-- Go to the ocr-debug folder, copy the images that are in there and paste them here:
+- Go to settings in the app
+- Change `Log Level` to `Trace`.
+- Enable `Show debug overlay` and `Save debug images`.
+- Go back to Path of Exile with the rune window open, then screenshot the full overlay and provide the image below.
+- Go to `log window` in the app and press the small `Copy log to clipboard` button at the top right.
+- Go to the `ocr/your-ocr-backend-setting-here/images` folder, copy the images that are in there and paste them below.

@@ -19,7 +19,7 @@ public class DebugOverlayServiceTests
 
         using var service = new DebugOverlayService(
             resolver, new MockOcrOptionsMonitor(ocrOpts), new MockWindowOptionsMonitor(winOpts),
-            null!, logger);
+            null!, new MockAppOptionsMonitor(), logger);
         Assert.NotNull(service);
     }
 
@@ -65,5 +65,12 @@ public class DebugOverlayServiceTests
         {
             return null;
         }
+    }
+
+    private sealed class MockAppOptionsMonitor : IOptionsMonitor<AppOptions>
+    {
+        public AppOptions CurrentValue { get; } = new();
+        public AppOptions Get(string? name) { return CurrentValue; }
+        public IDisposable? OnChange(Action<AppOptions, string?> listener) { return null; }
     }
 }
