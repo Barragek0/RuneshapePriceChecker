@@ -4,6 +4,7 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows10.0.17763.0</TargetFramework>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
     <SupportedOSPlatformVersion>7.0</SupportedOSPlatformVersion>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -80,6 +81,12 @@
     <Compile Remove="src\Updater\**\*.cs" />
     <Compile Remove="src\Dashboard\**\*.cs" />
   </ItemGroup>
+
+  <!-- Kill any running RuneshapePriceChecker before build to avoid file locks -->
+  <Target Name="KillRunningApp" BeforeTargets="BeforeBuild;BeforeRebuild">
+    <Exec Command="powershell -NoProfile -Command &quot;Get-Process RuneshapePriceChecker -ErrorAction SilentlyContinue | Stop-Process -Force&quot;"
+          ContinueOnError="WarnAndContinue" />
+  </Target>
 
   <!-- Tesseract: embed traineddata + native DLLs -->
   <Target Name="EnsureTessData" BeforeTargets="AssignTargetPaths">
