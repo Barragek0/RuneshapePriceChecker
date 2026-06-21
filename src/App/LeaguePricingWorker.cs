@@ -89,6 +89,14 @@ public sealed class LeaguePricingWorker(
                     else if (_poe2WasRunning)
                     {
                         logger.LogInformation("PoE2 process not found — shutting down as requested (CloseWithPoE2 enabled).");
+                        // Signal the RPC service that this was CloseWithPoE2 (not manual close)
+                        try
+                        {
+                            using var evt = new EventWaitHandle(false, EventResetMode.ManualReset,
+                                RpcServiceRunner.CloseByPoe2EventName);
+                            evt.Set();
+                        }
+                        catch { }
                         Process.GetCurrentProcess().Kill();
                         return;
                     }

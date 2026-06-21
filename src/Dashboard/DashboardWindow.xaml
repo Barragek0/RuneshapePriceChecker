@@ -731,7 +731,11 @@
                                    Foreground="{StaticResource AmberBrush}"
                                    FontSize="14"
                                    HorizontalAlignment="Center"
-                                   VerticalAlignment="Center"/>
+                                   VerticalAlignment="Center">
+                            <TextBlock.RenderTransform>
+                                <TranslateTransform X="1.5"/>
+                            </TextBlock.RenderTransform>
+                        </TextBlock>
                     </Button>
                 </Grid>
 
@@ -1435,7 +1439,7 @@
                                 Grid.RowSpan="2"
                                 x:Name="DebugSection"
                                 Background="{StaticResource SurfaceBrush}"
-                                CornerRadius="0,0,0,10"
+                                CornerRadius="0,0,10,10"
                                 ClipToBounds="True">
                             <Grid>
                                 <ScrollViewer VerticalScrollBarVisibility="Auto"
