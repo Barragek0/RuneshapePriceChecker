@@ -10,9 +10,9 @@
         SourceInitialized="Window_SourceInitialized"
         MinWidth="500"
         MaxWidth="960"
-        MinHeight="642"
-        MaxHeight="642"
-        Height="642"
+        MinHeight="652"
+        MaxHeight="652"
+        Height="652"
         WindowStartupLocation="Manual"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True"
@@ -238,7 +238,8 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="CheckBox">
-                        <StackPanel Orientation="Horizontal">
+                        <StackPanel Orientation="Horizontal"
+                                    Background="Transparent">
                             <Border x:Name="CheckBorder"
                                     Width="16"
                                     Height="16"
@@ -1050,13 +1051,25 @@
                                                                    ToolTip="Auto-focus the app window when launched or on update"/>
                                                     </StackPanel>
                                                 </CheckBox>
+                                                <CheckBox x:Name="OpenWithPoE2Check"
+                                                          VerticalAlignment="Center"
+                                                          Margin="16,0,0,4"
+                                                          Checked="OpenWithPoE2_CheckedChanged"
+                                                          Unchecked="OpenWithPoE2_CheckedChanged">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Text="Open with PoE2"
+                                                                   VerticalAlignment="Center"/>
+                                                        <TextBlock Style="{StaticResource TooltipIcon}"
+                                                                   ToolTip="Automatically launch RuneshapePriceChecker when Path of Exile 2 starts.&#10;&#10;Uses a background watcher (RPCService) that waits for PoE2 to start running in the background, then executes the app when it does. This will also start the RPCService when Windows starts, so the setting will still work even if you restart your PC."/>
+                                                    </StackPanel>
+                                                </CheckBox>
                                                 <CheckBox x:Name="CloseWithPoE2Check"
                                                           VerticalAlignment="Center"
                                                           Margin="16,0,0,0"
                                                           Checked="AutoSetting_Changed"
                                                           Unchecked="AutoSetting_Changed">
                                                     <StackPanel Orientation="Horizontal">
-                                                        <TextBlock Text="Close when PoE2 closes"
+                                                        <TextBlock Text="Close with PoE2"
                                                                    VerticalAlignment="Center"/>
                                                         <TextBlock Style="{StaticResource TooltipIcon}"
                                                                    ToolTip="Automatically close RuneshapePriceChecker when Path of Exile 2 is no longer running"/>
@@ -1273,10 +1286,11 @@
                                                                VerticalAlignment="Center"/>
                                                     <TextBlock x:Name="OcrBackendTooltip"
                                                                Style="{StaticResource TooltipIcon}"
-                                                               ToolTip="Windows OCR is faster and uses less CPU. Only switch to Tesseract if Windows OCR isn't working correctly for you."/>
+                                                               ToolTip="Windows OCR is faster and uses less CPU, but is less accurate in some cases.&#10;&#10;It's recommended to only switch to Tesseract if Windows OCR isn't working correctly for you."/>
                                                     <TextBlock x:Name="OcrBackendWarning"
                                                                Style="{StaticResource WarningIcon}"
-                                                               ToolTip="Tesseract is significantly slower and uses more CPU than Windows OCR. Switch back unless you have issues with Windows OCR."
+                                                               Foreground="{StaticResource AmberBrush}"
+                                                               ToolTip="Windows OCR is faster and uses less CPU, but is less accurate in some cases.&#10;&#10;It's recommended to only switch to Tesseract if Windows OCR isn't working correctly for you."
                                                                Visibility="Collapsed"/>
                                                 </StackPanel>
                                                 <ComboBox x:Name="OcrBackendCombo"
@@ -1317,7 +1331,7 @@
                                                                FontSize="13"
                                                                VerticalAlignment="Center"/>
                                                     <TextBlock Style="{StaticResource TooltipIcon}"
-                                                               ToolTip="How often to scan the game window (ms). &#10;&#10;&#10;&#10;Lower = more frequent scans, higher CPU usage.&#10;Higher = less frequent scans, lower CPU usage."/>
+                                                               ToolTip="How often to scan the game window (ms). &#10;&#10;Lower = more frequent scans, higher CPU usage.&#10;Higher = less frequent scans, lower CPU usage."/>
                                                 </StackPanel>
                                                 <StackPanel Orientation="Horizontal"
                                                             Margin="14,0,0,0">

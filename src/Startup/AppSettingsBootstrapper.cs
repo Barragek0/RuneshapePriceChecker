@@ -13,6 +13,7 @@ public static class AppSettingsBootstrapper
         "AlwaysOnTop": false,
         "RememberDebugPanel": false,
         "CloseWithPoE2": false,
+        "OpenWithPoE2": false,
         "AllOverlaysDisabled": false,
         "PricingOverlay": true,
         "Banner": true
@@ -31,7 +32,7 @@ public static class AppSettingsBootstrapper
         "DebugOverlay": false,
         "HideDebugOverlayWhenInterfaceNotDetected": false,
         "OcrBackend": "windows",
-        "CaptureMode": "auto"
+        "CaptureMode": "printwindow"
     },
     "Update": {
         "AutoUpdate": true

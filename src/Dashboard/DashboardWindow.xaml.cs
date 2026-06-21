@@ -154,6 +154,9 @@ public sealed partial class DashboardWindow : Window
         PopulateCaptureModeCombo();
         _vm.LoadSettings();
         SyncUiFromViewModel();
+        // Ensure RPCService is running if OpenWithPoE2 is enabled
+        if (_vm.OpenWithPoE2 && !RpcServiceRunner.IsRunning())
+            RpcServiceRunner.Register();
         RestoreDebugPanelState();
         _ = LoadLeaguesAsync();
 
@@ -298,6 +301,7 @@ public sealed partial class DashboardWindow : Window
         BringToForegroundCheck.IsChecked = _vm.BringToForeground;
         AlwaysOnTopCheck.IsChecked = _vm.AlwaysOnTop;
         CloseWithPoE2Check.IsChecked = _vm.CloseWithPoE2;
+        OpenWithPoE2Check.IsChecked = _vm.OpenWithPoE2;
         // Sync capture mode selection
         for (var i = 0; i < CaptureModeCombo.Items.Count; i++)
         {
@@ -345,6 +349,7 @@ public sealed partial class DashboardWindow : Window
         _vm.CaptureMode = (CaptureModeCombo.SelectedItem as string)?.ToLowerInvariant() ?? "printwindow";
         _vm.ScanIntervalMs = int.TryParse(ScanIntervalBox.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var si) ? Math.Clamp(si, 50, 200) : 100;
         _vm.CloseWithPoE2 = CloseWithPoE2Check.IsChecked == true;
+        _vm.OpenWithPoE2 = OpenWithPoE2Check.IsChecked == true;
         _vm.AutoUpdate = AutoUpdateCheck.IsChecked == true;
         _vm.BringToForeground = BringToForegroundCheck.IsChecked == true;
         _vm.AlwaysOnTop = AlwaysOnTopCheck.IsChecked == true;
@@ -596,28 +601,6 @@ public sealed partial class DashboardWindow : Window
 
         if (msg == WM_NCHITTEST)
         {
-            var l = lParam.ToInt64();
-            var point = new Point(
-                (short)(l & 0xFFFF),
-                (short)((l >> 16) & 0xFFFF));
-            point = PointFromScreen(point);
-
-            if (Width <= 0 || Height <= 0)
-            {
-                handled = true;
-                return HTCLIENT;
-            }
-
-            const int border = 6;
-            const int HTTOP = 12;
-            const int HTBOTTOM = 15;
-
-            var atTop = point.Y <= border;
-            var atBottom = point.Y >= Height - border;
-
-            // Width is fixed (500px), so only allow vertical resize via top/bottom edges
-            if (atTop) { handled = true; return HTTOP; }
-            if (atBottom) { handled = true; return HTBOTTOM; }
             handled = true;
             return HTCLIENT;
         }
@@ -1223,9 +1206,6 @@ public sealed partial class DashboardWindow : Window
                 "printwindow" => "printwindow",
                 _ => "desktop"
             };
-            // Migrate old "auto" setting to the concrete mode we resolved to
-            if (string.Equals(_vm.CaptureMode, "auto", StringComparison.OrdinalIgnoreCase))
-                _vm.CaptureMode = actualSimple;
             // Only auto-switch when the user's chosen mode is in the failed set
             if (_metrics?.FailedCaptureModes.Contains(_vm.CaptureMode) == true)
             {
@@ -1734,7 +1714,7 @@ public sealed partial class DashboardWindow : Window
     private void SaveWindowPosition()
     {
         if (WindowState != WindowState.Normal) return;
-        _vm.SaveWindowPosition(Left, Top, 500, Height);
+        _vm.SaveWindowPosition(Left, Top, 500);
     }
     public void SetGameLanguage(string code, bool supported = true)
     {
@@ -1770,19 +1750,19 @@ public sealed partial class DashboardWindow : Window
         {
             _ = OcrBackendCombo.Items.Add("Windows");
             _ = OcrBackendCombo.Items.Add("Tesseract");
-            OcrBackendCombo.ToolTip = "Windows OCR is faster and uses less CPU. Only switch to Tesseract if Windows OCR isn't working correctly for you.";
+            OcrBackendCombo.ToolTip = "Windows OCR is faster and uses less CPU, but is less accurate in some cases.&#10;&#10;It's recommended to only switch to Tesseract if Windows OCR isn't working correctly for you.";
             OcrBackendCombo.IsEnabled = true;
         }
         else if (_windowsOcrSupported && (string.Equals(lang, "rus", StringComparison.OrdinalIgnoreCase) || string.Equals(lang, "kor", StringComparison.OrdinalIgnoreCase)))
         {
             _ = OcrBackendCombo.Items.Add("Tesseract");
-            OcrBackendCombo.ToolTip = "Windows OCR does not support Korean text recognition reliably. Tesseract is used automatically for Korean.";
+            OcrBackendCombo.ToolTip = "Windows OCR does not support Korean text recognition reliably.&#10;&#10;Tesseract is used automatically for Korean.";
             OcrBackendCombo.IsEnabled = false;
         }
         else
         {
             _ = OcrBackendCombo.Items.Add("Tesseract");
-            OcrBackendCombo.ToolTip = "Windows OCR requires Windows 10 build 1809 or later. Only Tesseract is available on this system.";
+            OcrBackendCombo.ToolTip = "Windows OCR requires Windows 10 build 1809 or later.&#10;&#10;Only Tesseract is available on this system.";
             OcrBackendCombo.IsEnabled = false;
         }
         // Sync the info icon's tooltip text with the combo's tooltip
@@ -1818,6 +1798,21 @@ public sealed partial class DashboardWindow : Window
         QueueAutoSave();
     }
 
+    private void OpenWithPoE2_CheckedChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        var enabled = OpenWithPoE2Check.IsChecked == true;
+        _vm.OpenWithPoE2 = enabled;
+        if (enabled)
+            RpcServiceRunner.Register();
+        else
+        {
+            RpcServiceRunner.Unregister();
+            RpcServiceRunner.SignalExit();
+        }
+        QueueAutoSave();
+    }
+
     private void ComboSetting_Changed(object sender, SelectionChangedEventArgs e)
     {
         if (_loading) return;
@@ -1840,10 +1835,12 @@ public sealed partial class DashboardWindow : Window
 
     private void UpdateCaptureModeWarning()
     {
-        if (CaptureModeWarning is null) return;
+        if (CaptureModeWarning is null || CaptureModeTooltip is null) return;
         var lsRunning = IsLosslessScalingRunning();
         var hasFailedModes = _metrics?.FailedCaptureModes is { Count: > 0 };
-        CaptureModeWarning.Visibility = lsRunning || hasFailedModes ? Visibility.Visible : Visibility.Collapsed;
+        var showWarning = lsRunning || hasFailedModes;
+        CaptureModeWarning.Visibility = showWarning ? Visibility.Visible : Visibility.Collapsed;
+        CaptureModeTooltip.Visibility = showWarning ? Visibility.Collapsed : Visibility.Visible;
         if (lsRunning)
         {
             CaptureModeCombo.IsEnabled = false;

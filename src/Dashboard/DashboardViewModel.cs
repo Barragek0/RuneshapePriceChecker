@@ -36,6 +36,7 @@ public sealed class DashboardViewModel(string configPath)
     public bool AlwaysOnTop { get; set; }
     public bool RememberDebugPanel { get; set; }
     public bool CloseWithPoE2 { get; set; }
+    public bool OpenWithPoE2 { get; set; }
     public string CaptureMode { get; set; } = "printwindow";
     public int ScanIntervalMs { get; set; } = 100;
 
@@ -100,6 +101,7 @@ public sealed class DashboardViewModel(string configPath)
                 AlwaysOnTop = app.Val("AlwaysOnTop", false);
                 RememberDebugPanel = app.Val("RememberDebugPanel", false);
                 CloseWithPoE2 = app.Val("CloseWithPoE2", false);
+                OpenWithPoE2 = app.Val("OpenWithPoE2", false);
             }
 
             if (root["Pricing"] is JsonNode pricing)
@@ -172,6 +174,7 @@ public sealed class DashboardViewModel(string configPath)
                 app["AlwaysOnTop"] = AlwaysOnTop;
                 app["RememberDebugPanel"] = RememberDebugPanel;
                 app["CloseWithPoE2"] = CloseWithPoE2;
+                app["OpenWithPoE2"] = OpenWithPoE2;
                 app["PricingOverlay"] = PricingOverlay;
                 app["Banner"] = Banner;
             }
@@ -319,12 +322,12 @@ public sealed class DashboardViewModel(string configPath)
             var left = window["Left"]?.GetValue<double>() ?? double.NaN;
             var top = window["Top"]?.GetValue<double>() ?? double.NaN;
             var width = window["Width"]?.GetValue<double>() ?? double.NaN;
-            return (left, top, width, 642);
+            return (left, top, width, 652);
         }
         catch { return null; }
     }
 
-    public void SaveWindowPosition(double left, double top, double width, double height)
+    public void SaveWindowPosition(double left, double top, double width)
     {
         try
         {

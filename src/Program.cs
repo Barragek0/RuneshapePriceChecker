@@ -14,6 +14,12 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
+if (args.Contains("--rpcservice"))
+{
+    RpcServiceRunner.Run();
+    return;
+}
+
 var suppressWarning = false;
 foreach (var a in args)
 {
@@ -167,13 +173,7 @@ var host = Host.CreateDefaultBuilder(args)
                 client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
         });
 
-        _ = services.AddSingleton<IPricingSource>(sp =>
-        {
-            var options = sp.GetRequiredService<IOptionsMonitor<PricingCacheOptions>>();
-            return string.Equals(options.CurrentValue.PricingSource, "poe2scout", StringComparison.OrdinalIgnoreCase)
-                ? sp.GetRequiredService<Poe2ScoutClient>()
-                : sp.GetRequiredService<PoeNinjaClient>();
-        });
+        _ = services.AddSingleton<IPricingSource, PricingSourceRouter>();
 
         _ = services.AddSingleton<Poe2WindowResolutionService>();
         _ = services.AddSingleton<IPoe2WindowResolutionProvider>(sp => sp.GetRequiredService<Poe2WindowResolutionService>());
