@@ -1,16 +1,16 @@
 {
   "version": 1,
   "languages": {
-    "eng": { "name": "English", "windowsOcr": true },
-    "fra": { "name": "Français", "windowsOcr": true },
-    "deu": { "name": "Deutsch", "windowsOcr": true },
-    "por": { "name": "Português", "windowsOcr": true },
-    "rus": { "name": "Русский", "windowsOcr": true },
-    "tha": { "name": "ไทย", "windowsOcr": true },
-    "chi_tra": { "name": "繁體中文", "windowsOcr": true },
-    "spa": { "name": "Español", "windowsOcr": true },
-    "kor": { "name": "한국어", "windowsOcr": true },
-    "jpn": { "name": "日本語", "windowsOcr": true }
+    "eng": { "name": "English" },
+    "fra": { "name": "Français" },
+    "deu": { "name": "Deutsch" },
+    "por": { "name": "Português" },
+    "rus": { "name": "Русский" },
+    "tha": { "name": "ไทย" },
+    "chi_tra": { "name": "繁體中文" },
+    "spa": { "name": "Español" },
+    "kor": { "name": "한국어" },
+    "jpn": { "name": "日本語" }
   },
   "items": [
     { "name": "Mirror of Kalandra", "fra": "Miroir de Kalandra", "deu": "Spiegel von Kalandra", "spa": "Espejo de Kalandra", "por": "Espelho de Kalandra", "rus": "Зеркало Каландры", "jpn": "カランドラの鏡", "chi_tra": "卡蘭德的魔鏡" },
@@ -113,6 +113,7 @@
     { "name": "Countess Seske's Rune of Warding" },
     { "name": "Courtesan Mannan's Rune of Precision" },
     { "name": "Thane Leld's Rune of Storms" },
-    { "name": "The Greatwolf's Rune of Brutality" }
+    { "name": "The Greatwolf's Rune of Brutality" },
+    { "name": "Random Currency", "fra": "Objet monétaire aléatoire", "deu": "Zufällige Währung", "spa": "objetos monetarios aleatorios", "por": "Moedas Aleatórias", "rus": "случайной валюты", "kor": "무작위 화폐", "chi_tra": "隨機通貨" }
   ]
 }

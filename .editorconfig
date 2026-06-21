@@ -81,3 +81,9 @@ dotnet_diagnostic.IDE1005.severity = warning  # Use conditional delegate call
 # DashboardViewModel uses JSON keys that don't match property names by design
 [src/Dashboard/DashboardViewModel.cs]
 dotnet_diagnostic.CA1507.severity = none
+
+# Keep translations.json in compact single-line format — no formatter expansion
+[src/Pricing/translations.json]
+indent_style = space
+indent_size = 1
+insert_final_newline = false
