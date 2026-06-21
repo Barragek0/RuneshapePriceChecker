@@ -13,10 +13,12 @@ public sealed class PricingOverlayRenderer(
     IPoe2WindowResolutionProvider windowResolutionProvider,
     IOptionsMonitor<PricingCacheOptions> pricingOptions,
     IOptionsMonitor<OcrOptions> ocrOptions,
+    IOptionsMonitor<AppOptions> appOptions,
     ILogger<PricingOverlayRenderer> logger) : IOverlayRenderer, IDisposable
 {
     private readonly object _sync = new();
     private readonly IOptionsMonitor<OcrOptions> _ocrOptions = ocrOptions;
+    private readonly IOptionsMonitor<AppOptions> _appOptions = appOptions;
     private Thread? _overlayThread;
     private PriceOverlayForm? _overlayForm;
     private string _lastContentHash = string.Empty;
@@ -25,7 +27,7 @@ public sealed class PricingOverlayRenderer(
     {
         try
         {
-            if (!_ocrOptions.CurrentValue.ShowPricingOverlay)
+            if (!_appOptions.CurrentValue.PricingOverlay)
                 return;
 
             EnsureOverlayThreadStarted();
@@ -79,7 +81,7 @@ public sealed class PricingOverlayRenderer(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to render price overlay.");
+            logger.LogError(ex, "Failed to render price overlay: {Context} ({Count} items)", ErrorContext.FromException(ex), snapshot.ItemNames.Count);
         }
     }
 

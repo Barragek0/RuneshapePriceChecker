@@ -15,7 +15,7 @@ public sealed class ItemNameTranslator(ILogger<ItemNameTranslator> logger, Trans
 
     private static readonly HashSet<string> _supportedLanguages = new(StringComparer.OrdinalIgnoreCase)
     {
-        "eng", "fra", "deu", "spa", "por", "rus", "kor", "jpn", "chi_tra"
+        "eng", "fra", "deu", "spa", "por", "rus", "kor", "chi_tra"
     };
 
     public bool IsLoaded { get; private set; }

@@ -14,10 +14,12 @@ public sealed class DebugOverlayService(
     IOptionsMonitor<OcrOptions> ocrOptions,
     IOptionsMonitor<WindowOptions> windowOptions,
     DashboardService dashboard,
+    IOptionsMonitor<AppOptions> appOptions,
     ILogger<DebugOverlayService> logger) : BackgroundService
 {
     private readonly IOptionsMonitor<OcrOptions> _options = ocrOptions;
     private readonly IOptionsMonitor<WindowOptions> _windowOptions = windowOptions;
+    private readonly IOptionsMonitor<AppOptions> _appOptions = appOptions;
     private Thread? _overlayThread;
     private BoundsOverlayForm? _overlayForm;
     private readonly object _overlaySync = new();
@@ -39,11 +41,13 @@ public sealed class DebugOverlayService(
                     }
                 }
                 else CloseOverlay();
-                if (options.ShowBanner) EnsureBannerThreadStarted();
+                if (_appOptions.CurrentValue.Banner) EnsureBannerThreadStarted();
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Failed to refresh OCR bounds overlay.");
+                logger.LogError(ex, "Failed to refresh OCR bounds overlay: {Context} (region={R} forceHidden={FH} setup={S})",
+                    ErrorContext.FromException(ex),
+                    windowResolutionProvider.CurrentCaptureRegion?.ToString() ?? "null", _forceHidden, _setupInProgress);
             }
 
             await Task.Delay(16, stoppingToken).ConfigureAwait(false);
@@ -87,7 +91,7 @@ public sealed class DebugOverlayService(
             return;
         }
 
-        if (OverlayGate.AllOverlaysDisabled)
+        if (_appOptions.CurrentValue.AllOverlaysDisabled)
         {
             overlay.SafeHide();
             return;
@@ -276,7 +280,7 @@ public sealed class DebugOverlayService(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to save custom offsets.");
+            logger.LogError(ex, "Failed to save custom offsets: {Context} (had {Count} screens)", ErrorContext.FromException(ex), Screen.AllScreens.Length);
         }
     }
 
@@ -286,14 +290,14 @@ public sealed class DebugOverlayService(
 
     public void SetBannerMessage(string? message)
     {
-        if (OverlayGate.AllOverlaysDisabled)
+        if (_appOptions.CurrentValue.AllOverlaysDisabled)
         {
             var form = GetBannerForm();
             form?.SafeHide();
             return;
         }
 
-        if (!_options.CurrentValue.ShowBanner)
+        if (!_appOptions.CurrentValue.Banner)
             return;
 
         if (string.IsNullOrWhiteSpace(message))
@@ -430,7 +434,6 @@ public sealed class DebugOverlayService(
         private static readonly Pen CropPen = new(Color.FromArgb(200, 0, 255, 0), 2f) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash };
         private static readonly Pen RetryPen = new(Color.FromArgb(220, 200, 50, 220), 2f);
         private static readonly Pen ScanPen = new(Color.FromArgb(220, 255, 255, 0), 2f) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash };
-        private static readonly SolidBrush DotBrush = new(Color.FromArgb(255, 255, 60, 60));
         private static readonly Font StatusFont = new("Segoe UI", 14f, FontStyle.Bold, GraphicsUnit.Pixel);
         private static readonly Font DebugFont = new("Segoe UI", 14f, FontStyle.Bold, GraphicsUnit.Pixel);
 
@@ -466,13 +469,9 @@ public sealed class DebugOverlayService(
 
             var scanLeft = (int)(boxWidth * LeaguePanelDetector.LeftFraction);
             var scanRight = (int)(boxWidth * LeaguePanelDetector.RightFraction);
-            var ry = (int)(_frame.Height * LeaguePanelDetector.TopRowFraction);
-
-            e.Graphics.DrawLine(ScanPen, scanLeft, 0, scanLeft, ry);
-            e.Graphics.DrawLine(ScanPen, scanRight, 0, scanRight, ry);
-
-            e.Graphics.FillEllipse(DotBrush, scanLeft - 3, ry - 3, 7, 7);
-            e.Graphics.FillEllipse(DotBrush, scanRight - 3, ry - 3, 7, 7);
+            var scanBottom = (int)(_frame.Height * LeaguePanelDetector.TopRowFraction);
+            var scanRect = new Rectangle(scanLeft, 0, scanRight - scanLeft, scanBottom);
+            e.Graphics.DrawRectangle(ScanPen, scanRect);
 
             var lines = _debugLines;
             var rowY = _debugRowY;
@@ -495,7 +494,7 @@ public sealed class DebugOverlayService(
                 {
                     var rowTop = i < rowY.Count ? rowY[i] : 6 + (i * defaultLineHeight);
                     rowTop = Math.Clamp(rowTop, 0, Height - defaultLineHeight);
-                    var x = debugX + 38;
+                    var x = debugX + 78;
 
                     // Look up the matching purple box height to center text vertically
                     var rowH = defaultLineHeight;

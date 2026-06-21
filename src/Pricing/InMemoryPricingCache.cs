@@ -248,7 +248,7 @@ public sealed class InMemoryPricingCache(
             // Diagnostic: log UNCUT SKILL GEM price keys to verify level matching
             if (normalized.StartsWith("UNCUT SKILL GEM", StringComparison.OrdinalIgnoreCase))
             {
-                logger.LogInformation("PriceKey: raw='{Raw}' normalized='{Norm}' value={Val}", pair.Key, normalized, pair.Value);
+                logger.LogTrace("PriceKey: raw='{Raw}' normalized='{Norm}' value={Val}", pair.Key, normalized, pair.Value);
             }
 
             if (ItemNameParser.TryGetTierFallbackKey(normalized, out var fallbackKey))

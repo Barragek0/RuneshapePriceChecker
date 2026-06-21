@@ -7,7 +7,7 @@ internal static class FallbackProvider
 {
     // Translation dictionary fallbacks (applied after exact/diacritics/apostrophe/tier)
 
-    /// <summary>Adaptive fuzzy distance: larger strings get a higher allowance.</summary>
+    /// Adaptive fuzzy distance: larger strings get a higher allowance.
     public static int FuzzyMaxDist(string text) => Math.Max(3, Math.Min(5, text.Length / 5));
 
     // all languages — returns closest match within maxDist (lowest edit distance wins)
