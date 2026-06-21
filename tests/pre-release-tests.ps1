@@ -1,4 +1,4 @@
-# Pre-release test suite for RuneshapePriceChecker
+﻿# Pre-release test suite for RuneshapePriceChecker
 # Specifically aims to test as many features as possible without requiring user interaction, and to catch regressions before release.
 # Run: powershell -ExecutionPolicy Bypass -File tests\pre-release-tests.ps1 [-TestN] [-All]
 param(
@@ -429,7 +429,7 @@ function Test8-AutoUpdater {
 
     # 8d: Check update check on second launch.
     # The zip still contains v$ver (not v$nextVer), so the app will correctly
-    # detect the update again — "Update available" is the expected result.
+    # detect the update again â€” "Update available" is the expected result.
     # We preserve the existing config so the changelog from step 8c survives.
     Stop-App; Clear-OldLogs
     $proc = Launch-App -extraArgs "--Update:GitHubApiBaseUrl=http://localhost:8099/api"; Wait-ForApp 8000 | Out-Null
@@ -709,7 +709,7 @@ function Test15-TooltipVerification($proc) {
     Report-Result "15c: Close button" ($closeBtn -ne $null) $(if ($closeBtn) { "Found" } else { "Not found" })
 }
 function Test10-OverlayFeatureToggles {
-    # Only test with all overlays enabled — if this doesn't crash, individual toggles won't either
+    # Only test with all overlays enabled â€” if this doesn't crash, individual toggles won't either
     Stop-App; Clear-OldLogs
     Write-Config '{"App":{"LogLevel":"Debug","PricingOverlay":true,"Banner":true},"Window":{"InitialSetupComplete":true},"OCR":{"SaveDebugImages":false,"Language":"eng","DebugOverlay":true},"Update":{"AutoUpdate":false}}'
     $p = Launch-App; Wait-ForApp 5000 | Out-Null; $ok = -not $p.HasExited; Stop-App
@@ -1058,11 +1058,11 @@ function Test34-CurrencyMutualExclusion($proc) {
     # Click Chaos, verify Exalt off
     try { $chaosBox.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); Start-Sleep -Milliseconds 300 } catch { }
     $exaltChecked = $exaltBox.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On
-    Report-Result "34b: Chaos⇢Exalt off" (-not $exaltChecked) $(if ($exaltChecked) { "Exalt still on" }else { "Exalt off" })
+    Report-Result "34b: Chaosâ‡¢Exalt off" (-not $exaltChecked) $(if ($exaltChecked) { "Exalt still on" }else { "Exalt off" })
     # Click Exalt, verify Chaos off
     try { $exaltBox.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); Start-Sleep -Milliseconds 300 } catch { }
     $chaosChecked = $chaosBox.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On
-    Report-Result "34c: Exalt⇢Chaos off" (-not $chaosChecked) $(if ($chaosChecked) { "Chaos still on" }else { "Chaos off" })
+    Report-Result "34c: Exaltâ‡¢Chaos off" (-not $chaosChecked) $(if ($chaosChecked) { "Chaos still on" }else { "Chaos off" })
     Invoke-Button $proc "Settings" 3000 | Out-Null
 }
 
@@ -1207,139 +1207,136 @@ function Test37-UpdateCloseGuard {
     try { Remove-Item $markerPath -Force -ErrorAction SilentlyContinue } catch { }
 }
 
-function Test38-CloseWithPoE2Settings {
+function Test38-Poe2LaunchOpts {
     Stop-App; Clear-OldLogs
-    # Default: CloseWithPoE2 should be false
     Write-Config '{"App":{"LogLevel":"Debug"},"Window":{"InitialSetupComplete":true},"OCR":{"SaveDebugImages":false,"Language":"eng"},"Update":{"AutoUpdate":false},"Pricing":{"PricingSource":"poe2scout","League":"Runes of Aldur"}}'
     $proc = Launch-App; Wait-ForApp 8000 | Out-Null
-    if ($proc.HasExited) { Report-Result "38: Settings" $false "App exited"; Stop-App; return }
+    if ($proc.HasExited) { Report-Result "38: Poe2 opts" $false "App exited"; Stop-App; return }
 
-    # Open settings, toggle CloseWithPoE2 on
-    Click-Button $proc "Settings" 3000 | Out-Null; Start-Sleep -Milliseconds 800
-    $hwnd = $proc.MainWindowHandle
-    try { $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd) } catch { Report-Result "38a: UIA" $false; Stop-App; return }
+    # Open settings
+    if (-not (Click-Button $proc "Settings" 3000)) { Report-Result "38a: Open" $false; Stop-App; return }
+    $root = $null
+    $settingsOpened = Wait-For { try { $hwnd = $proc.MainWindowHandle; $r = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd); $el = $r.FindFirst([System.Windows.Automation.TreeScope]::Descendants, (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "CloseWithPoE2Check"))); $root = $r; $el -ne $null } catch { $false } } 5000
+    if (-not $settingsOpened) { Report-Result "38a: Open" $false "Settings not visible"; Stop-App; return }
+    Report-Result "38a: Settings open" $true
 
+    # Toggle CloseWithPoE2 on
     $closeCheck = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
         (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "CloseWithPoE2Check")))
-    if (-not $closeCheck) { Report-Result "38a: CloseWithPoE2 checkbox" $false "Not found"; Stop-App; return }
-    Report-Result "38a: CloseWithPoE2 checkbox found" $true "OK"
-
-    # Toggle it on via UIA
+    if (-not $closeCheck) { Report-Result "38b: CloseWithPoE2" $false "Not found"; Stop-App; return }
     try {
         $toggle = $closeCheck.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
         if ($toggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::Off) { $toggle.Toggle() }
-        Start-Sleep -Milliseconds 300
+        $saved = Wait-ForConfig "App" "CloseWithPoE2" $true 3000
+        Report-Result "38b: CloseWithPoE2" $saved
     }
-    catch { Report-Result "38b: Toggle on" $false "Pattern not available"; Stop-App; return }
-    Report-Result "38b: Toggled on" $true "OK"
+    catch { Report-Result "38b: CloseWithPoE2" $false "Pattern error"; Stop-App; return }
+
+    # Toggle OpenWithPoE2 on
+    $openCheck = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+        (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "OpenWithPoE2Check")))
+    if (-not $openCheck) { Report-Result "38c: OpenWithPoE2" $false "Not found"; Stop-App; return }
+    try {
+        $toggle2 = $openCheck.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+        if ($toggle2.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::Off) { $toggle2.Toggle() }
+        $saved2 = Wait-ForConfig "App" "OpenWithPoE2" $true 3000
+        Report-Result "38c: OpenWithPoE2" $saved2
+    }
+    catch { Report-Result "38c: OpenWithPoE2" $false "Pattern error"; Stop-App; return }
 
     # Close settings (auto-saves)
-    Click-Button $proc "Settings" 3000 | Out-Null; Start-Sleep -Milliseconds 800
-    Stop-App; Start-Sleep -Milliseconds 500
-
-    # Verify config now has CloseWithPoE2=true
-    if (Test-Path $configPath) {
-        $cfg = Get-Content $configPath -Raw | ConvertFrom-Json
-        $saved = $cfg.App.CloseWithPoE2
-        Report-Result "38c: CloseWithPoE2 persisted" ($saved -eq $true) "Value=$saved"
-    }
-    else { Report-Result "38c: CloseWithPoE2 persisted" $false "No config" }
+    Click-Button $proc "Settings" 3000 | Out-Null
+    Start-Sleep -Milliseconds 400
+    Stop-App
+    $exited = Wait-For { -not (Get-Process RuneshapePriceChecker -ErrorAction SilentlyContinue) } 5000
+    if (-not $exited) { Stop-App; Start-Sleep -Milliseconds 300 }
 }
 
-function Test39-ScanIntervalSettings {
-    Stop-App; Clear-OldLogs
-    # Start with default ScanIntervalMs
-    Write-Config '{"App":{"LogLevel":"Debug"},"Window":{"InitialSetupComplete":true},"OCR":{"SaveDebugImages":false,"Language":"eng","ScanIntervalMs":100},"Update":{"AutoUpdate":false},"Pricing":{"PricingSource":"poe2scout","League":"Runes of Aldur"}}'
-    $proc = Launch-App; Wait-ForApp 8000 | Out-Null
-    if ($proc.HasExited) { Report-Result "39: Settings" $false "App exited"; Stop-App; return }
-
-    # Open settings, find scan interval textbox, verify it shows 100
-    Click-Button $proc "Settings" 3000 | Out-Null; Start-Sleep -Milliseconds 800
-    $hwnd = $proc.MainWindowHandle
-    try { $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd) } catch { Report-Result "39a: UIA" $false; Stop-App; return }
-
-    $scanBox = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
-        (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "ScanIntervalBox")))
-    if (-not $scanBox) { Report-Result "39a: ScanIntervalBox" $false "Not found"; Stop-App; return }
-    Report-Result "39a: ScanIntervalBox found" $true "OK"
-
-    # Check the current value
-    try {
-        $valPattern = $scanBox.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
-        $currentVal = $valPattern.Current.Value
-        Report-Result "39b: Default value" ($currentVal -eq "100") "Got '$currentVal'"
-    }
-    catch { Report-Result "39b: Default value" $false "Value pattern not available" }
-
-    # Change to 150 and verify
-    try {
-        $valPattern.SetValue("150")
-        Start-Sleep -Milliseconds 500
-    }
-    catch { Report-Result "39c: Change value" $false "Could not set"; Stop-App; return }
-    Report-Result "39c: Value set to 150" $true "OK"
-
-    # Close settings (auto-saves)
-    Click-Button $proc "Settings" 3000 | Out-Null; Start-Sleep -Milliseconds 800
-    Stop-App; Start-Sleep -Milliseconds 500
-
-    # Verify ScanIntervalMs=150 persisted
-    if (Test-Path $configPath) {
-        $cfg = Get-Content $configPath -Raw | ConvertFrom-Json
-        $saved = $cfg.OCR.ScanIntervalMs
-        Report-Result "39d: ScanIntervalMs persisted" ($saved -eq 150) "Value=$saved"
-    }
-    else { Report-Result "39d: ScanIntervalMs persisted" $false "No config" }
-}
-
-function Test40-SettingsImmediatePropagation {
+function Test39-ScanInterval {
     Stop-App; Clear-OldLogs
     Write-Config '{"App":{"LogLevel":"Debug"},"Window":{"InitialSetupComplete":true},"OCR":{"SaveDebugImages":false,"Language":"eng","ScanIntervalMs":100},"Update":{"AutoUpdate":false},"Pricing":{"PricingSource":"poe2scout","League":"Runes of Aldur"}}'
     $proc = Launch-App; Wait-ForApp 8000 | Out-Null
-    if ($proc.HasExited) { Report-Result "40: Settings" $false "App exited"; Stop-App; return }
+    if ($proc.HasExited) { Report-Result "39: Scan interval" $false "App exited"; Stop-App; return }
 
-    # Open settings, change interval to 80, close (auto-saves)
-    Click-Button $proc "Settings" 3000 | Out-Null; Start-Sleep -Milliseconds 800
-    $hwnd = $proc.MainWindowHandle
-    try { $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd) } catch { Report-Result "40a: UIA" $false; Stop-App; return }
+    # Open settings
+    if (-not (Click-Button $proc "Settings" 3000)) { Report-Result "39a: Open" $false; Stop-App; return }
+    $root = $null
+    $settingsOpened = Wait-For { try { $hwnd = $proc.MainWindowHandle; $r = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd); $el = $r.FindFirst([System.Windows.Automation.TreeScope]::Descendants, (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "ScanIntervalBox"))); $root = $r; $el -ne $null } catch { $false } } 5000
+    if (-not $settingsOpened) { Report-Result "39a: Open" $false "Settings not visible"; Stop-App; return }
+    Report-Result "39a: Settings open" $true
 
+    # Verify default value
     $scanBox = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
         (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "ScanIntervalBox")))
-    if (-not $scanBox) { Report-Result "40a: ScanIntervalBox" $false "Not found"; Stop-App; return }
-
-    # Set to a custom value
+    if (-not $scanBox) { Report-Result "39b: ScanInterval" $false "Not found"; Stop-App; return }
     try {
         $valPattern = $scanBox.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
-        $valPattern.SetValue("150")
-        Start-Sleep -Milliseconds 300
+        Report-Result "39b: Default 100" ($valPattern.Current.Value -eq "100") "Got '$($valPattern.Current.Value)'"
     }
-    catch { Report-Result "40a: Set scan interval" $false "Could not set"; Stop-App; return }
+    catch { Report-Result "39b: Default 100" $false; Stop-App; return }
 
-    # Toggle DebugOverlay on as a second setting change
+    # Change to 150 and verify persisted
+    try {
+        $valPattern.SetValue("150")
+        $saved = Wait-ForConfig "OCR" "ScanIntervalMs" 150 3000
+        Report-Result "39c: Set 150" $saved
+    }
+    catch { Report-Result "39c: Set 150" $false; Stop-App; return }
+
+    # Close settings
+    Click-Button $proc "Settings" 3000 | Out-Null
+    Start-Sleep -Milliseconds 400
+    Stop-App
+    $null = Wait-For { -not (Get-Process RuneshapePriceChecker -ErrorAction SilentlyContinue) } 5000
+}
+
+function Test40-Propagation {
+    Stop-App; Clear-OldLogs
+    Write-Config '{"App":{"LogLevel":"Debug"},"Window":{"InitialSetupComplete":true},"OCR":{"SaveDebugImages":false,"Language":"eng","ScanIntervalMs":100},"Update":{"AutoUpdate":false},"Pricing":{"PricingSource":"poe2scout","League":"Runes of Aldur"}}'
+    $proc = Launch-App; Wait-ForApp 8000 | Out-Null
+    if ($proc.HasExited) { Report-Result "40: Propagation" $false "App exited"; Stop-App; return }
+
+    # Open settings
+    if (-not (Click-Button $proc "Settings" 3000)) { Report-Result "40a: Open" $false; Stop-App; return }
+    $root = $null
+    $settingsOpened = Wait-For { try { $hwnd = $proc.MainWindowHandle; $r = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd); $el = $r.FindFirst([System.Windows.Automation.TreeScope]::Descendants, (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "ScanIntervalBox"))); $root = $r; $el -ne $null } catch { $false } } 5000
+    if (-not $settingsOpened) { Report-Result "40a: Open" $false "Settings not visible"; Stop-App; return }
+    Report-Result "40a: Settings open" $true
+
+    # Change scan interval
+    $scanBox = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+        (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "ScanIntervalBox")))
+    if ($scanBox) {
+        try {
+            $valPattern = $scanBox.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+            $valPattern.SetValue("150")
+        }
+        catch { }
+    }
+
+    # Toggle DebugOverlay on
     $debugCheck = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
         (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "DebugOverlayCheck")))
     if ($debugCheck) {
         try {
             $debugToggle = $debugCheck.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
             if ($debugToggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::Off) { $debugToggle.Toggle() }
-            Start-Sleep -Milliseconds 300
         }
         catch { }
     }
 
     # Close settings (auto-saves)
     Click-Button $proc "Settings" 3000 | Out-Null
+    $settingsClosed = Wait-For { try { $hwnd2 = $proc.MainWindowHandle; $r2 = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd2); $null -eq $r2.FindFirst([System.Windows.Automation.TreeScope]::Descendants, (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "ScanIntervalBox"))) } catch { $true } } 5000
     Start-Sleep -Milliseconds 1000
 
-    # Verify config was updated immediately (not after restart)
+    # Verify both settings saved
     if (Test-Path $configPath) {
         $cfg = Get-Content $configPath -Raw | ConvertFrom-Json
-        $siSaved = $cfg.OCR.ScanIntervalMs -eq 150
-        $doSaved = $cfg.OCR.DebugOverlay -eq $true
-        Report-Result "40a: ScanIntervalMs propagated" $siSaved "Value=$($cfg.OCR.ScanIntervalMs)"
-        Report-Result "40b: DebugOverlay propagated" $doSaved "Value=$($cfg.OCR.DebugOverlay)"
+        Report-Result "40b: ScanInterval" ($cfg.OCR.ScanIntervalMs -eq 150) "=$($cfg.OCR.ScanIntervalMs)"
+        Report-Result "40c: DebugOverlay" ($cfg.OCR.DebugOverlay -eq $true) "=$($cfg.OCR.DebugOverlay)"
     }
-    else { Report-Result "40: Config check" $false "No config" }
+    else { Report-Result "40b: Config" $false "No config" }
 
     Stop-App
 }
@@ -1352,7 +1349,7 @@ Stop-App
 
 $runAll = $All -or (-not ($Test1 -or $Test2 -or $Test3 -or $Test4 -or $Test5 -or $Test6 -or $Test7 -or $Test8 -or $Test9 -or $Test10 -or $Test11 -or $Test12 -or $Test13 -or $Test14 -or $Test15 -or $Test16 -or $Test18 -or $Test19 -or $Test20 -or $Test21 -or $Test22 -or $Test23 -or $Test24 -or $Test25 -or $Test26 -or $Test27 -or $Test28 -or $Test29 -or $Test30 -or $Test31 -or $Test32 -or $Test33 -or $Test34 -or $Test35 -or $Test36 -or $Test37 -or $Test38 -or $Test39 -or $Test40))
 
-# ── Sandbox management for isolation between tests ──
+# â”€â”€ Sandbox management for isolation between tests â”€â”€
 $_savedPaths = @{}  # saved original paths for restore
 
 function Enter-TestSandbox {
@@ -1410,16 +1407,16 @@ function Invoke-TestWithSandbox {
     param([string]$Name, [ScriptBlock]$TestBlock)
     Write-Host "${ansiCyan}[Sandbox] $Name${ansiReset}" -NoNewline
     Enter-TestSandbox $Name
-    Write-Host " → $($script:exeDir)"
+    Write-Host " â†’ $($script:exeDir)"
     & $TestBlock
     Exit-TestSandbox
 }
 
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # PHASE 1: Restart-required tests (each test manages its own app lifecycle)
 # Each test runs in a fresh sandbox extracted from the original release zip
 # so state from one test never leaks into another.
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 if ($runAll -or $Test1) { Invoke-TestWithSandbox "Test1" { Test1-ChangelogSetupCoordination } }
 if ($runAll -or $Test2) { Invoke-TestWithSandbox "Test2" { Test2-InitialSetupSuite } }
 if ($runAll -or $Test3) { Invoke-TestWithSandbox "Test3" { Test3-AppLifecycle } }
@@ -1445,13 +1442,13 @@ if ($runAll -or $Test31) { Test31-TestModeIndicator }
 if ($runAll -or $Test32) { Test32-VersionDisplay }
 if ($runAll -or $Test33) { Test33-ChangelogWindowPopup }
 if ($runAll -or $Test37) { Test37-UpdateCloseGuard }
-if ($runAll -or $Test38) { Invoke-TestWithSandbox "Test38" { Test38-CloseWithPoE2Settings } }
-if ($runAll -or $Test39) { Invoke-TestWithSandbox "Test39" { Test39-ScanIntervalSettings } }
-if ($runAll -or $Test40) { Invoke-TestWithSandbox "Test40" { Test40-SettingsImmediatePropagation } }
-# ═══════════════════════════════════════════════════════════════
+if ($runAll -or $Test38) { Invoke-TestWithSandbox "Test38" { Test38-Poe2LaunchOpts } }
+if ($runAll -or $Test39) { Invoke-TestWithSandbox "Test39" { Test39-ScanInterval } }
+if ($runAll -or $Test40) { Invoke-TestWithSandbox "Test40" { Test40-Propagation } }
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # PHASE 2: Shared-instance tests (single app, no restart between tests)
 # These tests only read state or interact with the UI non-destructively.
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 $runPhase2 = $runAll -or $Test11 -or $Test12 -or $Test13 -or $Test14 -or $Test15 -or $Test16 -or $Test20 -or $Test24 -or $Test28 -or $Test29 -or $Test30 -or $Test34 -or $Test35 -or $Test36
 if ($runPhase2) {
     Write-Banner "PHASE 2: Shared-instance tests"
@@ -1461,7 +1458,7 @@ if ($runPhase2) {
     else { Report-Result "Phase2: App running" $true "PID $($sharedProc.Id)" }
 
     if ($sharedProc -and (-not $sharedProc.HasExited)) {
-        # Each shared test stabilizes UI before starting — ensures no lingering panels
+        # Each shared test stabilizes UI before starting â€” ensures no lingering panels
         if (($runAll -or $Test11) -and (-not $sharedProc.HasExited)) { Wait-ForUIGone $sharedProc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "RedThresholdBox" 2000 | Out-Null; Test11-Logging $sharedProc }
         if (($runAll -or $Test12) -and (-not $sharedProc.HasExited)) { Test12-ResourceUsage $sharedProc }
         if (($runAll -or $Test13) -and (-not $sharedProc.HasExited)) { Wait-ForUIGone $sharedProc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "RedThresholdBox" 2000 | Out-Null; Test13-UiElements $sharedProc }
