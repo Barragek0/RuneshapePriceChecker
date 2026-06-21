@@ -177,4 +177,4 @@ You can switch pricing sources anytime in Settings under **Pricing**.
  - Help fix bugs I couldn't find a solution for
  - Analyse the codebase and look for the areas in need of refactoring the most for readability.
  - Write all tests in the /tests/ project (this would have taken me weeks to do myself, with AI it only took a day or so)
- - Generate translation data files (`ocr/unique-category-map.json`) by extracting and mapping base-type keywords across all 8 supported languages — a task that would have required manual translation of hundreds of game terms
+ - Generate translation data files (`ocr/unique-category-map.json`) by extracting and mapping base-type keywords across all 7 supported languages — a task that would have required manual translation of hundreds of game terms
