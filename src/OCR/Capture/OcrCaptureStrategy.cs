@@ -10,61 +10,44 @@ public sealed record CaptureResult(Bitmap Bitmap, string Method);
 internal sealed partial class OcrCaptureStrategy(ILogger<OcrCaptureStrategy> logger)
 {
     private readonly ILogger<OcrCaptureStrategy> _logger = logger;
-    private bool _windowCaptureUnavailableLogged;
+    /// <summary>Capture modes that have been tried and failed (e.g. BitBlt unusable).</summary>
+    internal static readonly HashSet<string> FailedModes = new(StringComparer.OrdinalIgnoreCase);
 
     public CaptureResult Capture(OcrCaptureRegion region, WindowCaptureContext? context, OcrOptions options)
     {
         if (LosslessScaling.IsRunning)
-        {
             return TryDesktopOnly(region);
-        }
 
-        if (options.UseWindowClientCapture && context is not null)
+        var mode = options.CaptureMode?.ToLowerInvariant() ?? "desktop";
+        // Migrate old "auto" or "bitblt" config to printwindow
+        if (mode is "auto" or "bitblt")
+            mode = "printwindow";
+
+        if (mode == "desktop")
+            return TryDesktopOnly(region);
+
+        if (context is not null && mode == "printwindow")
         {
-            var result = TryWindowCapture(context, region);
-            if (result is not null)
-                return result;
+            if (TryPrintWindow(context, region, out var pwBmp))
+            {
+                _ = FailedModes.Remove("printwindow");
+                return new CaptureResult(pwBmp, "window-printwindow");
+            }
+            _ = FailedModes.Add("printwindow");
+            _logger.LogWarning("PrintWindow capture failed — falling back to Desktop.");
+            return TryDesktopOnly(region);
         }
 
         return TryDesktopOnly(region);
     }
 
-    private CaptureResult? TryWindowCapture(WindowCaptureContext context, OcrCaptureRegion region)
-    {
-        if (TryBitBlt(context, region, out var bmp))
-            return new CaptureResult(bmp, "window-bitblt");
-
-        if (TryPrintWindow(context, region, out bmp))
-            return new CaptureResult(bmp, "window-printwindow");
-
-        if (!_windowCaptureUnavailableLogged)
-        {
-            _windowCaptureUnavailableLogged = true;
-            LogWindowCaptureUnavailable();
-        }
-
-        return null;
-    }
-
-    private static bool TryBitBlt(WindowCaptureContext context, OcrCaptureRegion region, out Bitmap bitmap)
-    {
-        if (TryCaptureFromWindowClient(context, region, out bitmap, useCaptureBlt: true))
-        {
-            if (!IsLikelyInvalidCapture(bitmap))
-                return true;
-            bitmap.Dispose();
-        }
-
-        bitmap = null!;
-        return false;
-    }
-
-    private static bool TryPrintWindow(WindowCaptureContext context, OcrCaptureRegion region, out Bitmap bitmap)
+    private bool TryPrintWindow(WindowCaptureContext context, OcrCaptureRegion region, out Bitmap bitmap)
     {
         if (TryCaptureWithPrintWindow(context, region, out bitmap))
         {
             if (!IsLikelyInvalidCapture(bitmap))
                 return true;
+            _logger.LogWarning("PrintWindow: captured bitmap is invalid (all same color or near-black).");
             bitmap.Dispose();
         }
 
@@ -146,65 +129,6 @@ internal sealed partial class OcrCaptureStrategy(ILogger<OcrCaptureStrategy> log
         }
     }
 
-    private static bool TryCaptureFromWindowClient(WindowCaptureContext context, OcrCaptureRegion absoluteRegion, out Bitmap bitmap, bool useCaptureBlt = true)
-    {
-        bitmap = null!;
-
-        var sourceX = absoluteRegion.X - context.ClientX;
-        var sourceY = absoluteRegion.Y - context.ClientY;
-
-        if (sourceX < 0 || sourceY < 0)
-        {
-            return false;
-        }
-
-        if (sourceX + absoluteRegion.Width > context.ClientWidth ||
-            sourceY + absoluteRegion.Height > context.ClientHeight)
-        {
-            return false;
-        }
-
-        var sourceDc = NativeMethods.GetDC(context.WindowHandle);
-        if (sourceDc == IntPtr.Zero)
-        {
-            return false;
-        }
-
-        bitmap = new Bitmap(absoluteRegion.Width, absoluteRegion.Height, PixelFormat.Format24bppRgb);
-        using var graphics = Graphics.FromImage(bitmap);
-        var destinationDc = graphics.GetHdc();
-        try
-        {
-            const uint srccopy = 0x00CC0020;
-            const uint captureBlt = 0x40000000;
-            var rop = useCaptureBlt ? (srccopy | captureBlt) : srccopy;
-            var success = NativeMethods.BitBlt(
-                destinationDc,
-                0,
-                0,
-                absoluteRegion.Width,
-                absoluteRegion.Height,
-                sourceDc,
-                sourceX,
-                sourceY,
-                rop);
-
-            if (!success)
-            {
-                bitmap.Dispose();
-                bitmap = null!;
-                return false;
-            }
-
-            return true;
-        }
-        finally
-        {
-            graphics.ReleaseHdc(destinationDc);
-            _ = NativeMethods.ReleaseDC(context.WindowHandle, sourceDc);
-        }
-    }
-
     private static bool TryCaptureWithPrintWindow(WindowCaptureContext context, OcrCaptureRegion absoluteRegion, out Bitmap bitmap)
     {
         bitmap = null!;
@@ -260,30 +184,8 @@ internal sealed partial class OcrCaptureStrategy(ILogger<OcrCaptureStrategy> log
 
     private static class NativeMethods
     {
-        [DllImport("user32.dll")]
-        public static extern IntPtr GetDC(IntPtr hWnd);
-
-        [DllImport("user32.dll")]
-        public static extern int ReleaseDC(IntPtr hWnd, IntPtr hDc);
-
-        [DllImport("gdi32.dll", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool BitBlt(
-            IntPtr hdcDest,
-            int nXDest,
-            int nYDest,
-            int nWidth,
-            int nHeight,
-            IntPtr hdcSrc,
-            int nXSrc,
-            int nYSrc,
-            uint dwRop);
-
         [DllImport("user32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint nFlags);
     }
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Window-client capture unavailable (BitBlt/PrintWindow). Falling back to desktop capture; overlapping windows can pollute OCR.")]
-    private partial void LogWindowCaptureUnavailable();
 }

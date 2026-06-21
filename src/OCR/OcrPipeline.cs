@@ -166,7 +166,6 @@ internal static class OcrPipeline
         return (result, heights);
     }
 
-    #region Debug image helpers
 
     internal static void SaveDebugSteps(Bitmap raw, Bitmap masked, Bitmap preprocessed, Rectangle? crop, string dir)
     {
@@ -212,6 +211,4 @@ internal static class OcrPipeline
 
         OcrImagePreprocessor.SavePng(cropped, Path.Combine(dir, "5 Rows.png"));
     }
-
-    #endregion
 }

@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using RuneshapePriceChecker.App.Dashboard;
@@ -266,7 +267,9 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "OCR pipeline threw an unhandled exception.");
+            _logger.LogError(ex, "OCR pipeline threw unhandled exception: {Context} (lang={Lang} backend={Backend} capture={Method})",
+                ErrorContext.FromException(ex),
+                _detectedLanguage ?? _options.CurrentValue.Language, _activeOcrBackend, _runContext.CaptureMethod);
             return new LeagueWindowSnapshot([], capturedAt, InterfaceDetected: false);
         }
     }
@@ -291,7 +294,9 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         if (options.SaveDebugImages)
             EnsureDebugImageDirectoryExists(options);
 
-        if (!_windowResolutionProvider.IsPoe2WindowForeground || !IsPoe2ForegroundNow())
+        // Use the cached foreground state from Poe2WindowResolutionService
+        // (updated every 1 second) instead of an extra per-cycle Win32 call.
+        if (!_windowResolutionProvider.IsPoe2WindowForeground)
         {
             _lastInterfaceDetected = false;
             if (!_logState.HasFlag(OcrLogState.ForegroundWindowLogged))
@@ -329,12 +334,49 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         ValidateRegion(region);
         _metrics.RegionInfo = region is not null ? $"{region.Width}x{region.Height}" : "none";
 
+        // Pre-capture panel check: capture only the scan rectangle area (~40K px)
+        // instead of the full region (266K px) to check if the panel is still closed.
+        // Uses a direct CopyFromScreen to bypass the capture strategy's fallback chain.
+        var scanRect = new OcrCaptureRegion(
+            region.X + (int)(region.Width * LeaguePanelDetector.LeftFraction),
+            region.Y,
+            (int)(region.Width * (LeaguePanelDetector.RightFraction - LeaguePanelDetector.LeftFraction)),
+            (int)(region.Height * LeaguePanelDetector.TopRowFraction));
+        using (var preCapturePerf = _perf.Measure(OcrPerfTiming.Slot.AnchorCheck))
+        {
+            using var scanBitmap = CaptureDesktopRegionDirect(scanRect);
+            if (scanBitmap is null || !TryDetectPanelOpen(scanBitmap, options, region))
+            {
+                _metrics.AnchorCheckFails++;
+                _metrics.InterfaceDetected = false;
+                return string.Empty;
+            }
+            _metrics.AnchorCheckPasses++;
+        }
+
         CaptureResult captureResult;
         string captureMethod;
         using (_perf.Measure(OcrPerfTiming.Slot.Capture))
         {
             captureResult = _captureStrategy.Capture(region, _windowResolutionProvider.CurrentWindowCaptureContext, options);
             captureMethod = captureResult.Method;
+        }
+
+        // Track capture mode failures: if user selected a specific mode but we got a different one, it failed.
+        // If they match, clear any prior failure so transient issues don't permanently disable a mode.
+        var configuredMode = options.CaptureMode?.ToLowerInvariant() ?? "auto";
+        if (configuredMode != "auto")
+        {
+            var actualPrefix = captureMethod switch
+            {
+                string m when m.Contains("bitblt") => "bitblt",
+                string m when m.Contains("printwindow") => "printwindow",
+                _ => "desktop"
+            };
+            if (!string.Equals(configuredMode, actualPrefix, StringComparison.OrdinalIgnoreCase))
+                _metrics.FailedCaptureModes.Add(configuredMode);
+            else
+                _metrics.FailedCaptureModes.Remove(configuredMode);
         }
         using var capturedBitmap = captureResult.Bitmap;
 
@@ -351,17 +393,8 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
 
         _runContext = _runContext with { CaptureMethod = captureMethod };
 
-        using (_perf.Measure(OcrPerfTiming.Slot.AnchorCheck))
-        {
-            if (!TryDetectPanelOpen(capturedBitmap, options, region))
-            {
-                _runContext = _runContext with { FrameHash = 0 };
-                _metrics.AnchorCheckFails++;
-                _metrics.InterfaceDetected = false;
-                return string.Empty;
-            }
-            _metrics.AnchorCheckPasses++;
-        }
+        // Panel was already confirmed open by the pre-capture check above.
+        _metrics.InterfaceDetected = true;
 
         using (_perf.Measure(OcrPerfTiming.Slot.FrameHash))
         {
@@ -479,14 +512,12 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogError(ex, "Per-row Tesseract recognition failed for row {Row}/{Total}.", i + 1, rowYs.Length);
+                            _logger.LogError(ex, "Per-row Tesseract recognition failed for row {Row}/{Total}: {Context}", i + 1, rowYs.Length, ErrorContext.FromException(ex));
                             text = null;
                         }
                         var tessCleaned = text ?? string.Empty;
                         // Tesseract frequently misreads ')' as 'j' in Japanese output.
                         // Japanese item names never contain Latin 'j', so this swap is safe.
-                        if (string.Equals(_detectedLanguage, "jpn", StringComparison.OrdinalIgnoreCase))
-                            tessCleaned = tessCleaned.Replace('j', ')');
                         _logger.LogTrace("OCR: row {Row} raw='{Raw}' cleaned='{Clean}' lang={Lang} backend=tesseract", i, text, tessCleaned, _detectedLanguage);
                         rowTexts[i] = tessCleaned;
 
@@ -659,24 +690,6 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         }
     }
 
-    private bool IsPoe2ForegroundNow()
-    {
-        var context = _windowResolutionProvider.CurrentWindowCaptureContext;
-        if (context is null)
-        {
-            return false;
-        }
-
-        var foregroundHandle = NativeMethods.GetForegroundWindow();
-        if (foregroundHandle == IntPtr.Zero)
-        {
-            return false;
-        }
-
-        return foregroundHandle == context.WindowHandle ||
-               NativeMethods.AreWindowFamilyRelated(context.WindowHandle, foregroundHandle);
-    }
-
     private bool TryDetectPanelOpen(Bitmap capturedBitmap, OcrOptions options, OcrCaptureRegion region)
     {
         bool panelOpen = _listDetector.Update(capturedBitmap, out var diag);
@@ -723,6 +736,22 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         return true;
     }
 
+    /// Fast direct desktop capture via CopyFromScreen, bypassing the full capture strategy's fallback chain.
+    private static Bitmap? CaptureDesktopRegionDirect(OcrCaptureRegion region)
+    {
+        try
+        {
+            var bmp = new Bitmap(region.Width, region.Height, PixelFormat.Format24bppRgb);
+            using (var g = Graphics.FromImage(bmp))
+                g.CopyFromScreen(region.X, region.Y, 0, 0, new Size(region.Width, region.Height), CopyPixelOperation.SourceCopy);
+            return bmp;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private DebugCaptureContext? TryStartDebugCapture(Bitmap rawImage, OcrCaptureRegion region, string captureMethod)
     {
         var options = _options.CurrentValue;
@@ -767,7 +796,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to save OCR debug image.");
+            _logger.LogError(ex, "Failed to save OCR debug image to {Dir}: {Context}", directory, ErrorContext.FromException(ex));
             return null;
         }
     }
@@ -804,7 +833,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to create OCR debug image directory: {Path}", directory);
+            _logger.LogError(ex, "Failed to create OCR debug image directory {Path}: {Context}", directory, ErrorContext.FromException(ex));
         }
     }
 

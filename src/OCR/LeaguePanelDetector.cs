@@ -43,9 +43,6 @@ public sealed class LeaguePanelDetector
 
     private static (int avgBrightness, int blackCount, int totalCount, int minSum) ScanTopRow(Bitmap bmp)
     {
-        int x0 = (int)(bmp.Width * LeftFraction);
-        int x1 = (int)(bmp.Width * RightFraction);
-
         var rect = new Rectangle(0, 0, bmp.Width, bmp.Height);
         BitmapData data;
         try { data = bmp.LockBits(rect, ImageLockMode.ReadOnly, bmp.PixelFormat); }
@@ -58,38 +55,43 @@ public sealed class LeaguePanelDetector
 
             int stride = data.Stride;
             int len = Math.Abs(stride) * data.Height;
-            var bytes = new byte[len];
-            Marshal.Copy(data.Scan0, bytes, 0, len);
-
-            int cy = Math.Clamp((int)(bmp.Height * TopRowFraction), 0, bmp.Height - 1);
-
-            long totalBrightness = 0;
-            int totalCount = 0;
-            int blackCount = 0;
-            int minSum = int.MaxValue;
-
-            for (int y = 0; y <= cy; y++)
+            var bytes = System.Buffers.ArrayPool<byte>.Shared.Rent(len);
+            try
             {
-                int rowOff = y * stride;
-                for (int cx = x0; cx < x1; cx++)
+                Marshal.Copy(data.Scan0, bytes, 0, len);
+
+                long totalBrightness = 0;
+                int totalCount = 0;
+                int blackCount = 0;
+                int minSum = int.MaxValue;
+
+                for (int y = 0; y < bmp.Height; y++)
                 {
-                    int idx = rowOff + cx * bpp;
-                    int r = bytes[idx + 2];
-                    int g = bytes[idx + 1];
-                    int b = bytes[idx];
-                    int sum = r + g + b;
+                    int rowOff = y * stride;
+                    for (int cx = 0; cx < bmp.Width; cx++)
+                    {
+                        int idx = rowOff + cx * bpp;
+                        int r = bytes[idx + 2];
+                        int g = bytes[idx + 1];
+                        int b = bytes[idx];
+                        int sum = r + g + b;
 
-                    totalBrightness += sum / 3;
-                    totalCount++;
-                    if (sum < BlackPixelMaxSum)
-                        blackCount++;
-                    if (sum < minSum)
-                        minSum = sum;
+                        totalBrightness += sum / 3;
+                        totalCount++;
+                        if (sum < BlackPixelMaxSum)
+                            blackCount++;
+                        if (sum < minSum)
+                            minSum = sum;
+                    }
                 }
-            }
 
-            int avg = totalCount > 0 ? (int)(totalBrightness / totalCount) : 0;
-            return (avg, blackCount, totalCount, minSum == int.MaxValue ? 0 : minSum);
+                int avg = totalCount > 0 ? (int)(totalBrightness / totalCount) : 0;
+                return (avg, blackCount, totalCount, minSum == int.MaxValue ? 0 : minSum);
+            }
+            finally
+            {
+                System.Buffers.ArrayPool<byte>.Shared.Return(bytes);
+            }
         }
         finally
         {

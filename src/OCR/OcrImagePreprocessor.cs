@@ -38,11 +38,10 @@ internal static class OcrImagePreprocessor
         // Flat 1D byte array for mask: 0=discard, 1=keep. Better cache locality than bool[,].
         var keep = new byte[width * height];
 
-        // First pass: for each sufficiently dark pixel, mark a 15x15 neighborhood as kept.
+        // First pass: for each sufficiently dark pixel, mark a neighborhood as kept.
         for (var y = 0; y < height; y++)
         {
             var rowOffset = y * stride;
-            _ = y * width;
             for (var x = 0; x < width; x++)
             {
                 var idx = rowOffset + x * 3;
@@ -491,7 +490,6 @@ internal static class OcrImagePreprocessor
 
         return spread <= options.TextColorMaxChannelSpread;
     }
-
     private static int GetLocalMean(int[] integral, int width, int height, int x, int y, int radius)
     {
         var integralWidth = width + 1;
