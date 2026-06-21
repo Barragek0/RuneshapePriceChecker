@@ -18,10 +18,7 @@ internal sealed partial class OcrCaptureStrategy(ILogger<OcrCaptureStrategy> log
         if (LosslessScaling.IsRunning)
             return TryDesktopOnly(region);
 
-        var mode = options.CaptureMode?.ToLowerInvariant() ?? "desktop";
-        // Migrate old "auto" or "bitblt" config to printwindow
-        if (mode is "auto" or "bitblt")
-            mode = "printwindow";
+        var mode = options.CaptureMode?.ToLowerInvariant() ?? "printwindow";
 
         if (mode == "desktop")
             return TryDesktopOnly(region);

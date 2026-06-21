@@ -364,20 +364,17 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
 
         // Track capture mode failures: if user selected a specific mode but we got a different one, it failed.
         // If they match, clear any prior failure so transient issues don't permanently disable a mode.
-        var configuredMode = options.CaptureMode?.ToLowerInvariant() ?? "auto";
-        if (configuredMode != "auto")
+        var configuredMode = options.CaptureMode?.ToLowerInvariant() ?? "printwindow";
+        var actualPrefix = captureMethod switch
         {
-            var actualPrefix = captureMethod switch
-            {
-                string m when m.Contains("bitblt") => "bitblt",
-                string m when m.Contains("printwindow") => "printwindow",
-                _ => "desktop"
-            };
-            if (!string.Equals(configuredMode, actualPrefix, StringComparison.OrdinalIgnoreCase))
-                _metrics.FailedCaptureModes.Add(configuredMode);
-            else
-                _metrics.FailedCaptureModes.Remove(configuredMode);
-        }
+            string m when m.Contains("bitblt") => "bitblt",
+            string m when m.Contains("printwindow") => "printwindow",
+            _ => "desktop"
+        };
+        if (!string.Equals(configuredMode, actualPrefix, StringComparison.OrdinalIgnoreCase))
+            _metrics.FailedCaptureModes.Add(configuredMode);
+        else
+            _metrics.FailedCaptureModes.Remove(configuredMode);
         using var capturedBitmap = captureResult.Bitmap;
 
         // Keep a clone for per-line retry OCR (used when lines fail to price)
