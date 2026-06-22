@@ -45,7 +45,7 @@
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <SelfContained>true</SelfContained>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <InvariantGlobalization>false</InvariantGlobalization>
+    <InvariantGlobalization>true</InvariantGlobalization>
     <EventSourceSupport>false</EventSourceSupport>
     <DebuggerSupport>false</DebuggerSupport>
     <MetadataUpdaterSupport>false</MetadataUpdaterSupport>

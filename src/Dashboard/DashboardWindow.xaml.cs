@@ -1265,7 +1265,8 @@ public sealed partial class DashboardWindow : Window
             > 0 => (Brush)FindResource("GreenBrush"),
             _ => (Brush)FindResource("TextPrimary")
         };
-        DbgMemory.Text = snap.MemoryMb > 0 ? $"{snap.MemoryMb}MB" : "—";
+        var currentMb = Process.GetCurrentProcess().WorkingSet64 / (1024 * 1024);
+        DbgMemory.Text = currentMb > 0 ? $"{currentMb}MB" : "—";
         DbgScanCpu.Text = snap.ScanCpuPercent > 0 ? $"{snap.ScanCpuPercent:F1}%" : "—";
         DbgScanCpu.Foreground = snap.ScanCpuPercent switch
         {
@@ -1353,7 +1354,8 @@ public sealed partial class DashboardWindow : Window
         _ = sb.AppendLine("── System ──");
         var uptime = snap.Uptime;
         _ = sb.AppendLine(CultureInfo.InvariantCulture, $"  Uptime:       {(int)uptime.TotalHours}h {uptime.Minutes}m {uptime.Seconds}s");
-        _ = sb.AppendLine(CultureInfo.InvariantCulture, $"  Memory:       {snap.MemoryMb}MB");
+        var currentMb = System.Diagnostics.Process.GetCurrentProcess().WorkingSet64 / (1024 * 1024);
+        _ = sb.AppendLine(CultureInfo.InvariantCulture, $"  Memory:       {currentMb}MB");
         _ = sb.AppendLine(CultureInfo.InvariantCulture, $"  CPU (proc):   {snap.CpuPercent:F1}%");
         _ = sb.AppendLine(CultureInfo.InvariantCulture, $"  CPU (scan):   {snap.ScanCpuPercent:F1}%");
         _ = sb.AppendLine(CultureInfo.InvariantCulture, $"  Recognize:    {recognizeMs:F0}ms/scan");
