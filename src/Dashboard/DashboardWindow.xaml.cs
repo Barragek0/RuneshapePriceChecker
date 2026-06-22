@@ -52,6 +52,12 @@ public sealed partial class DashboardWindow : Window
     [DllImport("user32.dll")]
     private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
 
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
+
     private const uint GwHwndfirst = 0;
     private IntPtr _windowHandle;
     private readonly DashboardLogSink _sink;
@@ -1166,8 +1172,18 @@ public sealed partial class DashboardWindow : Window
         _ = (SlotBreakdownCompact?.Visibility = isTesseract ? Visibility.Collapsed : Visibility.Visible);
         _ = (SlotBreakdownFull?.Visibility = isTesseract ? Visibility.Visible : Visibility.Collapsed);
 
-        DbgWindowStatus.Text = snap.IsPoe2Foreground ? "\u25CF Foreground" : "\u2717 Not active";
-        DbgWindowStatus.Foreground = snap.IsPoe2Foreground
+        // Check PoE2 foreground directly so the status updates independently of OCR capture timing.
+        var isForeground = false;
+        try
+        {
+            var fgHwnd = GetForegroundWindow();
+            var sb = new System.Text.StringBuilder(256);
+            if (GetWindowText(fgHwnd, sb, sb.Capacity) > 0)
+                isForeground = sb.ToString().Equals("Path of Exile 2", StringComparison.OrdinalIgnoreCase);
+        }
+        catch { }
+        DbgWindowStatus.Text = isForeground ? "\u2713 Foreground" : "\u2717 Not active";
+        DbgWindowStatus.Foreground = isForeground
             ? (Brush)FindResource("GreenBrush")
             : (Brush)FindResource("AmberBrush");
 

@@ -39,7 +39,7 @@ internal static class NativeMethods
     public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    private static extern int GetWindowText(IntPtr hWnd, IntPtr lpString, int nMaxCount);
+    public static extern int GetWindowText(IntPtr hWnd, IntPtr lpString, int nMaxCount);
 
     public static string GetWindowTitle(IntPtr windowHandle)
     {
