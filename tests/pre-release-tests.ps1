@@ -14,6 +14,7 @@ param(
     [switch]$Test36,
     [switch]$Test37,
     [switch]$Test38, [switch]$Test39, [switch]$Test40,
+    [switch]$Test41,
     [switch]$All
 )
 
@@ -326,7 +327,7 @@ function Test2-InitialSetupSuite {
 
 function Test8-AutoUpdater {
     $zip = Resolve-Path "$root\bin\Release\RuneshapePriceChecker.zip" -ErrorAction SilentlyContinue
-    if (-not $zip) { Report-Result "3: Zip" $false "Publish first"; return }
+    if (-not $zip) { Report-Result "8: Zip" $false "Publish first"; return }
 
     # Build the "next version" exe so we can simulate a real version upgrade.
     $buildProps = [xml](Get-Content "$root\Directory.Build.props")
@@ -344,8 +345,6 @@ function Test8-AutoUpdater {
     }
 
     # Create a clean sandbox extracted from the ORIGINAL zip (v$ver).
-    # We DO NOT copy from $exeDir (obj/Release/publish/) because a previous update
-    # simulation may have overwritten it with the newer version.
     $sandbox = "$env:TEMP\rpc-test8-$(Get-Random)"
     $origExeDir = $exeDir
     $origConfigDir = $configDir
@@ -354,23 +353,19 @@ function Test8-AutoUpdater {
     Write-Host "  Sandbox: $sandbox"
     Remove-Item $sandbox -Recurse -Force -ErrorAction SilentlyContinue
     $null = New-Item -ItemType Directory $sandbox -Force
-    # Extract the original release zip (always contains v$ver) into the sandbox
     Expand-Archive -Path $zip -DestinationPath $sandbox -Force
-    # Override script-level paths to point at the sandbox
     $script:exeDir = $sandbox
     $script:exe = "$sandbox\RuneshapePriceChecker.exe"
     $script:configDir = "$sandbox\config"
     $script:configPath = "$sandbox\config\appsettings.json"
     $script:logDir = "$sandbox\logs"
-    # Ensure config directory exists in the sandbox
     $null = New-Item -ItemType Directory $script:configDir -Force
 
     Stop-App
     Get-Process "dotnet" -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $PID } | Stop-Process -Force
-    # Wait for dotnet processes to fully exit before starting the test server
     $null = Wait-For { -not (Get-Process "dotnet" -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $PID }) } 5000
 
-    # Start test server with the update zip (v$nextVer) and report that version
+    # Start test server with the update zip (v$nextVer)
     $serverProc = Start-Process -FilePath "dotnet" -ArgumentList "run --project tests/UpdateTestServer/UpdateTestServer.csproj -c Release --no-build -- `"$updateZip`" 8099 $nextVer" -PassThru -NoNewWindow
     $serverReady = Wait-ForPort 8099 8000
     if (-not $serverReady -or $serverProc.HasExited) { Report-Result "8a: Test server" $false "Not listening"; return }
@@ -378,40 +373,43 @@ function Test8-AutoUpdater {
     Stop-App; Clear-OldLogs
     Write-Config '{"App":{"LogLevel":"Debug"},"Window":{"InitialSetupComplete":true},"Update":{"GitHubApiBaseUrl":"http://localhost:8099/api","AutoUpdate":true},"OCR":{"SaveDebugImages":false,"Language":"eng"}}'
     $proc = Launch-App -extraArgs "--Update:GitHubApiBaseUrl=http://localhost:8099/api --App:AutoApplyUpdate=true"
-    # Wait for update detection
+
+    # 8b: Version detection
     $detected = Wait-ForLog "New version|Update available" 25000
     if (-not $detected) {
-        # Fallback: check the log directly
         $log = Get-LatestLog
         if ($log) { $detected = (Select-String -Path $log -Pattern "New version|Update available" -Quiet) }
     }
-    Report-Result "8b: Real version check ($ver -> $nextVer)" $detected $(if ($detected) { "Detected" }else { "Not detected" })
+    Report-Result "8b: Version check ($ver -> $nextVer)" $detected $(if ($detected) { "Detected" }else { "Not detected" })
 
     if ($detected) {
-        # Wait for download to finish (conditional wait with timeout)
-        $downloaded = Wait-ForLog "Download complete|Copied local zip|using local zip" 20000
+        # 8c: Wait for download + PowerShell updater script launch
+        $downloaded = Wait-ForLog "Download complete\. Extracting updater|Copied local zip|using local zip" 20000
         if ($downloaded) {
-            # Wait for updater to launch + apply (the app exits and restart is triggered)
+            $scriptLaunched = Wait-ForLog "PowerShell update script launched" 10000
+            Report-Result "8c: Updater script launched" $scriptLaunched $(if ($scriptLaunched) { "Launched" }else { "Not detected" })
+
+            # Wait for the original app to exit (lifetime.StopApplication)
             $appExited = $null
             $sw = [System.Diagnostics.Stopwatch]::StartNew()
             while ($sw.ElapsedMilliseconds -lt 15000) {
                 if ($proc.HasExited) { $appExited = $true; break }
                 Start-Sleep -Milliseconds 200
             }
-            # Wait for the restarted instance to be findable
+            Report-Result "8d: App exited for update" ($appExited -eq $true) $(if ($appExited) { "Exited" }else { "Still running" })
+
+            # 8e: Wait for the restarted instance (PowerShell starts old exe which picks up .new)
+            $restarted = $null
             if ($appExited) {
-                $restarted = $null
                 $sw2 = [System.Diagnostics.Stopwatch]::StartNew()
-                while ($sw2.ElapsedMilliseconds -lt 10000) {
+                while ($sw2.ElapsedMilliseconds -lt 15000) {
                     $p = Get-Process "RuneshapePriceChecker" -ErrorAction SilentlyContinue
                     if ($p -and $p.Id -ne $proc.Id) { $restarted = $p; break }
                     Start-Sleep -Milliseconds 300
                 }
-                if (-not $restarted) {
-                    # New instance may have already finished; try to find recent log
-                    Start-Sleep -Milliseconds 2000
-                }
+                if (-not $restarted) { Start-Sleep -Milliseconds 3000 }
             }
+            Report-Result "8e: App restarted" ($restarted -ne $null) $(if ($restarted) { "PID $($restarted.Id)" }else { "Not detected" })
         }
     }
 
@@ -419,18 +417,15 @@ function Test8-AutoUpdater {
     $log = Get-LatestLog
     if ($log) {
         $lc = Get-Content $log -Raw
-        $downloaded = $lc -match "Download complete" -or $lc -match "Copied local zip" -or $lc -match "using local zip"
-        $launched = $lc -match "Launching updater" -or $lc -match "Update applied"
-        Report-Result "8c: Download/apply" ($downloaded -or $launched) $(if ($downloaded) { "Downloaded" }elseif ($launched) { "Applied" }else { "Not yet" })
+        $hadDownload = $lc -match "Download complete\. Extracting updater" -or $lc -match "Copied local zip" -or $lc -match "using local zip"
+        $hadScript = $lc -match "PowerShell update script launched"
+        Report-Result "8f: Update download+script" ($hadDownload -and $hadScript) $(if ($hadDownload -and $hadScript) { "OK" }else { "Download=$hadDownload Script=$hadScript" })
     }
     else {
-        Report-Result "8c: Download/apply" $false "No log"
+        Report-Result "8f: Update download+script" $false "No log"
     }
 
-    # 8d: Check update check on second launch.
-    # The zip still contains v$ver (not v$nextVer), so the app will correctly
-    # detect the update again â€” "Update available" is the expected result.
-    # We preserve the existing config so the changelog from step 8c survives.
+    # 8g: Update check on second launch.
     Stop-App; Clear-OldLogs
     $proc = Launch-App -extraArgs "--Update:GitHubApiBaseUrl=http://localhost:8099/api"; Wait-ForApp 8000 | Out-Null
     $checkRan = Wait-ForLog "Update available|New version|Already up to date|No update available" 20000
@@ -438,9 +433,9 @@ function Test8-AutoUpdater {
         $log = Get-LatestLog
         if ($log) { $checkRan = (Select-String -Path $log -Pattern "Update available|New version|Already up to date" -Quiet) }
     }
-    Report-Result "8d: Update check ran" $checkRan "OK"
+    Report-Result "8g: Update check on relaunch" $checkRan "OK"
 
-    # 8e: Changelog should now be in config (written by update detection during first OR second launch)
+    # 8h: Changelog should be in config
     $changelogWritten = Wait-ForConfig "Changelog" "Version" $nextVer 15000
     if (-not $changelogWritten) {
         if (Test-Path $configPath) {
@@ -455,10 +450,10 @@ function Test8-AutoUpdater {
     Stop-App
     if (Test-Path $configPath) {
         $cfg = Get-Content $configPath -Raw | ConvertFrom-Json
-        Report-Result "8e: Changelog in config" ($cfg.Changelog -and $cfg.Changelog.Version) $(if ($cfg.Changelog.Version) { "v=$($cfg.Changelog.Version)" }else { "Missing" })
+        Report-Result "8h: Changelog in config" ($cfg.Changelog -and $cfg.Changelog.Version) $(if ($cfg.Changelog.Version) { "v=$($cfg.Changelog.Version)" }else { "Missing" })
     }
     else {
-        Report-Result "8e: Changelog in config" $false "No config"
+        Report-Result "8h: Changelog in config" $false "No config"
     }
     $serverProc | Stop-Process -Force -ErrorAction SilentlyContinue
 
@@ -856,21 +851,6 @@ function Test23-WindowPosition {
     }
 }
 
-function Test24-SettingsToggledSave($proc) {
-    if ($proc.HasExited) { Report-Result "24: Settings" $false "App exited"; return }
-    $origCfg = if (Test-Path $configPath) { Get-Content $configPath -Raw } else { "" }
-    # Open settings, verify they opened, close via toggle
-    Click-Button $proc "Settings" 3000 | Out-Null; Start-Sleep -Milliseconds 600
-    $hwnd = $proc.MainWindowHandle
-    try { $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd) } catch { Report-Result "24: No UIA" $false; Click-Button $proc "Settings" 3000 | Out-Null; return }
-    $redBox = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
-        (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "RedThresholdBox")))
-    if (-not $redBox) { Report-Result "24a: Settings opened" $false "Not visible"; Click-Button $proc "Settings" 3000 | Out-Null; return }
-    Report-Result "24a: Settings opened" $true "Visible"
-    # Close via toggle (auto-saves)
-    Click-Button $proc "Settings" 3000 | Out-Null; Start-Sleep -Milliseconds 600
-}
-
 function Test25-OcrLanguageChange {
     Stop-App; Clear-OldLogs
     Write-Config '{"App":{"LogLevel":"Debug"},"Window":{"InitialSetupComplete":true},"OCR":{"SaveDebugImages":false,"Language":"fra"},"Update":{"AutoUpdate":false}}'
@@ -886,7 +866,7 @@ function Test26-RapidSettingsChanges {
     Write-Config $cfgBase
     $proc = Launch-App; Wait-ForApp 5000 | Out-Null
     $crashed = $false
-    for ($i = 0; $i -lt 5; $i++) {
+    for ($i = 0; $i -lt 8; $i++) {
         Click-Button $proc "Settings" 2000 | Out-Null; Start-Sleep -Milliseconds 300
         Click-Button $proc "Settings" 2000 | Out-Null; Start-Sleep -Milliseconds 300
         if ($proc.HasExited) { $crashed = $true; break }
@@ -966,18 +946,6 @@ function Test29-LogCoalescing($proc) {
         Report-Result "29a: Duplicate coalescing" $hasCoalesced $(if ($hasCoalesced) { "Found $countText" }else { "No coalesced entries" })
     }
     catch { Report-Result "29a: Duplicate coalescing" $false "Clipboard error" }
-}
-
-function Test30-SettingsToggleStability($proc) {
-    if ($proc.HasExited) { Report-Result "30: Settings toggle" $false "App exited"; return }
-
-    # Rapid open/close settings panel, verify no crash
-    $crashed = $false
-    for ($i = 0; $i -lt 8; $i++) {
-        if (-not (Invoke-Button $proc "Settings" 1500)) { break }
-        if ($proc.HasExited) { $crashed = $true; break }
-    }
-    Report-Result "30a: Rapid toggle no crash" (-not $crashed) $(if ($crashed) { "Crashed" }else { "Stable" })
 }
 
 function Test31-TestModeIndicator {
@@ -1341,13 +1309,184 @@ function Test40-Propagation {
     Stop-App
 }
 
+function Test41-AutoUpdaterWithOpenWithPoE2 {
+    $zip = Resolve-Path "$root\bin\Release\RuneshapePriceChecker.zip" -ErrorAction SilentlyContinue
+    if (-not $zip) { Report-Result "41: Zip" $false "Publish first"; return }
+
+    # Build the "next version" update package (same as Test8)
+    $buildProps = [xml](Get-Content "$root\Directory.Build.props")
+    $ver = [Version]($buildProps.Project.PropertyGroup.Version -replace '^v', '')
+    $nextVer = "{0}.{1}.{2}" -f $ver.Major, $ver.Minor, ($ver.Build + 1)
+    $updateDir = "$env:TEMP\rpc-update-$nextVer"
+    $updateZip = "$updateDir\RuneshapePriceChecker.zip"
+    if (-not (Test-Path $updateZip)) {
+        Write-Host "  Building v$nextVer update package..."
+        Remove-Item $updateDir -Recurse -Force -ErrorAction SilentlyContinue
+        $null = New-Item -ItemType Directory $updateDir -Force
+        dotnet publish "$root\RuneshapePriceChecker.csproj" -c Release /p:Version=$nextVer --output "$updateDir\publish" --nologo 2>&1 | Out-Null
+        Compress-Archive -Path "$updateDir\publish\*" -DestinationPath $updateZip -Force
+        Write-Host "  Update zip: $updateZip"
+    }
+
+    # Create sandbox from ORIGINAL zip (v$ver)
+    $sandbox = "$env:TEMP\rpc-test41-$(Get-Random)"
+    $origExeDir = $exeDir
+    $origConfigDir = $configDir
+    $origConfigPath = $configPath
+    $origLogDir = $logDir
+    Write-Host "  Sandbox: $sandbox"
+    Remove-Item $sandbox -Recurse -Force -ErrorAction SilentlyContinue
+    $null = New-Item -ItemType Directory $sandbox -Force
+    Expand-Archive -Path $zip -DestinationPath $sandbox -Force
+    $script:exeDir = $sandbox
+    $script:exe = "$sandbox\RuneshapePriceChecker.exe"
+    $script:configDir = "$sandbox\config"
+    $script:configPath = "$sandbox\config\appsettings.json"
+    $script:logDir = "$sandbox\logs"
+    $null = New-Item -ItemType Directory $script:configDir -Force
+
+    Stop-App
+    Get-Process "dotnet" -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $PID } | Stop-Process -Force
+    $null = Wait-For { -not (Get-Process "dotnet" -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $PID }) } 5000
+
+    # Start test server
+    $serverProc = Start-Process -FilePath "dotnet" -ArgumentList "run --project tests/UpdateTestServer/UpdateTestServer.csproj -c Release --no-build -- `"$updateZip`" 8099 $nextVer" -PassThru -NoNewWindow
+    $serverReady = Wait-ForPort 8099 8000
+    if (-not $serverReady -or $serverProc.HasExited) { Report-Result "41a: Test server" $false "Not listening"; return }
+    Report-Result "41a: Test server" $true "PID $($serverProc.Id)"
+    Stop-App; Clear-OldLogs
+
+    # Enable OpenWithPoE2 in config so the background --rpcservice starts
+    Write-Config '{"App":{"LogLevel":"Debug","OpenWithPoE2":true},"Window":{"InitialSetupComplete":true},"Update":{"GitHubApiBaseUrl":"http://localhost:8099/api","AutoUpdate":true},"OCR":{"SaveDebugImages":false,"Language":"eng"}}'
+
+    Write-Host "  [DEBUG] Launching: $exe"
+    $exeVer = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($exe).ProductVersion
+    Write-Host "  [DEBUG] Version: $exeVer"
+    $proc = Launch-App -extraArgs "--Update:GitHubApiBaseUrl=http://localhost:8099/api --App:AutoApplyUpdate=true"
+
+    # 41b: Verify background --rpcservice starts
+    $bgPid = $null
+    for ($i = 0; $i -lt 20; $i++) {
+        $others = Get-Process "RuneshapePriceChecker" -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $proc.Id }
+        if ($others) { $bgPid = $others[0].Id; break }
+        Start-Sleep -Milliseconds 500
+    }
+    Report-Result "41b: --rpcservice started" ($bgPid -ne $null) $(if ($bgPid) { "PID $bgPid" }else { "Not found" })
+
+    # 41c: Version detection
+    $detected = Wait-ForLog "New version|Update available" 25000
+    if (-not $detected) {
+        $log = Get-LatestLog
+        if ($log) { $detected = (Select-String -Path $log -Pattern "New version|Update available" -Quiet) }
+    }
+    Report-Result "41c: Version check ($ver -> $nextVer)" $detected $(if ($detected) { "Detected" }else { "Not detected" })
+
+    if ($detected) {
+        # 41d: Wait for download + the SignalExit() to kill the background service
+        # With the C# fix, ApplyUpdateAsync signals the background service to exit
+        # before launching the PowerShell updater. Also triggers from CheckForUpdatesAsync
+        # when AutoApplyUpdate is set (fixes race condition in Loaded handler).
+        $downloaded = Wait-ForLog "Download complete\. Extracting updater|Copied local zip" 40000
+        if ($downloaded) {
+            # 41e: Background service was killed by KillExistingService in ApplyUpdateAsync.
+            # Don't check by PID — the restarted app may recycle the same PID.
+            # Instead just verify total process count is 1 (only the main app).
+            Start-Sleep -Milliseconds 3000
+            $mainOnly = (Get-Process "RuneshapePriceChecker" -ErrorAction SilentlyContinue).Count -eq 1
+            Report-Result "41e: Background service exited" $mainOnly $(if ($mainOnly) { "Only main app running" }else { "Multiple RuneshapePriceChecker processes" })
+
+            # 41f: PowerShell updater script launched — search ALL log files in the directory,
+            # since Get-LatestLog may return the new app's log file (created after restart).
+            Start-Sleep -Milliseconds 500
+            $scriptLaunched = $false
+            $allLogs = Get-ChildItem "$logDir\*-log.txt" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime
+            foreach ($lf in $allLogs) {
+                if (Select-String -Path $lf.FullName -Pattern "PowerShell update script launched" -Quiet) {
+                    $scriptLaunched = $true
+                    break
+                }
+            }
+            $preRestartLog = ($allLogs | Select-Object -Last 1).FullName   # oldest = original app log
+            Report-Result "41f: Updater script launched" $scriptLaunched "OK"
+
+            # 41g: App exits (lifetime.StopApplication after PowerShell script launch)
+            $appExited = $null
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            while ($sw.ElapsedMilliseconds -lt 15000) {
+                if ($proc.HasExited) { $appExited = $true; break }
+                Start-Sleep -Milliseconds 200
+            }
+            Report-Result "41g: App exited" ($appExited -eq $true) $(if ($appExited) { "Exited" }else { "Still running" })
+
+            # 41h: App restarts (PowerShell starts old exe, Program.cs swaps .exe.new)
+            $restarted = $null
+            if ($appExited) {
+                $sw2 = [System.Diagnostics.Stopwatch]::StartNew()
+                while ($sw2.ElapsedMilliseconds -lt 15000) {
+                    $allProcs = Get-Process "RuneshapePriceChecker" -ErrorAction SilentlyContinue
+                    # Don't filter out $bgPid (may be recycled). Just exclude self ($PID)
+                    # and the original process (which exited). Any remaining is the restarted app.
+                    $candidates = $allProcs | Where-Object { $_.Id -ne $PID }
+                    if ($candidates) { $restarted = $candidates[0]; break }
+                    Start-Sleep -Milliseconds 300
+                }
+                if (-not $restarted) { Start-Sleep -Milliseconds 3000 }
+            }
+            Report-Result "41h: App restarted" ($restarted -ne $null) $(if ($restarted) { "PID $($restarted.Id)" }else { "Not detected" })
+
+            # 41i: Background service is NOT re-registered on startup (by design).
+            # It's only re-registered on app close (Closed handler in DashboardWindow).
+            # Verify only the restarted app process exists — no second --rpcservice.
+            if ($restarted) {
+                Start-Sleep -Milliseconds 2000
+                $allAfter = Get-Process "RuneshapePriceChecker" -ErrorAction SilentlyContinue
+                $extraProcesses = $allAfter | Where-Object { $_.Id -ne $restarted.Id -and $_.Id -ne $PID }
+                $bgNotRestarted = ($null -eq $extraProcesses)
+                # The registry Run key was set by the initial Register() when OpenWithPoE2
+                # was first enabled.  Verify it still exists for the next session.
+                $regRun = Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" "RuneshapePriceChecker" -ErrorAction SilentlyContinue
+                $regExists = ($null -ne $regRun)
+                Report-Result "41i: No background after restart" $bgNotRestarted $(if ($bgNotRestarted) { "Only main app running (registry=$regExists)" }else { "Extra PIDs: $($extraProcesses.Id -join ',')" })
+            }
+
+            # 41j: Verify update messages across ALL log files (search both old and new)
+            $hadDownload = $false; $hadScript = $false
+            foreach ($lf in (Get-ChildItem "$logDir\*-log.txt" -ErrorAction SilentlyContinue)) {
+                $content = Get-Content $lf.FullName -Raw
+                if ($content -match "Download complete\. Extracting updater|Copied local zip") { $hadDownload = $true }
+                if ($content -match "PowerShell update script launched") { $hadScript = $true }
+            }
+            Report-Result "41j: Update summary" ($hadDownload -and $hadScript) $(if ($hadDownload -and $hadScript) { "OK" }else { "Download=$hadDownload Script=$hadScript" })
+        }
+        else {
+            Report-Result "41d: Download started" $false "Not detected within timeout"
+        }
+    }
+
+    Stop-App
+    $serverProc | Stop-Process -Force -ErrorAction SilentlyContinue
+
+    # Capture log for debugging before cleanup
+    $savedLog = Join-Path $env:TEMP "rpc-test41-lastrun.log"
+    $latestLog = Get-LatestLog
+    if ($latestLog -and (Test-Path $latestLog)) { Copy-Item $latestLog $savedLog -Force; Write-Host "  [DEBUG] Log saved to $savedLog" }
+
+    # Restore original paths and clean up sandbox
+    $script:exeDir = $origExeDir
+    $script:exe = "$origExeDir\RuneshapePriceChecker.exe"
+    $script:configDir = $origConfigDir
+    $script:configPath = $origConfigPath
+    $script:logDir = $origLogDir
+    Remove-Item $sandbox -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 Write-Banner "RuneshapePriceChecker v1.0.0 Pre-Release Tests"
 Write-Host "  Exe: $exe"
 Write-Host ""
 
 Stop-App
 
-$runAll = $All -or (-not ($Test1 -or $Test2 -or $Test3 -or $Test4 -or $Test5 -or $Test6 -or $Test7 -or $Test8 -or $Test9 -or $Test10 -or $Test11 -or $Test12 -or $Test13 -or $Test14 -or $Test15 -or $Test16 -or $Test18 -or $Test19 -or $Test20 -or $Test21 -or $Test22 -or $Test23 -or $Test24 -or $Test25 -or $Test26 -or $Test27 -or $Test28 -or $Test29 -or $Test30 -or $Test31 -or $Test32 -or $Test33 -or $Test34 -or $Test35 -or $Test36 -or $Test37 -or $Test38 -or $Test39 -or $Test40))
+$runAll = $All -or (-not ($Test1 -or $Test2 -or $Test3 -or $Test4 -or $Test5 -or $Test6 -or $Test7 -or $Test8 -or $Test9 -or $Test10 -or $Test11 -or $Test12 -or $Test13 -or $Test14 -or $Test15 -or $Test16 -or $Test18 -or $Test19 -or $Test20 -or $Test21 -or $Test22 -or $Test23 -or $Test25 -or $Test26 -or $Test27 -or $Test28 -or $Test29 -or $Test31 -or $Test32 -or $Test33 -or $Test34 -or $Test35 -or $Test36 -or $Test37 -or $Test38 -or $Test39 -or $Test40 -or $Test41))
 
 # â”€â”€ Sandbox management for isolation between tests â”€â”€
 $_savedPaths = @{}  # saved original paths for restore
@@ -1428,6 +1567,8 @@ if ($runAll -or $Test7) { Invoke-TestWithSandbox "Test7" { Test7-InvalidThreshol
 if ($runAll -or $Test8) { Test8-AutoUpdater }
 if ($runAll -or $Test9) { Invoke-TestWithSandbox "Test9" { Test9-ChangelogButton } }
 if ($runAll -or $Test10) { Invoke-TestWithSandbox "Test10" { Test10-OverlayFeatureToggles } }
+# Test41 manages its own sandbox (needs the original zip + update server, same pattern as Test8)
+if ($runAll -or $Test41) { Test41-AutoUpdaterWithOpenWithPoE2 }
 
 # Restart-mode tests (each starts/stops its own instance)
 if ($runAll -or $Test18) { Invoke-TestWithSandbox "Test18" { Test18-OcrBackendSetting } }
@@ -1449,7 +1590,7 @@ if ($runAll -or $Test40) { Invoke-TestWithSandbox "Test40" { Test40-Propagation 
 # PHASE 2: Shared-instance tests (single app, no restart between tests)
 # These tests only read state or interact with the UI non-destructively.
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-$runPhase2 = $runAll -or $Test11 -or $Test12 -or $Test13 -or $Test14 -or $Test15 -or $Test16 -or $Test20 -or $Test24 -or $Test28 -or $Test29 -or $Test30 -or $Test34 -or $Test35 -or $Test36
+$runPhase2 = $runAll -or $Test11 -or $Test12 -or $Test13 -or $Test14 -or $Test15 -or $Test16 -or $Test20 -or $Test28 -or $Test29 -or $Test34 -or $Test35 -or $Test36
 if ($runPhase2) {
     Write-Banner "PHASE 2: Shared-instance tests"
     Stop-App; Clear-OldLogs; Write-Config $cfgBase
@@ -1465,11 +1606,11 @@ if ($runPhase2) {
         if (($runAll -or $Test14) -and (-not $sharedProc.HasExited)) { Wait-ForUIGone $sharedProc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "RedThresholdBox" 2000 | Out-Null; Test14-SettingsFieldValidation $sharedProc }
         if (($runAll -or $Test15) -and (-not $sharedProc.HasExited)) { EnsureLogSectionVisible $sharedProc; Test15-TooltipVerification $sharedProc }
         if (($runAll -or $Test20) -and (-not $sharedProc.HasExited)) { Wait-ForUIGone $sharedProc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "RedThresholdBox" 2000 | Out-Null; Test20-ComprehensiveSettingsRoundTrip $sharedProc }
-        if (($runAll -or $Test24) -and (-not $sharedProc.HasExited)) { Wait-ForUIGone $sharedProc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "RedThresholdBox" 2000 | Out-Null; Test24-SettingsToggledSave $sharedProc }
+        # Test24 was removed (duplicate of Test20/26)
         # Log ordering tests before Test16 closes the app
         if (($runAll -or $Test28) -and (-not $sharedProc.HasExited)) { EnsureLogSectionVisible $sharedProc; Test28-LogOrdering $sharedProc }
         if (($runAll -or $Test29) -and (-not $sharedProc.HasExited)) { EnsureLogSectionVisible $sharedProc; Test29-LogCoalescing $sharedProc }
-        if (($runAll -or $Test30) -and (-not $sharedProc.HasExited)) { Wait-ForUIGone $sharedProc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "RedThresholdBox" 2000 | Out-Null; Test30-SettingsToggleStability $sharedProc }
+        # Test30 was merged into Test26 (RapidSettingsChanges)
         if (($runAll -or $Test34) -and (-not $sharedProc.HasExited)) { Wait-ForUIGone $sharedProc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "RedThresholdBox" 2000 | Out-Null; Test34-CurrencyMutualExclusion $sharedProc }
         if (($runAll -or $Test35) -and (-not $sharedProc.HasExited)) { Wait-ForUIGone $sharedProc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "RedThresholdBox" 2000 | Out-Null; Test35-SettingsValidationUI $sharedProc }
         if (($runAll -or $Test36) -and (-not $sharedProc.HasExited)) { Wait-ForUIGone $sharedProc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "RedThresholdBox" 2000 | Out-Null; Test36-StatusLockCleared $sharedProc }

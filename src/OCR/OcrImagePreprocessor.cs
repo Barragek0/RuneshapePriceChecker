@@ -261,7 +261,6 @@ internal static class OcrImagePreprocessor
         var dstStride = dstData.Stride;
         var dstBytes = new byte[Math.Abs(dstStride) * dstH];
 
-        // Fill with white
         Array.Fill(dstBytes, (byte)255);
 
         // Copy source into center (avoid GDI DrawImage)

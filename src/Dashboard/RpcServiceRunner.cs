@@ -19,7 +19,8 @@ internal static class RpcServiceRunner
     {
         KillExistingService();
         SignalExit();
-        for (var i = 0; i < 10; i++)
+        // Wait up to 5s for the kernel event handle to be cleaned up by the OS
+        for (var i = 0; i < 25; i++)
         {
             if (!IsServiceRunning()) break;
             Thread.Sleep(200);
@@ -71,124 +72,131 @@ internal static class RpcServiceRunner
 
     public static void Run()
     {
-        using var activeEvent = new EventWaitHandle(false, EventResetMode.ManualReset, ServiceActiveEventName);
-        using var exitEvent = new EventWaitHandle(false, EventResetMode.ManualReset, ExitEventName);
-        using var closeByPoe2Event = new EventWaitHandle(false, EventResetMode.ManualReset, CloseByPoe2EventName);
-        var selfId = Environment.ProcessId;
-        _appLaunched = false;
-
-        // Watch all process creations, then check for PoE2 by window title (more reliable than process names)
-        var query = "SELECT * FROM __InstanceCreationEvent WITHIN 1 " +
-                    "WHERE TargetInstance ISA 'Win32_Process'";
-
-        using var watcher = new ManagementEventWatcher(query);
-        watcher.EventArrived += (_, _) =>
+        try
         {
-            try
+            using var activeEvent = new EventWaitHandle(false, EventResetMode.ManualReset, ServiceActiveEventName);
+            using var exitEvent = new EventWaitHandle(false, EventResetMode.ManualReset, ExitEventName);
+            using var closeByPoe2Event = new EventWaitHandle(false, EventResetMode.ManualReset, CloseByPoe2EventName);
+            var selfId = Environment.ProcessId;
+            _appLaunched = false;
+
+            // Watch all process creations, then check for PoE2 by window title (more reliable than process names)
+            var query = "SELECT * FROM __InstanceCreationEvent WITHIN 1 " +
+                        "WHERE TargetInstance ISA 'Win32_Process'";
+
+            using var watcher = new ManagementEventWatcher(query);
+            watcher.EventArrived += (_, _) =>
             {
-                // When the app was launched by us, check if it has exited and why
-                if (_appLaunched)
+                try
                 {
-                    var appRunning = false;
-                    foreach (var p in Process.GetProcessesByName("RuneshapePriceChecker"))
+                    // When the app was launched by us, check if it has exited and why
+                    if (_appLaunched)
                     {
-                        try { if (p.Id != selfId) { appRunning = true; break; } }
-                        finally { p.Dispose(); }
-                    }
-
-                    if (!appRunning)
-                    {
-                        // App exited. Was it CloseWithPoE2? (main app signals before CloseWithPoE2 kill)
-                        if (closeByPoe2Event.WaitOne(0))
+                        var appRunning = false;
+                        foreach (var p in Process.GetProcessesByName("RuneshapePriceChecker"))
                         {
-                            // CloseWithPoE2 — reset so next PoE2 session re-launches
-                            _appLaunched = false;
-                            _hasPoe2Pid = false;
-                            closeByPoe2Event.Reset();
+                            try { if (p.Id != selfId) { appRunning = true; break; } }
+                            finally { p.Dispose(); }
                         }
-                        else
-                        {
-                            // Manual close (or crash). Check if PoE2 PID changed (new session) or exited.
-                            var currentPid = 0;
-                            foreach (var p in Process.GetProcesses())
-                            {
-                                try
-                                {
-                                    if (p.MainWindowHandle != IntPtr.Zero &&
-                                        !string.IsNullOrWhiteSpace(p.MainWindowTitle) &&
-                                        p.MainWindowTitle.Equals("Path of Exile 2", StringComparison.OrdinalIgnoreCase))
-                                    {
-                                        currentPid = p.Id;
-                                        break;
-                                    }
-                                }
-                                finally { p.Dispose(); }
-                            }
 
-                            if (currentPid == 0)
+                        if (!appRunning)
+                        {
+                            // App exited. Was it CloseWithPoE2? (main app signals before CloseWithPoE2 kill)
+                            if (closeByPoe2Event.WaitOne(0))
                             {
-                                // PoE2 not running — session ended, reset
+                                // CloseWithPoE2 — reset so next PoE2 session re-launches
                                 _appLaunched = false;
                                 _hasPoe2Pid = false;
+                                closeByPoe2Event.Reset();
                             }
-                            else if (_hasPoe2Pid && currentPid != _lastPoe2Pid)
+                            else
                             {
-                                // PoE2 PID changed — new session (exited and restarted), reset
-                                _appLaunched = false;
-                                _lastPoe2Pid = currentPid;
+                                // Manual close (or crash). Check if PoE2 PID changed (new session) or exited.
+                                var currentPid = 0;
+                                foreach (var p in Process.GetProcesses())
+                                {
+                                    try
+                                    {
+                                        if (p.MainWindowHandle != IntPtr.Zero &&
+                                            !string.IsNullOrWhiteSpace(p.MainWindowTitle) &&
+                                            p.MainWindowTitle.Equals("Path of Exile 2", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            currentPid = p.Id;
+                                            break;
+                                        }
+                                    }
+                                    finally { p.Dispose(); }
+                                }
+
+                                if (currentPid == 0)
+                                {
+                                    // PoE2 not running — session ended, reset
+                                    _appLaunched = false;
+                                    _hasPoe2Pid = false;
+                                }
+                                else if (_hasPoe2Pid && currentPid != _lastPoe2Pid)
+                                {
+                                    // PoE2 PID changed — new session (exited and restarted), reset
+                                    _appLaunched = false;
+                                    _lastPoe2Pid = currentPid;
+                                }
+                                else if (!_hasPoe2Pid)
+                                {
+                                    // First time seeing PoE2 PID — cache it
+                                    _lastPoe2Pid = currentPid;
+                                    _hasPoe2Pid = true;
+                                }
+                                // else: same PID, same session — keep _appLaunched
                             }
-                            else if (!_hasPoe2Pid)
-                            {
-                                // First time seeing PoE2 PID — cache it
-                                _lastPoe2Pid = currentPid;
-                                _hasPoe2Pid = true;
-                            }
-                            // else: same PID, same session — keep _appLaunched
                         }
                     }
-                }
 
-                // Once per PoE2 session: don't re-launch if user closed the app manually
-                if (_appLaunched) return;
+                    // Once per PoE2 session: don't re-launch if user closed the app manually
+                    if (_appLaunched) return;
 
-                // Don't launch if main app is already running
-                foreach (var p in Process.GetProcessesByName("RuneshapePriceChecker"))
-                {
-                    try { if (p.Id != selfId) return; }
-                    finally { p.Dispose(); }
-                }
-
-                // Retry a few times with short delays so PoE2 has time to set its window title
-                for (var retry = 0; retry < 6; retry++)
-                {
-                    foreach (var p in Process.GetProcesses())
+                    // Don't launch if main app is already running
+                    foreach (var p in Process.GetProcessesByName("RuneshapePriceChecker"))
                     {
-                        try
-                        {
-                            if (p.MainWindowHandle != IntPtr.Zero &&
-                                !string.IsNullOrWhiteSpace(p.MainWindowTitle) &&
-                                p.MainWindowTitle.Equals("Path of Exile 2", StringComparison.OrdinalIgnoreCase))
-                            {
-                                var exePath = Environment.ProcessPath;
-                                if (exePath is null) return;
-                                _appLaunched = true;
-                                _lastPoe2Pid = p.Id;
-                                _hasPoe2Pid = true;
-                                Process.Start(new ProcessStartInfo(exePath) { UseShellExecute = true });
-                                return;
-                            }
-                        }
+                        try { if (p.Id != selfId) return; }
                         finally { p.Dispose(); }
                     }
-                    Thread.Sleep(500);
-                }
-            }
-            catch { }
-        };
-        watcher.Start();
 
-        exitEvent.WaitOne();
-        watcher.Stop();
+                    // Retry a few times with short delays so PoE2 has time to set its window title
+                    for (var retry = 0; retry < 6; retry++)
+                    {
+                        foreach (var p in Process.GetProcesses())
+                        {
+                            try
+                            {
+                                if (p.MainWindowHandle != IntPtr.Zero &&
+                                    !string.IsNullOrWhiteSpace(p.MainWindowTitle) &&
+                                    p.MainWindowTitle.Equals("Path of Exile 2", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    var exePath = Environment.ProcessPath;
+                                    if (exePath is null) return;
+                                    _appLaunched = true;
+                                    _lastPoe2Pid = p.Id;
+                                    _hasPoe2Pid = true;
+                                    Process.Start(new ProcessStartInfo(exePath) { UseShellExecute = true });
+                                    return;
+                                }
+                            }
+                            finally { p.Dispose(); }
+                        }
+                        Thread.Sleep(500);
+                    }
+                }
+                catch { }
+            };
+            watcher.Start();
+
+            exitEvent.WaitOne();
+            watcher.Stop();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"RpcServiceRunner.Run failed: {ex.GetType().Name}: {ex.Message}");
+        }
     }
 
     private static bool IsServiceRunning()
@@ -204,13 +212,22 @@ internal static class RpcServiceRunner
         }
     }
 
-    private static void KillExistingService()
+    internal static void KillExistingService()
     {
         var selfId = Environment.ProcessId;
         foreach (var p in Process.GetProcessesByName("RuneshapePriceChecker"))
         {
             if (p.Id == selfId) { p.Dispose(); continue; }
-            try { p.Kill(); } catch { }
+            try
+            {
+                p.Kill();
+                if (!p.WaitForExit(3000))
+                    System.Diagnostics.Debug.WriteLine($"RpcServiceRunner: PID {p.Id} did not exit within 3s of Kill");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"RpcServiceRunner: Kill PID {p.Id} failed: {ex.Message}");
+            }
             p.Dispose();
         }
     }

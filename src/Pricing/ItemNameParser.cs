@@ -273,9 +273,16 @@ public static class ItemNameParser
             yield break;
         }
 
+        var nameWords = normalizedItemName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         foreach (var kvp in BaseTypeKeywords.Value)
         {
-            if (normalizedItemName.Contains(kvp.Key, StringComparison.OrdinalIgnoreCase))
+            // Word-boundary match — prevents keywords like "RING" matching inside
+            // "SCOURING" or "BOW" matching inside "RAINBOW" or "ELBOW".
+            var keyWords = kvp.Key.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var match = keyWords.Length == 1
+                ? nameWords.Any(w => string.Equals(w, kvp.Key, StringComparison.OrdinalIgnoreCase))
+                : nameWords.Length >= keyWords.Length && HasConsecutiveWords(nameWords, keyWords);
+            if (match)
             {
                 foreach (var c in BuildFromEnglishUniqueTail(kvp.Value))
                     yield return c;
@@ -306,6 +313,22 @@ public static class ItemNameParser
         foreach (var c in candidates)
             if (!string.IsNullOrWhiteSpace(c))
                 yield return c;
+    }
+
+    private static bool HasConsecutiveWords(string[] nameWords, string[] keyWords)
+    {
+        if (keyWords.Length > nameWords.Length) return false;
+        for (var i = 0; i <= nameWords.Length - keyWords.Length; i++)
+        {
+            var match = true;
+            for (var j = 0; j < keyWords.Length; j++)
+            {
+                if (!string.Equals(nameWords[i + j], keyWords[j], StringComparison.OrdinalIgnoreCase))
+                { match = false; break; }
+            }
+            if (match) return true;
+        }
+        return false;
     }
 
     public static string FormatAmount(

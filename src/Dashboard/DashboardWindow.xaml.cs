@@ -46,14 +46,55 @@ public sealed partial class DashboardWindow : Window
     }
     private static readonly IntPtr HwndTopmost = new(-1);
 
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
+    private static long _cachedWorkingSetMb;
+    private static DateTime _lastWorkingSetCheck = DateTime.MinValue;
+    private static readonly TimeSpan WorkingSetRefreshInterval = TimeSpan.FromSeconds(3);
 
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
+    private static long GetPrivateWorkingSetMb()
+    {
+        // Start a background refresh if cache is stale, but always return the cached value.
+        if ((DateTime.UtcNow - _lastWorkingSetCheck) >= WorkingSetRefreshInterval)
+            _ = Task.Run(RefreshWorkingSetCache);
+        return _cachedWorkingSetMb;
+    }
 
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
+    private static void RefreshWorkingSetCache()
+    {
+        // Re-check inside the background task so multiple rapid callers don't queue work.
+        if ((DateTime.UtcNow - _lastWorkingSetCheck) < WorkingSetRefreshInterval)
+            return;
+        _lastWorkingSetCheck = DateTime.UtcNow;
+
+        try
+        {
+            var pid = Environment.ProcessId;
+            var scope = new System.Management.ManagementScope(@"\\.\root\cimv2");
+            var query = new System.Management.ObjectQuery(
+                $"SELECT WorkingSetPrivate FROM Win32_PerfFormattedData_PerfProc_Process WHERE IDProcess = {pid}");
+            using var searcher = new System.Management.ManagementObjectSearcher(scope, query);
+            foreach (System.Management.ManagementBaseObject obj in searcher.Get())
+            {
+                var val = obj["WorkingSetPrivate"];
+                if (val is not null)
+                {
+                    _cachedWorkingSetMb = Convert.ToInt64(val) / (1024 * 1024);
+                    return;
+                }
+            }
+        }
+        catch { }
+        _cachedWorkingSetMb = 0;
+    }
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
+
+    [LibraryImport("user32.dll")]
+    private static partial IntPtr GetWindow(IntPtr hWnd, uint uCmd);
+
+    [LibraryImport("user32.dll")]
+    private static partial IntPtr GetForegroundWindow();
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
@@ -78,6 +119,11 @@ public sealed partial class DashboardWindow : Window
     private DispatcherTimer? _setupPollTimer;
     private string? _pendingLanguageAppTag;
     private bool _saveQueued;
+    private Brush _greenBrush = null!;
+    private Brush _amberBrush = null!;
+    private Brush _redBrush = null!;
+    private Brush _textPrimaryBrush = null!;
+    private Brush _darkGreenBgBrush = null!;
 
     public ObservableCollection<LogEntryViewModel> LogEntries => _vm.LogEntries;
 
@@ -100,6 +146,13 @@ public sealed partial class DashboardWindow : Window
         InitializeScale();
         LogList.DataContext = this;
 
+        // Cache brushes once to avoid costly FindResource calls on every timer tick
+        _greenBrush = (Brush)FindResource("GreenBrush");
+        _amberBrush = (Brush)FindResource("AmberBrush");
+        _redBrush = (Brush)FindResource("RedBrush");
+        _textPrimaryBrush = (Brush)FindResource("TextPrimary");
+        _darkGreenBgBrush = (Brush)FindResource("DarkGreenBgBrush");
+
         var version = Assembly.GetExecutingAssembly()
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
             ?.InformationalVersion ?? "0.2.2";
@@ -109,7 +162,7 @@ public sealed partial class DashboardWindow : Window
 
         _sink.OnLogEntry += entry =>
         {
-            Dispatcher.Invoke(() =>
+            _ = Dispatcher.InvokeAsync(() =>
             {
                 _vm.OnLogEntry(entry);
                 if (!entry.Message.Contains("Windows OCR language pack", StringComparison.OrdinalIgnoreCase))
@@ -151,6 +204,14 @@ public sealed partial class DashboardWindow : Window
             });
         };
 
+        // Re-register the background service on close so it's ready for next PoE2 session.
+        // Register() handles the safety checks (kills stale instances, starts fresh).
+        Closed += (_, _) =>
+        {
+            if (_vm.OpenWithPoE2 && !_loading)
+                _ = Task.Run(() => RpcServiceRunner.Register());
+        };
+
         foreach (var entry in _sink.Snapshot().Reverse())
             _vm.OnLogEntry(entry);
 
@@ -160,9 +221,10 @@ public sealed partial class DashboardWindow : Window
         PopulateCaptureModeCombo();
         _vm.LoadSettings();
         SyncUiFromViewModel();
-        // Ensure RPCService is running if OpenWithPoE2 is enabled
-        if (_vm.OpenWithPoE2 && !RpcServiceRunner.IsRunning())
-            RpcServiceRunner.Register();
+        // Don't re-register the background service on startup — it's only needed
+        // to launch the app when PoE2 starts. Since the app is already running,
+        // re-register now would unnecessarily start a --rpcservice that does nothing
+        // until the app closes.  Instead, re-register on app close (in Closed handler).
         RestoreDebugPanelState();
         _ = LoadLeaguesAsync();
 
@@ -186,6 +248,15 @@ public sealed partial class DashboardWindow : Window
                 {
                     // Clear the flag so it doesn't trigger again after the update
                     _vm.SetConfigFlag("App", "AutoApplyUpdate", false);
+                    // Wait for the version check to complete (CheckForUpdatesAsync sets _downloadUrl
+                    // and calls ShowUpdateButton, making UpdateBadge visible).  The check runs in a
+                    // background task and may not have finished by the time Loaded fires.
+                    // The API fetch has retries with 10s/30s/90s delays, so give it ample time.
+                    for (var i = 0; i < 60; i++)
+                    {
+                        if (UpdateBadge.Visibility == Visibility.Visible) break;
+                        await Task.Delay(500);
+                    }
                     Dispatcher.Invoke(() => Update_Click(this, new RoutedEventArgs()));
                 }
             };
@@ -383,9 +454,9 @@ public sealed partial class DashboardWindow : Window
             StatusLabel.Text = $"● {text}";
             StatusLabel.Foreground = color switch
             {
-                "amber" => (Brush)FindResource("AmberBrush"),
-                "red" => (Brush)FindResource("RedBrush"),
-                _ => (Brush)FindResource("GreenBrush")
+                "amber" => _amberBrush,
+                "red" => _redBrush,
+                _ => _greenBrush
             };
         });
 
@@ -451,18 +522,26 @@ public sealed partial class DashboardWindow : Window
     {
         if (!_setupPending) return;
 
-        var poe2Running = Process.GetProcesses()
-            .Any(p =>
-            {
-                try { return p.MainWindowTitle.Contains("Path of Exile 2", StringComparison.OrdinalIgnoreCase); }
-                catch { return false; }
-            });
-
-        if (poe2Running)
+        // Check on background thread — Process.GetProcesses() enumerates ALL processes
+        // and can block the UI for 50-200ms.
+        _ = Task.Run(() =>
         {
-            SetupContinueButton.IsEnabled = true;
-            StopSetupPollTimer();
-        }
+            var poe2Running = Process.GetProcesses()
+                .Any(p =>
+                {
+                    try { return p.MainWindowTitle.Contains("Path of Exile 2", StringComparison.OrdinalIgnoreCase); }
+                    catch { return false; }
+                });
+
+            if (poe2Running)
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    SetupContinueButton.IsEnabled = true;
+                    StopSetupPollTimer();
+                });
+            }
+        });
     }
 
     private void RefreshContentArea()
@@ -721,7 +800,7 @@ public sealed partial class DashboardWindow : Window
 
     private void UpdateBadge_MouseLeave(object sender, MouseEventArgs e)
     {
-        UpdateBadge.Background = (Brush)FindResource("DarkGreenBgBrush");
+        UpdateBadge.Background = _darkGreenBgBrush;
     }
 
     public void SetUpdateTrigger(Action<IProgress<int>> trigger)
@@ -988,7 +1067,7 @@ public sealed partial class DashboardWindow : Window
     private void StartDebugTimer()
     {
         StopDebugTimer();
-        _debugTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+        _debugTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1000) };
         _debugTimer.Tick += (_, _) => RefreshDebugMetrics();
         _debugTimer.Start();
     }
@@ -1003,7 +1082,7 @@ public sealed partial class DashboardWindow : Window
     private void StartAlwaysOnTopTimer()
     {
         StopAlwaysOnTopTimer();
-        _alwaysOnTopTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
+        _alwaysOnTopTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
         _alwaysOnTopTimer.Tick += (_, _) =>
         {
             if (_vm.AlwaysOnTop)
@@ -1021,11 +1100,10 @@ public sealed partial class DashboardWindow : Window
 
     private void ForceTopmost()
     {
-        // Belt-and-suspenders: WPF Topmost + P/Invoke SetWindowPos with HWND_TOPMOST.
-        // Skip SetWindowPos if we're already the topmost window in the Z-order
-        // to avoid unnecessary DWM interactions. 50ms timer is safe (SetWindowPos is a
-        // fast kernel32→win32u syscall, ~0.001ms), but the check saves any concern.
-        Topmost = true;
+        // Only set Topmost when it's not already true — avoids unnecessary WPF
+        // dependency property invalidation.
+        if (!Topmost)
+            Topmost = true;
         if (_windowHandle != IntPtr.Zero
             && GetWindow(IntPtr.Zero, GwHwndfirst) != _windowHandle)
         {
@@ -1089,17 +1167,25 @@ public sealed partial class DashboardWindow : Window
         if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 10240))
             return;
 
-        var lang = new Language(winTag);
-        var engine = OcrEngine.TryCreateFromLanguage(lang);
-        if (engine is null)
-            return;
+        // Check on background thread — OcrEngine.TryCreateFromLanguage can block for 50-200ms.
+        _ = Task.Run(() =>
+        {
+            var lang = new Language(winTag);
+            var engine = OcrEngine.TryCreateFromLanguage(lang);
+            if (engine is null)
+                return;
 
-        // Pack is now installed — hide banner, stop polling
-        StopLanguagePackWatchdog();
-        _pendingLanguageAppTag = null;
-        OcrLanguageWarning.Visibility = Visibility.Collapsed;
-        _sink.Emit("Windows OCR language pack installed — OCR engine will reinitialize. OCR will only update after you reopen the league panel interface.", "green");
+            // Pack is now installed — dispatch back to UI thread to update state
+            Dispatcher.Invoke(() =>
+            {
+                StopLanguagePackWatchdog();
+                _pendingLanguageAppTag = null;
+                OcrLanguageWarning.Visibility = Visibility.Collapsed;
+                _sink.Emit("Windows OCR language pack installed — OCR engine will reinitialize. OCR will only update after you reopen the league panel interface.", "green");
+            });
+        });
     }
+
     private static string? AppLangToWindowsTag(string appLang)
     {
         return appLang?.ToLowerInvariant() switch
@@ -1137,10 +1223,10 @@ public sealed partial class DashboardWindow : Window
         DbgCacheRate.Text = rate > 0 ? $"{rate:F1}%" : "—";
         DbgCacheRate.Foreground = rate switch
         {
-            >= 60 => (Brush)FindResource("GreenBrush"),
-            >= 30 => (Brush)FindResource("AmberBrush"),
-            > 0 => (Brush)FindResource("RedBrush"),
-            _ => (Brush)FindResource("TextPrimary")
+            >= 60 => _greenBrush,
+            >= 30 => _amberBrush,
+            > 0 => _redBrush,
+            _ => _textPrimaryBrush
         };
 
         var slots = snap.SlotAveragesMs;
@@ -1182,15 +1268,11 @@ public sealed partial class DashboardWindow : Window
                 isForeground = sb.ToString().Equals("Path of Exile 2", StringComparison.OrdinalIgnoreCase);
         }
         catch { }
-        DbgWindowStatus.Text = isForeground ? "\u2713 Foreground" : "\u2717 Not active";
-        DbgWindowStatus.Foreground = isForeground
-            ? (Brush)FindResource("GreenBrush")
-            : (Brush)FindResource("AmberBrush");
+        DbgWindowStatus.Text = isForeground ? "\u2713 Active" : "\u2717 Not active";
+        DbgWindowStatus.Foreground = isForeground ? _greenBrush : _amberBrush;
 
         DbgInterfaceStatus.Text = snap.InterfaceDetected ? "✓ Detected" : "✗ Not visible";
-        DbgInterfaceStatus.Foreground = snap.InterfaceDetected
-            ? (Brush)FindResource("GreenBrush")
-            : (Brush)FindResource("RedBrush");
+        DbgInterfaceStatus.Foreground = snap.InterfaceDetected ? _greenBrush : _redBrush;
 
         var method = snap.CaptureMethod;
         if (!string.IsNullOrEmpty(method))
@@ -1236,10 +1318,8 @@ public sealed partial class DashboardWindow : Window
         }
 
         var lsRunning = IsLosslessScalingRunning();
-        DbgLsStatus.Text = lsRunning ? "\u25CF Running" : "\u2717 Not running";
-        DbgLsStatus.Foreground = lsRunning
-            ? (Brush)FindResource("GreenBrush")
-            : (Brush)FindResource("RedBrush");
+        DbgLsStatus.Text = lsRunning ? "\u2713 Running" : "\u2717 Not running";
+        DbgLsStatus.Foreground = lsRunning ? _greenBrush : _redBrush;
 
         var backendLabel = snap.OcrBackend;
         if (!string.IsNullOrEmpty(backendLabel))
@@ -1260,20 +1340,20 @@ public sealed partial class DashboardWindow : Window
         DbgCpuPercent.Text = snap.CpuPercent > 0 ? $"{snap.CpuPercent:F1}%" : "—";
         DbgCpuPercent.Foreground = snap.CpuPercent switch
         {
-            > 30 => (Brush)FindResource("RedBrush"),
-            > 15 => (Brush)FindResource("AmberBrush"),
-            > 0 => (Brush)FindResource("GreenBrush"),
-            _ => (Brush)FindResource("TextPrimary")
+            > 30 => _redBrush,
+            > 15 => _amberBrush,
+            > 0 => _greenBrush,
+            _ => _textPrimaryBrush
         };
-        var currentMb = Process.GetCurrentProcess().WorkingSet64 / (1024 * 1024);
+        var currentMb = GetPrivateWorkingSetMb();
         DbgMemory.Text = currentMb > 0 ? $"{currentMb}MB" : "—";
         DbgScanCpu.Text = snap.ScanCpuPercent > 0 ? $"{snap.ScanCpuPercent:F1}%" : "—";
         DbgScanCpu.Foreground = snap.ScanCpuPercent switch
         {
-            > 20 => (Brush)FindResource("RedBrush"),
-            > 10 => (Brush)FindResource("AmberBrush"),
-            > 0 => (Brush)FindResource("GreenBrush"),
-            _ => (Brush)FindResource("TextPrimary")
+            > 20 => _redBrush,
+            > 10 => _amberBrush,
+            > 0 => _greenBrush,
+            _ => _textPrimaryBrush
         };
 
         var recognizeMs = snap.SlotAveragesMs is { Length: > 8 } ? snap.SlotAveragesMs[8] : 0d;
@@ -1354,8 +1434,7 @@ public sealed partial class DashboardWindow : Window
         _ = sb.AppendLine("── System ──");
         var uptime = snap.Uptime;
         _ = sb.AppendLine(CultureInfo.InvariantCulture, $"  Uptime:       {(int)uptime.TotalHours}h {uptime.Minutes}m {uptime.Seconds}s");
-        var currentMb = System.Diagnostics.Process.GetCurrentProcess().WorkingSet64 / (1024 * 1024);
-        _ = sb.AppendLine(CultureInfo.InvariantCulture, $"  Memory:       {currentMb}MB");
+        _ = sb.AppendLine(CultureInfo.InvariantCulture, $"  Memory:       {GetPrivateWorkingSetMb()}MB");
         _ = sb.AppendLine(CultureInfo.InvariantCulture, $"  CPU (proc):   {snap.CpuPercent:F1}%");
         _ = sb.AppendLine(CultureInfo.InvariantCulture, $"  CPU (scan):   {snap.ScanCpuPercent:F1}%");
         _ = sb.AppendLine(CultureInfo.InvariantCulture, $"  Recognize:    {recognizeMs:F0}ms/scan");
@@ -1554,7 +1633,7 @@ public sealed partial class DashboardWindow : Window
         if (StatusLabel.Foreground is SolidColorBrush b && b.Color.R == 0xF8)
         {
             StatusLabel.Text = "\u25cf Ready";
-            StatusLabel.Foreground = (Brush)FindResource("GreenBrush");
+            StatusLabel.Foreground = _greenBrush;
             _statusLockedUntil = DateTime.MinValue;
         }
     }
@@ -1783,7 +1862,6 @@ public sealed partial class DashboardWindow : Window
             OcrBackendCombo.ToolTip = "Windows OCR requires Windows 10 build 1809 or later.&#10;&#10;Only Tesseract is available on this system.";
             OcrBackendCombo.IsEnabled = false;
         }
-        // Sync the info icon's tooltip text with the combo's tooltip
         // Select the item matching the current backend setting
         var selected = string.Equals(_vm.OcrBackend, "tesseract", StringComparison.OrdinalIgnoreCase) ? "Tesseract" : "Windows";
         var idx = OcrBackendCombo.Items.IndexOf(selected);
@@ -1905,7 +1983,6 @@ public sealed partial class DashboardWindow : Window
         _ = CaptureModeCombo.Items.Add("PrintWindow");
         _ = CaptureModeCombo.Items.Add("Desktop");
 
-        // Select the matching item
         var mode = _vm.CaptureMode;
         for (var i = 0; i < CaptureModeCombo.Items.Count; i++)
         {

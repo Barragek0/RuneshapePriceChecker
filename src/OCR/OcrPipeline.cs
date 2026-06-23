@@ -71,7 +71,7 @@ internal static class OcrPipeline
         var cropRect = new Rectangle(padX, rowY, padW, rowHeight);
         var rowBitmap = source.Clone(cropRect, source.PixelFormat);
 
-        using var upscaled = OcrImagePreprocessor.UpscaleForOcr(rowBitmap, 2);
+        using var upscaled = OcrImagePreprocessor.UpscaleForOcr(rowBitmap, 3);
         var bordered = OcrImagePreprocessor.AddWhiteBorder(upscaled, 2);
 
         rowBitmap.Dispose();

@@ -5,12 +5,8 @@ namespace RuneshapePriceChecker.Pricing;
 
 internal static class FallbackProvider
 {
-    // Translation dictionary fallbacks (applied after exact/diacritics/apostrophe/tier)
-
-    /// Adaptive fuzzy distance: larger strings get a higher allowance.
     public static int FuzzyMaxDist(string text) => Math.Max(3, Math.Min(5, text.Length / 5));
 
-    // all languages — returns closest match within maxDist (lowest edit distance wins)
     public static string? TryMultiCharTranslation(string text, IEnumerable<KeyValuePair<string, string>> dictionary, int maxDist)
     {
         string? best = null;
@@ -181,8 +177,6 @@ internal static class FallbackProvider
         }
         return null;
     }
-
-    // Internal helpers
 
     private static bool IsSingleSubstitutionAway(string source, string candidate)
     {

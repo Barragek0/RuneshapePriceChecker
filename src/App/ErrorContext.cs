@@ -6,7 +6,6 @@ internal static partial class ErrorContext
 {
     private static readonly Regex StackFrameRegex = StackFrameRegexGen();
 
-    /// Extracts a concise error context string from an exception: file name and line number of the first user-code stack frame.
     public static string FromException(Exception ex)
     {
         try

@@ -84,10 +84,6 @@ internal static class StrComp
         return GetEditDistance(source, target, maxDistance) >= 0;
     }
 
-    /// <summary>
-    /// Returns the Levenshtein edit distance between source and target,
-    /// or -1 if the distance exceeds maxDistance (allowing early termination).
-    /// </summary>
     public static int GetEditDistance(ReadOnlySpan<char> source, ReadOnlySpan<char> target, int maxDistance)
     {
         if (maxDistance < 1) return -1;

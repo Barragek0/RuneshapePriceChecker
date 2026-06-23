@@ -10,7 +10,6 @@ public sealed record CaptureResult(Bitmap Bitmap, string Method);
 internal sealed partial class OcrCaptureStrategy(ILogger<OcrCaptureStrategy> logger)
 {
     private readonly ILogger<OcrCaptureStrategy> _logger = logger;
-    /// <summary>Capture modes that have been tried and failed (e.g. BitBlt unusable).</summary>
     internal static readonly HashSet<string> FailedModes = new(StringComparer.OrdinalIgnoreCase);
 
     public CaptureResult Capture(OcrCaptureRegion region, WindowCaptureContext? context, OcrOptions options)

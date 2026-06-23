@@ -19,7 +19,7 @@ public sealed class OcrOptions
     [Range(0, 255)]
     public int TextColorTargetB { get; set; } = 34;
     [Range(0, 255)]
-    public int TextColorTolerance { get; set; } = 46;
+    public int TextColorTolerance { get; set; } = 47;
     [Range(0, 255)]
     public int TextColorMaxLuminance { get; set; } = 145;
     [Range(0, 255)]

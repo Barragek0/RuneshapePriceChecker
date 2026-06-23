@@ -252,6 +252,12 @@ internal sealed class UpdateChecker(
         _changelogVersion = latestVersionText;
         dashboard.ShowUpdateButton();
 
+        // If auto-apply was requested (e.g. via --App:AutoApplyUpdate=true), trigger now.
+        // The earlier auto-apply attempt in DashboardWindow.Loaded may have fired before
+        // CheckForUpdatesAsync had set _downloadUrl, so we retry here.
+        if (appOptions.CurrentValue.AutoApplyUpdate && _downloadUrl is not null)
+            _ = ApplyUpdateAsync();
+
         if (latestVersion > currentVersion)
             logger.LogInformation("Update available: {Current} -> {Latest}", currentVersion, latestVersion);
     }
@@ -275,7 +281,9 @@ internal sealed class UpdateChecker(
 
     public async Task ApplyUpdateAsync(IProgress<int>? progress = null)
     {
-        if (_downloadUrl is null)
+        // Save and clear _downloadUrl to guard against concurrent calls
+        var downloadUrl = Interlocked.Exchange(ref _downloadUrl, null);
+        if (downloadUrl is null)
         {
             dashboard.HideUpdateOverlay();
             return;
@@ -292,7 +300,7 @@ internal sealed class UpdateChecker(
             logger.LogInformation("Starting update download...");
             progress?.Report(0);
 
-            if (_downloadUrl == "local" && _localZipPath is not null)
+            if (downloadUrl == "local" && _localZipPath is not null)
             {
                 File.Copy(_localZipPath, tempZip);
                 logger.LogInformation("Copied local zip for update simulation.");
@@ -300,7 +308,7 @@ internal sealed class UpdateChecker(
             else
             {
                 using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-                using var response = await http.GetAsync(_downloadUrl, HttpCompletionOption.ResponseHeadersRead);
+                using var response = await http.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead);
                 _ = response.EnsureSuccessStatusCode();
 
                 var total = response.Content.Headers.ContentLength ?? -1;
@@ -336,12 +344,43 @@ internal sealed class UpdateChecker(
             logger.LogInformation("Download complete. Extracting updater...");
             progress?.Report(100);
 
-            if (_downloadUrl == "local")
+            if (downloadUrl == "local")
             {
                 progress?.Report(100);
             }
 
             logger.LogInformation("Extracting update...");
+
+            // Kill background --rpcservice so the EXE file isn't locked during copy.
+            logger.LogInformation("Kill loop: scanning for other RuneshapePriceChecker processes (self={SelfPid})", Environment.ProcessId);
+            for (var i = 0; i < 60; i++)
+            {
+                var anyKilled = false;
+                foreach (var p in Process.GetProcessesByName("RuneshapePriceChecker"))
+                {
+                    try
+                    {
+                        if (p.Id != Environment.ProcessId)
+                        {
+                            logger.LogInformation("Kill loop: killing PID {Pid}", p.Id);
+                            p.Kill();
+                            anyKilled = true;
+                            if (!p.WaitForExit(500))
+                                logger.LogWarning("Kill loop: PID {Pid} did not respond to kill within 500ms", p.Id);
+                            else
+                                logger.LogInformation("Kill loop: PID {Pid} exited", p.Id);
+                        }
+                    }
+                    catch (Exception ex) { logger.LogWarning(ex, "Kill loop: failed to kill PID {Pid}", p.Id); }
+                    finally { p.Dispose(); }
+                }
+                if (!anyKilled) { logger.LogInformation("Kill loop: no other processes found, breaking"); break; }
+                logger.LogInformation("Kill loop: waiting 100ms for processes to exit (iteration {Iter})", i);
+                await Task.Delay(100);
+            }
+            // Final pass right before PowerShell to catch any straggler
+            logger.LogInformation("Kill loop: final KillExistingService pass");
+            RpcServiceRunner.KillExistingService();
             RunPowerShellUpdate(tempZip, stagingDir, installDir);
             await Task.Delay(500);
             DashboardWindow.IsUpdating = false;
@@ -351,7 +390,7 @@ internal sealed class UpdateChecker(
         {
             try { File.Delete(tempZip); } catch { }
             try { File.Delete(UpdateMarkerPath); } catch { }
-            logger.LogError(ex, "Update failed: {Context} (URL: {Url})", ErrorContext.FromException(ex), _downloadUrl ?? "?");
+            logger.LogError(ex, "Update failed: {Context} (URL: {Url})", ErrorContext.FromException(ex), downloadUrl);
             throw;
         }
         finally

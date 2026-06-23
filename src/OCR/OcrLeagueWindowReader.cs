@@ -731,7 +731,6 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         return true;
     }
 
-    /// Fast direct desktop capture via CopyFromScreen, bypassing the full capture strategy's fallback chain.
     private static Bitmap? CaptureDesktopRegionDirect(OcrCaptureRegion region)
     {
         try

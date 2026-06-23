@@ -78,6 +78,14 @@ dotnet_diagnostic.IDE0304.severity = warning  # Use collection expression
 dotnet_diagnostic.IDE0305.severity = warning  # Use collection expression
 dotnet_diagnostic.IDE1005.severity = warning  # Use conditional delegate call
 
+# CA code analysis rules (performance, correctness)
+dotnet_diagnostic.CA1310.severity = warning   # Specify StringComparison
+dotnet_diagnostic.CA1859.severity = warning   # Use specific type
+dotnet_diagnostic.CA1866.severity = warning   # Use char overload
+
+# SYSLIB library-specific diagnostics (source-gen P/Invokes, etc.)
+dotnet_diagnostic.SYSLIB1054.severity = warning  # Use LibraryImport instead of DllImport
+
 # DashboardViewModel uses JSON keys that don't match property names by design
 [src/Dashboard/DashboardViewModel.cs]
 dotnet_diagnostic.CA1507.severity = none
