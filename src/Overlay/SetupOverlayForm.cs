@@ -333,17 +333,18 @@ internal sealed class SetupOverlayForm : OverlayFormBase
         var x = Math.Max(20, _captureRect.X - _formOriginX);
         var y = Math.Max(20, _captureRect.Y - _formOriginY - TopBarHeight - 20);
 
-        _ = (_titleLabel?.Location = new Point(x, y));
-        _ = (_hintLabel?.Location = new Point(x, y + 24));
-        _ = (_confirmBtn?.Location = new Point(x, y + 50));
-        _ = (_backBtn?.Location = new Point(x + 190, y + 50));
+        // Check if each control exists before moving it, otherwise the app crashes.
+        if (_titleLabel != null) _titleLabel.Location = new Point(x, y);
+        if (_hintLabel != null) _hintLabel.Location = new Point(x, y + 24);
+        if (_confirmBtn != null) _confirmBtn.Location = new Point(x, y + 50);
+        if (_backBtn != null) _backBtn.Location = new Point(x + 190, y + 50);
 
         var exampleX = Math.Max(
             _captureRect.X - _formOriginX + _captureRect.Width + 80,
             (int)(_screenBounds.Width * 0.375));
 
-        _ = (_exampleLabel?.Location = new Point(exampleX, y));
-        _ = (_exampleBox?.Location = new Point(exampleX, y + 20));
+        if (_exampleLabel != null) _exampleLabel.Location = new Point(exampleX, y);
+        if (_exampleBox != null) _exampleBox.Location = new Point(exampleX, y + 20);
     }
 
     private Rectangle GetBoxRect()
