@@ -91,10 +91,12 @@ public sealed partial class SettingsWindow : Window
                 var isExalt = string.Equals(currency, "exalt", StringComparison.OrdinalIgnoreCase);
                 CurrencyChaosCheck.IsChecked = !isExalt;
                 CurrencyExaltCheck.IsChecked = isExalt;
+                AutoThresholdsCheck.IsChecked = pricing["AutoPriceThresholds"]?.GetValue<bool>() ?? true;
                 RedThresholdBox.Text = pricing["RedThreshold"]?.GetValue<decimal>().ToString(CultureInfo.InvariantCulture) ?? "0.5";
                 OrangeThresholdBox.Text = pricing["OrangeThreshold"]?.GetValue<decimal>().ToString(CultureInfo.InvariantCulture) ?? "1.0";
                 GreenThresholdBox.Text = pricing["GreenThreshold"]?.GetValue<decimal>().ToString(CultureInfo.InvariantCulture) ?? "5.0";
             }
+            UpdateThresholdVisibility();
 
             if (root["OCR"] is JsonNode ocr)
             {
@@ -109,38 +111,20 @@ public sealed partial class SettingsWindow : Window
         finally { _loading = false; }
     }
 
-    private void Save_Click(object sender, RoutedEventArgs e)
+    private void Close_Click(object sender, RoutedEventArgs e)
     {
-        ValidationError.Text = "";
+        Save();
+        Close();
+    }
 
-        var league = LeagueCombo.SelectedItem as string;
-        if (string.IsNullOrWhiteSpace(league))
-        {
-            ShowValidation("Select a league.", LeagueCombo);
-            return;
-        }
+    private void AutoSave(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        Save();
+    }
 
-        if (!decimal.TryParse(RedThresholdBox.Text, out var red))
-        {
-            ShowValidation("Red threshold must be a number.", RedThresholdBox);
-            return;
-        }
-        if (!decimal.TryParse(OrangeThresholdBox.Text, out var orange))
-        {
-            ShowValidation("Orange threshold must be a number.", OrangeThresholdBox);
-            return;
-        }
-        if (!decimal.TryParse(GreenThresholdBox.Text, out var green))
-        {
-            ShowValidation("Green threshold must be a number.", GreenThresholdBox);
-            return;
-        }
-        if (!(red < orange && orange < green))
-        {
-            ShowValidation("Thresholds must be: Red < Orange < Green.", RedThresholdBox);
-            return;
-        }
-
+    private void Save()
+    {
         try
         {
             var configDir = Path.GetDirectoryName(_configPath);
@@ -164,11 +148,21 @@ public sealed partial class SettingsWindow : Window
 
             if (rootObj["Pricing"] is JsonObject pricing)
             {
-                pricing["League"] = league;
+                pricing["AutoPriceThresholds"] = AutoThresholdsCheck.IsChecked == true;
+                pricing["League"] = LeagueCombo.Text;
                 pricing["DisplayCurrency"] = CurrencyExaltCheck.IsChecked == true ? "exalt" : "chaos";
+                _ = decimal.TryParse(RedThresholdBox.Text, out var red);
+                _ = decimal.TryParse(OrangeThresholdBox.Text, out var orange);
+                _ = decimal.TryParse(GreenThresholdBox.Text, out var green);
                 pricing["RedThreshold"] = red;
                 pricing["OrangeThreshold"] = orange;
                 pricing["GreenThreshold"] = green;
+
+                // Update validation text
+                if (red < orange && orange < green)
+                    ValidationError.Text = "";
+                else
+                    ValidationError.Text = "Thresholds must be: Red < Orange < Green.";
             }
 
             if (rootObj["OCR"] is JsonObject ocr)
@@ -182,27 +176,11 @@ public sealed partial class SettingsWindow : Window
 
             var json = rootObj.ToJsonString(new() { WriteIndented = true });
             File.WriteAllText(_configPath, json + Environment.NewLine, Encoding.UTF8);
-            DialogResult = true;
-            Close();
         }
         catch (Exception ex)
         {
             ValidationError.Text = $"Save failed: {ex.Message}";
         }
-    }
-
-    private void ShowValidation(string message, Control target)
-    {
-        ValidationError.Text = message;
-        target.BorderBrush = new SolidColorBrush(Color.FromRgb(0xF8, 0x71, 0x71));
-        target.BorderThickness = new Thickness(1);
-        _ = target.Focus();
-    }
-
-    private void Cancel_Click(object sender, RoutedEventArgs e)
-    {
-        DialogResult = false;
-        Close();
     }
 
     private void PopulateLogLevelCombo()
@@ -264,6 +242,7 @@ public sealed partial class SettingsWindow : Window
     {
         if (_loading) return;
         CurrencyExaltCheck.IsChecked = false;
+        AutoSave(sender, e);
     }
 
     private void CurrencyChaos_Unchecked(object sender, RoutedEventArgs e)
@@ -271,12 +250,14 @@ public sealed partial class SettingsWindow : Window
         if (_loading) return;
         if (CurrencyExaltCheck.IsChecked != true)
             CurrencyChaosCheck.IsChecked = true;
+        AutoSave(sender, e);
     }
 
     private void CurrencyExalt_Checked(object sender, RoutedEventArgs e)
     {
         if (_loading) return;
         CurrencyChaosCheck.IsChecked = false;
+        AutoSave(sender, e);
     }
 
     private void CurrencyExalt_Unchecked(object sender, RoutedEventArgs e)
@@ -284,5 +265,20 @@ public sealed partial class SettingsWindow : Window
         if (_loading) return;
         if (CurrencyChaosCheck.IsChecked != true)
             CurrencyExaltCheck.IsChecked = true;
+        AutoSave(sender, e);
+    }
+
+    private void AutoThresholds_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        UpdateThresholdVisibility();
+        AutoSave(sender, e);
+    }
+
+    private void UpdateThresholdVisibility()
+    {
+        ThresholdBoxes.Visibility = AutoThresholdsCheck.IsChecked == true
+            ? Visibility.Collapsed
+            : Visibility.Visible;
     }
 }

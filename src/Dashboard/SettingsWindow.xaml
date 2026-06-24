@@ -353,7 +353,7 @@
                             VerticalAlignment="Center"
                             Background="Transparent"
                             BorderThickness="0"
-                            Click="Cancel_Click">
+                            Click="Close_Click">
                         <TextBlock Text="✕"
                                    Foreground="{StaticResource RedBrush}"
                                    FontSize="14"
@@ -376,7 +376,8 @@
                                    Text="Log Level"/>
                         <ComboBox x:Name="LogLevelCombo"
                                   Margin="0,0,0,10"
-                                  IsEditable="False"/>
+                                  IsEditable="False"
+                                  SelectionChanged="AutoSave"/>
 
                         <TextBlock Style="{StaticResource SectionHeader}"
                                    Text="Pricing"/>
@@ -384,7 +385,8 @@
                                    Text="League"/>
                         <ComboBox x:Name="LeagueCombo"
                                   Margin="0,0,0,10"
-                                  IsEditable="False"/>
+                                  IsEditable="False"
+                                  SelectionChanged="AutoSave"/>
 
                         <TextBlock Style="{StaticResource FieldLabel}"
                                    Text="Display Currency"/>
@@ -401,48 +403,105 @@
                                       Unchecked="CurrencyExalt_Unchecked"/>
                         </StackPanel>
 
-                        <TextBlock Style="{StaticResource FieldLabel}"
-                                   Text="Price Color Thresholds"/>
-                        <Grid Margin="0,0,0,10">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0"
-                                        Margin="0,0,6,0">
-                                <TextBlock Foreground="{StaticResource RedBrush}"
-                                           FontSize="11"
-                                           Text="Red &lt; (cheap)"/>
-                                <TextBox x:Name="RedThresholdBox"/>
+                        <CheckBox x:Name="AutoThresholdsCheck"
+                                  Margin="0,4,0,0"
+                                  Checked="AutoThresholds_Changed"
+                                  Unchecked="AutoThresholds_Changed">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Auto"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock Text="?"
+                                           FontSize="14"
+                                           Opacity="0.6"
+                                           VerticalAlignment="Center"
+                                           Margin="5,-3,0,0"
+                                           Cursor="Help"
+                                           ToolTip="Automatically set color thresholds based on the highest-priced item in each scan"/>
                             </StackPanel>
-                            <StackPanel Grid.Column="1"
-                                        Margin="3,0">
-                                <TextBlock Foreground="{StaticResource AmberBrush}"
-                                           FontSize="11"
-                                           Text="Orange &lt; (mid)"/>
-                                <TextBox x:Name="OrangeThresholdBox"/>
-                            </StackPanel>
-                            <StackPanel Grid.Column="2"
-                                        Margin="6,0,0,0">
-                                <TextBlock Foreground="{StaticResource GreenBrush}"
-                                           FontSize="11"
-                                           Text="Green ≥ (valuable)"/>
-                                <TextBox x:Name="GreenThresholdBox"/>
-                            </StackPanel>
-                        </Grid>
+                        </CheckBox>
+                        <StackPanel x:Name="ThresholdBoxes">
+                            <TextBlock Style="{StaticResource FieldLabel}"
+                                       Text="Price Color Thresholds"/>
+                            <Grid Margin="0,0,0,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0"
+                                            Margin="0,0,6,0">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Foreground="{StaticResource RedBrush}"
+                                                   FontSize="11"
+                                                   Text="Red &lt; (cheap)"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Text="?"
+                                                   FontSize="14"
+                                                   Opacity="0.6"
+                                                   VerticalAlignment="Center"
+                                                   Margin="5,-3,0,0"
+                                                   Cursor="Help"
+                                                   ToolTip="Items at or below this value appear red"/>
+                                    </StackPanel>
+                                    <TextBox x:Name="RedThresholdBox"
+                                             TextChanged="AutoSave"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1"
+                                            Margin="3,0">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Foreground="{StaticResource AmberBrush}"
+                                                   FontSize="11"
+                                                   Text="Orange &lt; (mid)"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Text="?"
+                                                   FontSize="14"
+                                                   Opacity="0.6"
+                                                   VerticalAlignment="Center"
+                                                   Margin="5,-3,0,0"
+                                                   Cursor="Help"
+                                                   ToolTip="Items between this and the green threshold appear orange"/>
+                                    </StackPanel>
+                                    <TextBox x:Name="OrangeThresholdBox"
+                                             TextChanged="AutoSave"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2"
+                                            Margin="6,0,0,0">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Foreground="{StaticResource GreenBrush}"
+                                                   FontSize="11"
+                                                   Text="Green ≥ (valuable)"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Text="?"
+                                                   FontSize="14"
+                                                   Opacity="0.6"
+                                                   VerticalAlignment="Center"
+                                                   Margin="5,-3,0,0"
+                                                   Cursor="Help"
+                                                   ToolTip="Items at or above this value appear green"/>
+                                    </StackPanel>
+                                    <TextBox x:Name="GreenThresholdBox"
+                                             TextChanged="AutoSave"/>
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
 
                         <TextBlock Style="{StaticResource SectionHeader}"
                                    Text="OCR"/>
                         <CheckBox x:Name="DebugOverlayCheck"
-                                  Margin="0,4,0,0">Show debug overlay</CheckBox>
+                                  Margin="0,4,0,0"
+                                  Checked="AutoSave"
+                                  Unchecked="AutoSave">Show debug overlay</CheckBox>
                         <CheckBox x:Name="HideDebugOverlayCheck"
-                                  Margin="0,4,0,0">Hide debug overlay when panel not detected</CheckBox>
+                                  Margin="0,4,0,0"
+                                  Checked="AutoSave"
+                                  Unchecked="AutoSave">Hide debug overlay when panel not detected</CheckBox>
 
                         <TextBlock Style="{StaticResource SectionHeader}"
                                    Text="Updates"/>
                         <CheckBox x:Name="AutoUpdateCheck"
-                                  Margin="0,4,0,0">Auto-update from GitHub</CheckBox>
+                                  Margin="0,4,0,0"
+                                  Checked="AutoSave"
+                                  Unchecked="AutoSave">Auto-update from GitHub</CheckBox>
                     </StackPanel>
                 </ScrollViewer>
             </Border>
@@ -461,25 +520,7 @@
                                VerticalAlignment="Center"
                                Text=""/>
                     <StackPanel Orientation="Horizontal"
-                                HorizontalAlignment="Right">
-                        <Button Width="80"
-                                Height="32"
-                                Background="{StaticResource SurfaceAltBrush}"
-                                Foreground="{StaticResource TextSecondary}"
-                                BorderBrush="{StaticResource BorderBrush}"
-                                FontSize="12"
-                                Margin="0,0,8,0"
-                                Click="Cancel_Click">Cancel</Button>
-                        <Button x:Name="SaveBtn"
-                                Width="80"
-                                Height="32"
-                                Background="{StaticResource AccentBrush}"
-                                Foreground="White"
-                                BorderThickness="0"
-                                FontSize="12"
-                                FontWeight="SemiBold"
-                                Click="Save_Click">Save</Button>
-                    </StackPanel>
+                                HorizontalAlignment="Right"/>
                 </Grid>
             </Border>
         </Grid>
