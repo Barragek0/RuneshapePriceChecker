@@ -76,7 +76,41 @@ public sealed class PricingOverlayRenderer(
                     rows.Add(new Rectangle(0, i * rowH, captureRegion.Width, rowH));
             }
 
-            var entries = BuildEntries(snapshot, pricesByItemName, rows, pricingOptions.CurrentValue);
+            var pricing = pricingOptions.CurrentValue;
+            if (pricing.AutoPriceThresholds)
+            {
+                // Calculate dynamic thresholds based on the display values of items in this scan.
+                // We parse each item's label the same way GetPriceColor will (via
+                // TryParseDisplayedChaosEquivalent) so thresholds are in display-currency units.
+                var maxPrice = 0m;
+                foreach (var kvp in pricesByItemName)
+                {
+                    if (kvp.Value is null || kvp.Value.IsRange) continue;
+                    if (TryParseDisplayedChaosEquivalent(kvp.Value.Label, pricing, out var displayValue))
+                    {
+                        if (displayValue > maxPrice)
+                            maxPrice = displayValue;
+                    }
+                    else if (kvp.Value.RepresentativeChaosValue > maxPrice)
+                    {
+                        maxPrice = kvp.Value.RepresentativeChaosValue;
+                    }
+                }
+                if (maxPrice > 0m)
+                {
+                    pricing = new PricingCacheOptions
+                    {
+                        AutoPriceThresholds = true,
+                        RedThreshold = maxPrice * 0.1m,
+                        OrangeThreshold = maxPrice * 0.3m,
+                        GreenThreshold = maxPrice * 0.7m,
+                        DisplayCurrency = pricing.DisplayCurrency,
+                        League = pricing.League,
+                        PricingSource = pricing.PricingSource
+                    };
+                }
+            }
+            var entries = BuildEntries(snapshot, pricesByItemName, rows, pricing);
             overlay.SafeShow(captureRegion, entries);
         }
         catch (Exception ex)

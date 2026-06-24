@@ -21,6 +21,7 @@ public static class AppSettingsBootstrapper
     "Pricing": {
         "PricingSource": "poe2scout",
         "League": "Runes of Aldur",
+        "AutoPriceThresholds": true,
         "RedThreshold": 0.5,
         "OrangeThreshold": 1.0,
         "GreenThreshold": 5.0,

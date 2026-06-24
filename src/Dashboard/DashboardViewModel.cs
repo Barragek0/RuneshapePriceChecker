@@ -24,6 +24,7 @@ public sealed class DashboardViewModel(string configPath)
     public decimal OrangeThreshold { get; set; } = 1.0m;
     public decimal GreenThreshold { get; set; } = 5.0m;
     public string LogLevel { get; set; } = "Information";
+    public bool AutoPriceThresholds { get; set; } = true;
     public bool DebugOverlay { get; set; }
     public bool HideDebugOverlayWhenInterfaceNotDetected { get; set; }
     public bool SaveDebugImages { get; set; }
@@ -106,6 +107,7 @@ public sealed class DashboardViewModel(string configPath)
 
             if (root["Pricing"] is JsonNode pricing)
             {
+                AutoPriceThresholds = pricing.Val("AutoPriceThresholds", true);
                 CurrentLeague = pricing.Str("League", "Runes of Aldur");
                 PricingSource = pricing.Str("PricingSource", "poe2scout");
                 DisplayCurrency = pricing.Str("DisplayCurrency", "exalt");
@@ -188,6 +190,7 @@ public sealed class DashboardViewModel(string configPath)
 
             if (rootObj["Pricing"] is JsonObject pricing)
             {
+                pricing["AutoPriceThresholds"] = AutoPriceThresholds;
                 pricing["PricingSource"] = PricingSource;
                 pricing["League"] = CurrentLeague;
                 pricing["DisplayCurrency"] = DisplayCurrency;
