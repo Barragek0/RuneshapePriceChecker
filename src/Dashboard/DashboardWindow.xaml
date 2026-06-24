@@ -16,7 +16,6 @@
         WindowStartupLocation="Manual"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True"
-        Loaded="Window_Loaded"
         ContentRendered="Window_ContentRendered"
         LocationChanged="Window_LocationChanged"
         SizeChanged="Window_SizeChanged"
@@ -667,8 +666,8 @@
                             AutomationProperties.AutomationId="TestModeIndicator"
                             Visibility="Collapsed"
                             HorizontalAlignment="Right"
-                            VerticalAlignment="Top"
-                            Margin="0,6,106,0"
+                            VerticalAlignment="Bottom"
+                            Margin="0,0,40,6"
                             Padding="4,2"
                             BorderBrush="{StaticResource RedBrush}"
                             BorderThickness="1.5"
@@ -1210,19 +1209,33 @@
                                                                Text="Price Color Thresholds"
                                                                Margin="0,0,0,0"
                                                                VerticalAlignment="Center"/>
-                                                    <TextBlock Style="{StaticResource TooltipIcon}"
-                                                               ToolTip="Items below the Red threshold show as red, between Red and Orange show as orange, and above Green show as green"
-                                                               VerticalAlignment="Center"/>
                                                 </StackPanel>
-                                                <StackPanel Orientation="Horizontal"
+                                                <CheckBox x:Name="AutoThresholdsCheck"
+                                                          Margin="14,0,0,4"
+                                                          Checked="AutoThresholds_Changed"
+                                                          Unchecked="AutoThresholds_Changed">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Text="Auto"
+                                                                   VerticalAlignment="Center"/>
+                                                        <TextBlock Style="{StaticResource TooltipIcon}"
+                                                                   ToolTip="Automatically set color thresholds based on the highest-priced item in each scan"/>
+                                                    </StackPanel>
+                                                </CheckBox>
+                                                <StackPanel x:Name="ThresholdBoxes"
+                                                            Orientation="Horizontal"
                                                             HorizontalAlignment="Left"
                                                             Margin="14,0,0,0">
                                                     <StackPanel Margin="0,0,10,0">
-                                                        <TextBlock Foreground="{StaticResource RedBrush}"
-                                                                   FontSize="11"
-                                                                   Text="Red"
-                                                                   Margin="0,0,0,2"
-                                                                   HorizontalAlignment="Center"/>
+                                                        <StackPanel Orientation="Horizontal"
+                                                                    HorizontalAlignment="Center">
+                                                            <TextBlock Foreground="{StaticResource RedBrush}"
+                                                                       FontSize="11"
+                                                                       Text="Red"
+                                                                       Margin="0,0,0,2"
+                                                                       VerticalAlignment="Center"/>
+                                                            <TextBlock Style="{StaticResource TooltipIcon}"
+                                                                       ToolTip="Items at or below this value appear red"/>
+                                                        </StackPanel>
                                                         <TextBox x:Name="RedThresholdBox"
                                                                  Width="48"
                                                                  MaxLength="3"
@@ -1234,11 +1247,16 @@
                                                                  TextChanged="ThresholdBox_TextChanged"/>
                                                     </StackPanel>
                                                     <StackPanel Margin="0,0,10,0">
-                                                        <TextBlock Foreground="{StaticResource AmberBrush}"
-                                                                   FontSize="11"
-                                                                   Text="Orange"
-                                                                   Margin="0,0,0,2"
-                                                                   HorizontalAlignment="Center"/>
+                                                        <StackPanel Orientation="Horizontal"
+                                                                    HorizontalAlignment="Center">
+                                                            <TextBlock Foreground="{StaticResource AmberBrush}"
+                                                                       FontSize="11"
+                                                                       Text="Orange"
+                                                                       Margin="0,0,0,2"
+                                                                       VerticalAlignment="Center"/>
+                                                            <TextBlock Style="{StaticResource TooltipIcon}"
+                                                                       ToolTip="Items between this and the green threshold appear orange"/>
+                                                        </StackPanel>
                                                         <TextBox x:Name="OrangeThresholdBox"
                                                                  Width="48"
                                                                  MaxLength="3"
@@ -1250,11 +1268,16 @@
                                                                  TextChanged="ThresholdBox_TextChanged"/>
                                                     </StackPanel>
                                                     <StackPanel>
-                                                        <TextBlock Foreground="{StaticResource GreenBrush}"
-                                                                   FontSize="11"
-                                                                   Text="Green"
-                                                                   Margin="0,0,0,2"
-                                                                   HorizontalAlignment="Center"/>
+                                                        <StackPanel Orientation="Horizontal"
+                                                                    HorizontalAlignment="Center">
+                                                            <TextBlock Foreground="{StaticResource GreenBrush}"
+                                                                       FontSize="11"
+                                                                       Text="Green"
+                                                                       Margin="0,0,0,2"
+                                                                       VerticalAlignment="Center"/>
+                                                            <TextBlock Style="{StaticResource TooltipIcon}"
+                                                                       ToolTip="Items at or above this value appear green"/>
+                                                        </StackPanel>
                                                         <TextBox x:Name="GreenThresholdBox"
                                                                  Width="48"
                                                                  MaxLength="3"

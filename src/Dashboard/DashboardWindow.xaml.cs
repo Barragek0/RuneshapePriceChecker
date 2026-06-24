@@ -119,11 +119,11 @@ public sealed partial class DashboardWindow : Window
     private DispatcherTimer? _setupPollTimer;
     private string? _pendingLanguageAppTag;
     private bool _saveQueued;
-    private Brush _greenBrush = null!;
-    private Brush _amberBrush = null!;
-    private Brush _redBrush = null!;
-    private Brush _textPrimaryBrush = null!;
-    private Brush _darkGreenBgBrush = null!;
+    private readonly Brush _greenBrush = null!;
+    private readonly Brush _amberBrush = null!;
+    private readonly Brush _redBrush = null!;
+    private readonly Brush _textPrimaryBrush = null!;
+    private readonly Brush _darkGreenBgBrush = null!;
 
     public ObservableCollection<LogEntryViewModel> LogEntries => _vm.LogEntries;
 
@@ -368,6 +368,8 @@ public sealed partial class DashboardWindow : Window
         var isExalt = string.Equals(_vm.DisplayCurrency, "exalt", StringComparison.OrdinalIgnoreCase);
         CurrencyChaosCheck.IsChecked = !isExalt;
         CurrencyExaltCheck.IsChecked = isExalt;
+        AutoThresholdsCheck.IsChecked = _vm.AutoPriceThresholds;
+        UpdateThresholdVisibility();
         RedThresholdBox.Text = _vm.RedThreshold.ToString(CultureInfo.InvariantCulture);
         OrangeThresholdBox.Text = _vm.OrangeThreshold.ToString(CultureInfo.InvariantCulture);
         GreenThresholdBox.Text = _vm.GreenThreshold.ToString(CultureInfo.InvariantCulture);
@@ -414,6 +416,7 @@ public sealed partial class DashboardWindow : Window
         _vm.LogLevel = (LogLevelCombo.SelectedItem as ComboBoxItem)?.Tag as string ?? "Information";
         _vm.PricingSource = PricingSourceCombo.SelectedItem as string ?? "poe2scout";
         _vm.CurrentLeague = LeagueCombo.SelectedItem as string ?? "";
+        _vm.AutoPriceThresholds = AutoThresholdsCheck.IsChecked == true;
         _vm.DisplayCurrency = CurrencyExaltCheck.IsChecked == true ? "exalt" : "chaos";
         _ = decimal.TryParse(RedThresholdBox.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var red); _vm.RedThreshold = red;
         _ = decimal.TryParse(OrangeThresholdBox.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var orange); _vm.OrangeThreshold = orange;
@@ -927,10 +930,6 @@ public sealed partial class DashboardWindow : Window
     }
 
     private void ReRunSetup_Click(object sender, RoutedEventArgs e) { ToggleSettings(); _vm.OnReRunSetup?.Invoke(); }
-
-    private void Window_Loaded(object sender, RoutedEventArgs e)
-    {
-    }
 
     private void ToolTip_Loaded(object sender, RoutedEventArgs e)
     {
@@ -1512,23 +1511,6 @@ public sealed partial class DashboardWindow : Window
         }
     }
 
-    private void SettingsSave_Click(object sender, RoutedEventArgs e)
-    {
-        ClearValidation();
-        ValidationError.Text = "";
-        SyncViewModelFromUi();
-        var error = _vm.SaveSettings();
-        if (error is not null) { ShowValidation(error, RedThresholdBox); return; }
-        ToggleSettings();
-        UnlockStatus();
-
-        if (_vm.LogLevelChanged)
-        {
-            RestartApp();
-            return;
-        }
-    }
-
     private void ScanIntervalBox_PreviewTextInput(object sender, TextCompositionEventArgs e)
     {
         var box = (TextBox)sender;
@@ -1576,6 +1558,23 @@ public sealed partial class DashboardWindow : Window
 
         if (redOk && orangeOk && greenOk && red < orange && orange < green)
             QueueAutoSave();
+    }
+
+    private void AutoThresholds_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        UpdateThresholdVisibility();
+        SyncViewModelFromUi();
+        _vm.AutoPriceThresholds = AutoThresholdsCheck.IsChecked == true;
+        QueueAutoSave();
+    }
+
+    private void UpdateThresholdVisibility()
+    {
+        if (ThresholdBoxes is null) return;
+        ThresholdBoxes.Visibility = AutoThresholdsCheck.IsChecked == true
+            ? Visibility.Collapsed
+            : Visibility.Visible;
     }
 
     private void ValidateThresholds()
