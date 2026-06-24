@@ -6,13 +6,6 @@ internal static class StrComp
 {
     public static readonly Regex MultiWhitespace = new(@"\s+", RegexOptions.Compiled);
 
-    public static bool ContainsLetter(string s)
-    {
-        foreach (var c in s)
-            if (char.IsLetter(c)) return true;
-        return false;
-    }
-
     public const StringComparison Ordinal = StringComparison.Ordinal;
     public const StringComparison OrdinalIgnoreCase = StringComparison.OrdinalIgnoreCase;
 

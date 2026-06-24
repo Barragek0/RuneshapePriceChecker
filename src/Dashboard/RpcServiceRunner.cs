@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Management;
 using System.Runtime.Versioning;
-using System.Threading;
 using Microsoft.Win32;
 
 namespace RuneshapePriceChecker.App.Dashboard;
@@ -45,14 +44,6 @@ internal static class RpcServiceRunner
         SignalExit();
     }
 
-    public static bool IsRegistered
-    {
-        get
-        {
-            using var key = Registry.CurrentUser.OpenSubKey(RegistryRunKey);
-            return key?.GetValue(RegistryValueName) is not null;
-        }
-    }
 
     public static bool IsRunning() => IsServiceRunning();
 

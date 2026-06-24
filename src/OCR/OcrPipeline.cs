@@ -4,58 +4,6 @@ namespace RuneshapePriceChecker.OCR;
 
 internal static class OcrPipeline
 {
-    public sealed record Result(
-        string Text,
-        int[] RowYPositions,
-        int[] RowHeights,
-        Rectangle? CropBounds);
-    public static Result Run(
-        Bitmap capturedBitmap,
-        OcrOptions options,
-        OcrPerfTiming perf,
-        Func<Bitmap, int, int, string?> recognizeRow,
-        string? debugDirectory)
-    {
-        Bitmap masked;
-        using (perf.Measure(OcrPerfTiming.Slot.KeepBlack))
-            masked = OcrImagePreprocessor.KeepBlackAndNeighbors(capturedBitmap);
-
-        Bitmap preprocessed;
-        using (perf.Measure(OcrPerfTiming.Slot.Preprocess))
-            preprocessed = OcrImagePreprocessor.PreprocessForOcr(masked, options);
-
-        using var _ = preprocessed;
-        using var __ = masked;
-
-        var crop = OcrImagePreprocessor.FindContentBounds(preprocessed);
-
-        if (debugDirectory is not null)
-            SaveDebugSteps(capturedBitmap, masked, preprocessed, crop, debugDirectory);
-
-        var (rowYs, rowHeights) = DetectRowPositions(preprocessed, crop);
-
-        if (rowYs.Length == 0)
-            return new Result(string.Empty, [], [], crop);
-
-        var rowTexts = new string[rowYs.Length];
-        for (var i = 0; i < rowYs.Length; i++)
-        {
-            var text = recognizeRow(preprocessed, rowYs[i], rowHeights[i]);
-            rowTexts[i] = text ?? string.Empty;
-
-            if (debugDirectory is not null)
-                SaveRowDebugImage(preprocessed, crop, rowYs[i], rowHeights[i], i, debugDirectory);
-        }
-
-        if (debugDirectory is not null)
-            SaveRowOverlayDebugImage(preprocessed, crop, rowYs, rowHeights, debugDirectory);
-
-        return new Result(
-            string.Join(Environment.NewLine, rowTexts),
-            rowYs,
-            rowHeights,
-            crop);
-    }
     public static Bitmap PrepareRowBitmap(Bitmap source, Rectangle? contentCrop, int rowY, int rowHeight)
     {
         var cropX = contentCrop?.X ?? 0;
@@ -166,18 +114,6 @@ internal static class OcrPipeline
         return (result, heights);
     }
 
-
-    internal static void SaveDebugSteps(Bitmap raw, Bitmap masked, Bitmap preprocessed, Rectangle? crop, string dir)
-    {
-        OcrImagePreprocessor.SavePng(raw, Path.Combine(dir, "1 Raw.png"));
-        OcrImagePreprocessor.SavePng(masked, Path.Combine(dir, "2 Mask.png"));
-        OcrImagePreprocessor.SavePng(preprocessed, Path.Combine(dir, "3 Preprocessed.png"));
-        if (crop.HasValue)
-        {
-            using var croppedDbg = OcrImagePreprocessor.CropBitmap(preprocessed, crop.Value);
-            OcrImagePreprocessor.SavePng(croppedDbg, Path.Combine(dir, "4 Cropped.png"));
-        }
-    }
 
     public static void SaveRowDebugImage(Bitmap preprocessed, Rectangle? crop, int rowY, int rowHeight, int index, string dir)
     {

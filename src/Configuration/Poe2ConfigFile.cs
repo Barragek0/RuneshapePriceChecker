@@ -86,22 +86,6 @@ public static class Poe2ConfigFile
             return double.TryParse(val, CultureInfo.InvariantCulture, out var d) ? d : null;
         }
     }
-    public static int? ResolutionWidth
-    {
-        get
-        {
-            var val = GetValue("resolution_width=");
-            return val is not null && int.TryParse(val, out var w) ? w : null;
-        }
-    }
-    public static int? ResolutionHeight
-    {
-        get
-        {
-            var val = GetValue("resolution_height=");
-            return val is not null && int.TryParse(val, out var h) ? h : null;
-        }
-    }
     public static bool IsFullscreen
     {
         get
