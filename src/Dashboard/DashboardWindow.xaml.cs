@@ -72,7 +72,8 @@ public sealed partial class DashboardWindow : Window
             var query = new System.Management.ObjectQuery(
                 $"SELECT WorkingSetPrivate FROM Win32_PerfFormattedData_PerfProc_Process WHERE IDProcess = {pid}");
             using var searcher = new System.Management.ManagementObjectSearcher(scope, query);
-            foreach (System.Management.ManagementBaseObject obj in searcher.Get())
+            using var results = searcher.Get();
+            foreach (System.Management.ManagementBaseObject obj in results)
             {
                 var val = obj["WorkingSetPrivate"];
                 if (val is not null)

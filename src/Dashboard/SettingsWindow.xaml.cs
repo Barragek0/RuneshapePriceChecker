@@ -113,6 +113,7 @@ public sealed partial class SettingsWindow : Window
 
     private void Close_Click(object sender, RoutedEventArgs e)
     {
+        if (_loading) return;
         Save();
         Close();
     }
@@ -125,6 +126,11 @@ public sealed partial class SettingsWindow : Window
 
     private void Save()
     {
+        if (_loading) return;
+
+        // Don't save if league list hasn't loaded yet
+        if (LeagueCombo.Items.Count == 0) return;
+
         try
         {
             var configDir = Path.GetDirectoryName(_configPath);
@@ -151,18 +157,25 @@ public sealed partial class SettingsWindow : Window
                 pricing["AutoPriceThresholds"] = AutoThresholdsCheck.IsChecked == true;
                 pricing["League"] = LeagueCombo.Text;
                 pricing["DisplayCurrency"] = CurrencyExaltCheck.IsChecked == true ? "exalt" : "chaos";
-                _ = decimal.TryParse(RedThresholdBox.Text, out var red);
-                _ = decimal.TryParse(OrangeThresholdBox.Text, out var orange);
-                _ = decimal.TryParse(GreenThresholdBox.Text, out var green);
-                pricing["RedThreshold"] = red;
-                pricing["OrangeThreshold"] = orange;
-                pricing["GreenThreshold"] = green;
 
-                // Update validation text
-                if (red < orange && orange < green)
+                // Only save threshold values if they parse and satisfy Red < Orange < Green.
+                // Otherwise the previous valid values remain in the config.
+                var redOk = decimal.TryParse(RedThresholdBox.Text, out var red);
+                var orangeOk = decimal.TryParse(OrangeThresholdBox.Text, out var orange);
+                var greenOk = decimal.TryParse(GreenThresholdBox.Text, out var green);
+                var thresholdsValid = redOk && orangeOk && greenOk && red < orange && orange < green;
+
+                if (thresholdsValid)
+                {
+                    pricing["RedThreshold"] = red;
+                    pricing["OrangeThreshold"] = orange;
+                    pricing["GreenThreshold"] = green;
                     ValidationError.Text = "";
+                }
                 else
+                {
                     ValidationError.Text = "Thresholds must be: Red < Orange < Green.";
+                }
             }
 
             if (rootObj["OCR"] is JsonObject ocr)
