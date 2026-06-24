@@ -80,10 +80,12 @@ public sealed class DashboardService(DashboardLogSink sink, DebugMetricsCollecto
         Window = new DashboardWindow(_sink, Metrics);
 
 
-        // Auto-detect OCR language from the game's config file
+        // Auto-detect OCR language from the game's config file so the app
+        // picks up language changes made in-game since the last launch.
         Poe2ConfigFile.StartWatching();
-        var gameLang = Poe2ConfigFile.Language ?? "eng";
-        Window.SetGameLanguage(gameLang, ItemNameTranslator.IsLanguageSupported(gameLang));
+        var gameLang = Poe2ConfigFile.Language;
+        if (gameLang is not null)
+            Window.SetGameLanguage(gameLang, ItemNameTranslator.IsLanguageSupported(gameLang));
         Poe2ConfigFile.ConfigChanged += () =>
         {
             var effective = Poe2ConfigFile.Language ?? "eng";
