@@ -1269,7 +1269,7 @@ public sealed partial class DashboardWindow : Window
         }
         catch { }
         DbgWindowStatus.Text = isForeground ? "\u2713 Active" : "\u2717 Not active";
-        DbgWindowStatus.Foreground = isForeground ? _greenBrush : _amberBrush;
+        DbgWindowStatus.Foreground = isForeground ? _greenBrush : _redBrush;
 
         DbgInterfaceStatus.Text = snap.InterfaceDetected ? "✓ Detected" : "✗ Not visible";
         DbgInterfaceStatus.Foreground = snap.InterfaceDetected ? _greenBrush : _redBrush;
