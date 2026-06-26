@@ -18,7 +18,7 @@ public sealed class LeaguePanelDetector
 
     private const int BrightnessThreshold = 130;
     private const int BlackPixelMaxSum = 20;
-    private const int MinBlackPixels = 100;
+    private const int MinBlackPixels = 60;
 
     private int _brightStreak;
     private int _darkStreak;
