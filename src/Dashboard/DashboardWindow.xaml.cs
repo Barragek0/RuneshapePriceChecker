@@ -23,8 +23,6 @@ public sealed partial class DashboardWindow : Window
     private const uint SwpNosize = 0x0001;
     private const uint SwpNomove = 0x0002;
     private const uint SwpNoactivate = 0x0010;
-    private const uint WsExNoactivate = 0x08000000;
-    private const int GwlpExstyle = -20;
 
     // Cached LS check — Process.GetProcessesByName is expensive
     private static readonly TimeSpan LsCheckInterval = TimeSpan.FromSeconds(5);
@@ -102,17 +100,7 @@ public sealed partial class DashboardWindow : Window
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
 
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-
-    private const int SwShowna = 8;
 
     private const uint GwHwndfirst = 0;
     private IntPtr _windowHandle;
@@ -693,49 +681,14 @@ public sealed partial class DashboardWindow : Window
         _windowHandle = new WindowInteropHelper(this).Handle;
         var source = HwndSource.FromHwnd(_windowHandle);
         source?.AddHook(WndProc);
-
-        // When activation is suppressed, apply WS_EX_NOACTIVATE at the OS level
-        // so Windows never activates or brings this window to the foreground.
-        // ShowActivated=false alone is insufficient — it prevents keyboard focus
-        // but doesn't stop Windows from placing a new window on top of the Z-order.
-        if ((_suppressActivation || !_vm.BringToForeground) && _windowHandle != IntPtr.Zero)
-        {
-            var exStyle = GetWindowLong(_windowHandle, GwlpExstyle);
-            if ((exStyle & WsExNoactivate) == 0)
-                _ = SetWindowLong(_windowHandle, GwlpExstyle, exStyle | (int)WsExNoactivate);
-
-            // Also push behind the current foreground window as a secondary measure
-            if (!Topmost)
-            {
-                var fgHwnd = GetForegroundWindow();
-                if (fgHwnd != IntPtr.Zero && fgHwnd != _windowHandle)
-                    _ = SetWindowPos(_windowHandle, fgHwnd, 0, 0, 0, 0,
-                        SwpNosize | SwpNomove | SwpNoactivate);
-            }
-        }
     }
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
-        const int WM_ACTIVATE = 0x0006;
         const int WM_NCCALCSIZE = 0x0083;
         const int WM_NCHITTEST = 0x0084;
         const int WM_NCACTIVATE = 0x0086;
-        const int WA_ACTIVE = 1;
-        const int WA_CLICKACTIVE = 2;
         const int HTCLIENT = 1;
-
-        // When activation is suppressed, prevent Windows from making this window
-        // the active/foreground window — even when another window (e.g. the setup
-        // overlay) closes and Windows tries to fall back to this one.
-        if (msg == WM_ACTIVATE && _suppressActivation)
-        {
-            if (wParam == WA_ACTIVE || wParam == WA_CLICKACTIVE)
-            {
-                handled = true;
-                return IntPtr.Zero;
-            }
-        }
 
         if (msg == WM_NCACTIVATE)
         {
@@ -1032,22 +985,6 @@ public sealed partial class DashboardWindow : Window
         if (_suppressActivation || !_vm.BringToForeground)
         {
             Opacity = 1;
-            // When activation is suppressed, Windows still places a newly shown
-            // window at the top of the Z-order — it just doesn't give it keyboard
-            // focus.  Push the window behind the current foreground window so it
-            // doesn't visually appear "on top" of everything else.
-            if (_windowHandle != IntPtr.Zero)
-            {
-                var fgHwnd = GetForegroundWindow();
-                if (fgHwnd != IntPtr.Zero && fgHwnd != _windowHandle && !Topmost)
-                    _ = SetWindowPos(_windowHandle, fgHwnd, 0, 0, 0, 0,
-                        SwpNosize | SwpNomove | SwpNoactivate);
-
-                // Final safety net: re-show the window without activation.
-                // This ensures Windows processes the window as non-activating,
-                // even if the initial Show() or Opacity transition did not.
-                _ = ShowWindow(_windowHandle, SwShowna);
-            }
             return;
         }
 
@@ -1065,21 +1002,12 @@ public sealed partial class DashboardWindow : Window
 
         if (_vm.BringToForeground)
         {
-            // Remove WS_EX_NOACTIVATE so the Activate() call actually works
-            if (_windowHandle != IntPtr.Zero)
-            {
-                var exStyle = GetWindowLong(_windowHandle, GwlpExstyle);
-                if ((exStyle & WsExNoactivate) != 0)
-                    _ = SetWindowLong(_windowHandle, GwlpExstyle, exStyle & ~(int)WsExNoactivate);
-            }
-
             ForceTopmost();
             _ = Activate();
         }
 
         _ = Dispatcher.BeginInvoke(new Action(() =>
         {
-            if (_suppressActivation) return;
             if (_vm.AlwaysOnTop)
                 ForceTopmost();
             else
@@ -1186,13 +1114,12 @@ public sealed partial class DashboardWindow : Window
 
     private void ForceTopmost()
     {
-        if (_windowHandle == IntPtr.Zero) return;
-
-        // Use Win32 directly with SWP_NOACTIVATE so the window becomes topmost
-        // WITHOUT being activated or brought to the foreground.  WPF's Topmost
-        // property setter calls SetWindowPos internally but omits SWP_NOACTIVATE,
-        // which causes unwanted activation when SuppressActivation is set.
-        if (GetWindow(IntPtr.Zero, GwHwndfirst) != _windowHandle)
+        // Only set Topmost when it's not already true — avoids unnecessary WPF
+        // dependency property invalidation.
+        if (!Topmost)
+            Topmost = true;
+        if (_windowHandle != IntPtr.Zero
+            && GetWindow(IntPtr.Zero, GwHwndfirst) != _windowHandle)
         {
             _ = SetWindowPos(_windowHandle, HwndTopmost, 0, 0, 0, 0,
                 SwpNosize | SwpNomove | SwpNoactivate);
