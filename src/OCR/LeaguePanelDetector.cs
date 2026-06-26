@@ -1,5 +1,6 @@
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
+using Microsoft.Extensions.Options;
 
 namespace RuneshapePriceChecker.OCR;
 
@@ -12,23 +13,33 @@ public sealed record ListDetectorDiag(
 
 public sealed class LeaguePanelDetector
 {
-    public const double LeftFraction = 0.40;
-    public const double RightFraction = 0.98;
-    public const double TopRowFraction = 0.26;
+    public const double DefaultLeftFraction = 0.40;
+    public const double DefaultRightFraction = 0.98;
+    public const double DefaultTopRowFraction = 0.26;
+    public const int DefaultBrightnessThreshold = 120;
+    public const int DefaultBlackPixelMaxSum = 20;
+    public const int DefaultMinBlackPixels = 60;
 
-    private const int BrightnessThreshold = 130;
-    private const int BlackPixelMaxSum = 20;
-    private const int MinBlackPixels = 60;
-
+    private readonly IOptionsMonitor<OcrOptions>? _options;
     private int _brightStreak;
     private int _darkStreak;
+
+    public LeaguePanelDetector(IOptionsMonitor<OcrOptions>? options = null)
+    {
+        _options = options;
+    }
 
     public bool IsOpen { get; private set; }
 
     public bool Update(Bitmap regionBitmap, out ListDetectorDiag diag)
     {
-        var (avgBrightness, blackCount, totalCount, minSum) = ScanTopRow(regionBitmap);
-        bool rawBright = avgBrightness > BrightnessThreshold && blackCount >= MinBlackPixels;
+        var opts = _options?.CurrentValue;
+        var brightnessThreshold = opts?.PanelBrightnessThreshold ?? DefaultBrightnessThreshold;
+        var blackPixelMaxSum = opts?.PanelBlackPixelMaxSum ?? DefaultBlackPixelMaxSum;
+        var minBlackPixels = opts?.PanelMinBlackPixels ?? DefaultMinBlackPixels;
+
+        var (avgBrightness, blackCount, totalCount, minSum) = ScanTopRow(regionBitmap, blackPixelMaxSum);
+        bool rawBright = avgBrightness > brightnessThreshold && blackCount >= minBlackPixels;
 
         diag = new ListDetectorDiag(avgBrightness, blackCount, totalCount, IsOpen, minSum);
 
@@ -41,7 +52,7 @@ public sealed class LeaguePanelDetector
         return IsOpen;
     }
 
-    private static (int avgBrightness, int blackCount, int totalCount, int minSum) ScanTopRow(Bitmap bmp)
+    private static (int avgBrightness, int blackCount, int totalCount, int minSum) ScanTopRow(Bitmap bmp, int blackPixelMaxSum)
     {
         var rect = new Rectangle(0, 0, bmp.Width, bmp.Height);
         BitmapData data;
@@ -78,7 +89,7 @@ public sealed class LeaguePanelDetector
 
                         totalBrightness += sum / 3;
                         totalCount++;
-                        if (sum < BlackPixelMaxSum)
+                        if (sum < blackPixelMaxSum)
                             blackCount++;
                         if (sum < minSum)
                             minSum = sum;

@@ -993,6 +993,7 @@
                                                         Grid.RowSpan="3"
                                                         HorizontalAlignment="Left">
                                                 <CheckBox x:Name="AutoUpdateCheck"
+                                                          AutomationProperties.AutomationId="AutoUpdateCheck"
                                                           VerticalAlignment="Center"
                                                           Margin="16,0,0,0"
                                                           Checked="AutoSetting_Changed"
@@ -1031,6 +1032,7 @@
                                                     </Ellipse>
                                                 </StackPanel>
                                                 <CheckBox x:Name="AlwaysOnTopCheck"
+                                                          AutomationProperties.AutomationId="AlwaysOnTopCheck"
                                                           VerticalAlignment="Center"
                                                           Margin="16,0,0,4"
                                                           Checked="AlwaysOnTop_CheckedChanged"
@@ -1306,7 +1308,7 @@
                                                 <ColumnDefinition Width="Auto"/>
                                             </Grid.ColumnDefinitions>
                                             <StackPanel Grid.Row="0"
-                                                    Grid.Column="0">
+                                                        Grid.Column="0">
                                                 <StackPanel Orientation="Horizontal"
                                                             Margin="14,0,0,6">
                                                     <TextBlock Text="OCR Backend"
@@ -1330,7 +1332,7 @@
                                                           SelectionChanged="OcrBackendCombo_SelectionChanged"/>
                                             </StackPanel>
                                             <StackPanel Grid.Row="0"
-                                                    Grid.Column="1">
+                                                        Grid.Column="1">
                                                 <StackPanel Orientation="Horizontal"
                                                             Margin="14,0,0,6">
                                                     <TextBlock Text="Capture Mode"
@@ -1354,7 +1356,7 @@
                                                           SelectionChanged="CaptureModeCombo_SelectionChanged"/>
                                             </StackPanel>
                                             <StackPanel Grid.Row="0"
-                                                    Grid.Column="2">
+                                                        Grid.Column="2">
                                                 <StackPanel Orientation="Horizontal"
                                                             Margin="14,0,0,6">
                                                     <TextBlock Text="Scan Interval"
@@ -1367,6 +1369,7 @@
                                                 <StackPanel Orientation="Horizontal"
                                                             Margin="14,0,0,0">
                                                     <TextBox x:Name="ScanIntervalBox"
+                                                             AutomationProperties.AutomationId="ScanIntervalBox"
                                                              Width="52"
                                                              Height="24"
                                                              MaxLength="3"
@@ -1426,6 +1429,7 @@
                                                                 x:Name="OverlayScaleCheckboxArea"
                                                                 Orientation="Horizontal">
                                                         <CheckBox x:Name="OverlayScaleAutoCheck"
+                                                                  AutomationProperties.AutomationId="OverlayScaleAutoCheck"
                                                                   VerticalAlignment="Center"
                                                                   Width="16"
                                                                   Height="16"
@@ -1441,6 +1445,7 @@
                                                     </StackPanel>
                                                     <TextBox Grid.Column="1"
                                                              x:Name="OverlayScaleBox"
+                                                             AutomationProperties.AutomationId="OverlayScaleBox"
                                                              Width="34"
                                                              Height="24"
                                                              MaxLength="4"

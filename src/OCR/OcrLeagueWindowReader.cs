@@ -45,6 +45,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         _metrics = metrics;
         _captureStrategy = new OcrCaptureStrategy(loggerFactory.CreateLogger<OcrCaptureStrategy>());
         _engineManager = new TesseractEngineManager(loggerFactory.CreateLogger<TesseractEngineManager>());
+        _listDetector = new LeaguePanelDetector(options);
 
         var effectiveBackend = ResolveEffectiveOcrBackend(_options.CurrentValue.OcrBackend);
         if (!string.Equals(effectiveBackend, _options.CurrentValue.OcrBackend, StringComparison.OrdinalIgnoreCase))
@@ -107,7 +108,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
     private DateTimeOffset _lastDebugImageSavedAtUtc = DateTimeOffset.MinValue;
     private DateTime _lastPerfMetricsLogAt = DateTime.MinValue;
     private long _lastDebugFrameHash;
-    private readonly LeaguePanelDetector _listDetector = new();
+    private readonly LeaguePanelDetector _listDetector;
     private readonly OcrPerfTiming _perf = new();
     private readonly DebugMetricsCollector _metrics;
 
@@ -337,11 +338,12 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         // Pre-capture panel check: capture only the scan rectangle area (~40K px)
         // instead of the full region (266K px) to check if the panel is still closed.
         // Uses a direct CopyFromScreen to bypass the capture strategy's fallback chain.
+        var opts = _options.CurrentValue;
         var scanRect = new OcrCaptureRegion(
-            region.X + (int)(region.Width * LeaguePanelDetector.LeftFraction),
+            region.X + (int)(region.Width * opts.PanelLeftFraction),
             region.Y,
-            (int)(region.Width * (LeaguePanelDetector.RightFraction - LeaguePanelDetector.LeftFraction)),
-            (int)(region.Height * LeaguePanelDetector.TopRowFraction));
+            (int)(region.Width * (opts.PanelRightFraction - opts.PanelLeftFraction)),
+            (int)(region.Height * opts.PanelTopRowFraction));
         using (var preCapturePerf = _perf.Measure(OcrPerfTiming.Slot.AnchorCheck))
         {
             using var scanBitmap = CaptureDesktopRegionDirect(scanRect);
@@ -695,9 +697,9 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
             _logger.LogDebug(
                 "Panel check: region=({RegX},{RegY} {RegW}x{RegH}) scanX={ScanX0}-{ScanX1} scanY={ScanY} fmt={Fmt} open={Open}",
                 region.X, region.Y, region.Width, region.Height,
-                region.X + (int)(region.Width * LeaguePanelDetector.LeftFraction),
-                region.X + (int)(region.Width * LeaguePanelDetector.RightFraction),
-                region.Y + (int)(region.Height * LeaguePanelDetector.TopRowFraction),
+                region.X + (int)(region.Width * _options.CurrentValue.PanelLeftFraction),
+                region.X + (int)(region.Width * _options.CurrentValue.PanelRightFraction),
+                region.Y + (int)(region.Height * _options.CurrentValue.PanelTopRowFraction),
                 pxFormat, diag.PanelOpen);
         }
         if (_logger.IsEnabled(LogLevel.Trace))

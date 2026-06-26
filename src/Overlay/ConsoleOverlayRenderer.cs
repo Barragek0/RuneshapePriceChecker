@@ -27,7 +27,7 @@ public sealed class PricingOverlayRenderer(
     {
         try
         {
-            if (!_appOptions.CurrentValue.PricingOverlay)
+            if (!_appOptions.CurrentValue.PricingOverlay || _appOptions.CurrentValue.AllOverlaysDisabled)
                 return;
 
             EnsureOverlayThreadStarted();

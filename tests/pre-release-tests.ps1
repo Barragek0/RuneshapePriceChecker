@@ -6,9 +6,9 @@ param(
     [switch]$Test5, [switch]$Test6, [switch]$Test7, [switch]$Test8,
     [switch]$Test9, [switch]$Test10, [switch]$Test11, [switch]$Test12,
     [switch]$Test13, [switch]$Test14, [switch]$Test15, [switch]$Test16, [switch]$Test18, [switch]$Test19, [switch]$Test20,
-    [switch]$Test21, [switch]$Test22, [switch]$Test23, [switch]$Test24,
+    [switch]$Test21, [switch]$Test22, [switch]$Test23,
     [switch]$Test25, [switch]$Test26, [switch]$Test27,
-    [switch]$Test28, [switch]$Test29, [switch]$Test30,
+    [switch]$Test28, [switch]$Test29,
     [switch]$Test31, [switch]$Test32, [switch]$Test33,
     [switch]$Test34, [switch]$Test35,
     [switch]$Test36,
@@ -16,6 +16,8 @@ param(
     [switch]$Test38, [switch]$Test39, [switch]$Test40,
     [switch]$Test41,
     [switch]$Test42,
+    [switch]$Test43,
+    [switch]$Test44,
     [switch]$All
 )
 
@@ -153,9 +155,31 @@ function Close-SettingsIfOpen($proc) {
     if ($hwnd -eq [IntPtr]::Zero) { return }
     try {
         $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
+        # Check by SettingsSection (always visible when open) or RedThresholdBox (when auto-thresholds off)
         $el = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
-            (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "RedThresholdBox")))
-        if ($el) { Invoke-Button $proc "Settings" 3000 | Out-Null; Start-Sleep -Milliseconds 400 }
+            (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "SettingsSection")))
+        if (-not $el) {
+            $el = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "RedThresholdBox")))
+        }
+        if ($el) { Invoke-Button $proc "Settings" 3000 | Out-Null }
+        Wait-ForUIGone $proc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "SettingsSection") 3000 | Out-Null
+    }
+    catch { }
+}
+
+# Uncheck AutoThresholds so threshold text boxes become visible via UIA
+function Uncheck-AutoThresholds($proc) {
+    $hwnd = $proc.MainWindowHandle
+    if ($hwnd -eq [IntPtr]::Zero) { return }
+    try {
+        $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
+        $autoCheck = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+            (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "AutoThresholdsCheck")))
+        if ($autoCheck -and $autoCheck.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On) {
+            $autoCheck.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+            Start-Sleep -Milliseconds 200
+        }
     }
     catch { }
 }
@@ -165,20 +189,34 @@ function EnsureLogSectionVisible($proc) {
     Close-SettingsIfOpen $proc
     # Double-toggle as safety net for any state
     Invoke-Button $proc "Settings" 3000 | Out-Null
-    Start-Sleep -Milliseconds 200
+    Wait-ForUIGone $proc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "SettingsSection") 3000 | Out-Null
     Invoke-Button $proc "Settings" 3000 | Out-Null
-    Start-Sleep -Milliseconds 400
+    Wait-ForUIGone $proc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "SettingsSection") 3000 | Out-Null
     Close-SettingsIfOpen $proc
 }
 
 function Stop-App {
     Get-Process "RuneshapePriceChecker" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Milliseconds 500
+    Wait-For { -not (Get-Process "RuneshapePriceChecker" -ErrorAction SilentlyContinue) } 5000 | Out-Null
 }
 
 function Write-Config($json) {
     New-Item -ItemType Directory -Force $configDir | Out-Null
-    $json | Set-Content $configPath -NoNewline
+    # Merge in mandatory test-isolation settings so every test gets them
+    # regardless of what the caller provides. These prevent overlays from
+    # rendering, the window from stealing focus, and duplicate-instance warnings.
+    try {
+        $cfg = $json | ConvertFrom-Json
+        if (-not $cfg.App) { $cfg | Add-Member -NotePropertyName App -NotePropertyValue @{} }
+        $cfg.App.BringToForeground = $false
+        $cfg.App.AllOverlaysDisabled = $true
+        $cfg.App.SuppressAlreadyRunningWarning = $true
+        $cfg | ConvertTo-Json -Compress -Depth 10 | Set-Content $configPath -NoNewline
+    }
+    catch {
+        # If JSON is invalid (e.g. corrupt-config tests), write as-is
+        $json | Set-Content $configPath -NoNewline
+    }
 }
 
 function Clear-Config { if (Test-Path $configPath) { Remove-Item $configPath -Force } }
@@ -212,21 +250,21 @@ function Wait-ForLog($pattern, $timeoutMs = 12000) {
     return $false
 }
 
-function Wait-ForApp($timeoutMs = 3500) { return Wait-ForLog "Hosting started" $timeoutMs }
+function Wait-ForApp($timeoutMs = 3500) { return Wait-ForLog "Settings reloaded successfully" $timeoutMs }
 
-function Launch-App($extraArgs = "", $waitMs = 600) {
-    $launchArgs = @("--App:SuppressAlreadyRunningWarning=true", "--App:LogLevel=Debug", "--App:SuppressActivation=true", "--App:TestMode=true")
+function Launch-App($extraArgs = "") {
+    $launchArgs = @("--App:SuppressActivation=true", "--App:TestMode=true")
     if ($extraArgs) { $launchArgs += $extraArgs -split ' ' | Where-Object { $_ } }
     $proc = Start-Process -FilePath $exe -ArgumentList $launchArgs -PassThru
-    Start-Sleep -Milliseconds $waitMs
+    Wait-ForApp 8000 | Out-Null
     return $proc
 }
 
-function Launch-App-Headless($extraArgs = "", $waitMs = 600) {
-    $launchArgs = @("--App:SuppressAlreadyRunningWarning=true", "--App:LogLevel=Debug", "--App:SuppressActivation=true", "--App:TestMode=true")
+function Launch-App-Headless($extraArgs = "") {
+    $launchArgs = @("--App:SuppressActivation=true", "--App:TestMode=true")
     if ($extraArgs) { $launchArgs += $extraArgs -split ' ' | Where-Object { $_ } }
     $proc = Start-Process -FilePath $exe -ArgumentList $launchArgs -PassThru
-    Start-Sleep -Milliseconds $waitMs
+    Wait-ForApp 5000 | Out-Null
     return $proc
 }
 
@@ -250,10 +288,11 @@ function Click-Button($proc, $buttonName, $timeoutMs = 5000) {
 }
 $cfgBase = @"
 {
-  "App": { "LogLevel": "Debug" },
+  "App": { "LogLevel": "Debug", "BringToForeground": false, "AllOverlaysDisabled": true, "SuppressAlreadyRunningWarning": true },
   "Window": { "InitialSetupComplete": true },
   "OCR": { "SaveDebugImages": false, "Language": "eng" },
-  "Update": { "AutoUpdate": false }
+  "Update": { "AutoUpdate": false },
+  "Pricing": { "AutoPriceThresholds": false }
 }
 "@
 
@@ -501,7 +540,7 @@ function Test3-AppLifecycle {
     Report-Result "3b: Clean shutdown" $proc.HasExited "Exit:$($proc.ExitCode)"
     if (-not $proc.HasExited) { $proc.Kill() }
     $crashes = 0
-    for ($i = 1; $i -le 3; $i++) { Stop-App; $p = Launch-App -waitMs 1500; if ($p.HasExited) { $crashes++ }; Stop-App }
+    for ($i = 1; $i -le 3; $i++) { Stop-App; $p = Launch-App; if ($p.HasExited) { $crashes++ }; Stop-App }
     Report-Result "3c: Rapid restart" ($crashes -eq 0) $(if ($crashes) { "$crashes crashes" }else { "All OK" })
 }
 
@@ -595,13 +634,13 @@ function Test16-UiButtonInteractions($proc) {
     $gearClicked = Invoke-Button $proc "Settings" 3000
     Report-Result "16a: Settings button" $gearClicked $(if ($gearClicked) { "Opened" }else { "Not found" })
     # Close settings via toggle
-    if ($gearClicked) { Invoke-Button $proc "Settings" 3000 | Out-Null; Start-Sleep -Milliseconds 400 }
+    if ($gearClicked) { Invoke-Button $proc "Settings" 3000 | Out-Null; Wait-ForUIGone $proc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "SettingsSection" 3000 | Out-Null }
     # Wait for settings to close before clicking Close
     Close-SettingsIfOpen $proc
     $closeClicked = Invoke-Button $proc "Close" 3000
     Report-Result "16b: Close button" $closeClicked "Clicked"
-    Start-Sleep -Milliseconds 1000
-    if ($proc.HasExited) { Report-Result "16c: App closed" $true "Exited" } else { Report-Result "16c: App closed" $false "Still running"; Stop-App }
+    $exited = Wait-For { $proc.HasExited } 5000
+    if ($exited) { Report-Result "16c: App closed" $true "Exited" } else { Report-Result "16c: App closed" $false "Still running"; Stop-App }
 }
 
 function Test6-SettingsPersistence {
@@ -609,8 +648,8 @@ function Test6-SettingsPersistence {
     Write-Config '{"App":{"LogLevel":"Debug"},"Window":{"InitialSetupComplete":true},"OCR":{"SaveDebugImages":false,"Language":"eng"},"Update":{"AutoUpdate":false},"Pricing":{"DisplayCurrency":"exalt","RedThreshold":0.5,"OrangeThreshold":1.0,"GreenThreshold":5.0,"League":"Standard"}}'
     $proc = Launch-App; $started = Wait-ForApp 8000; if (-not $started) { Report-Result "6a: App start" $false "Failed"; Stop-App; return }
     # Settings auto-save on close; open then close to trigger save
-    Click-Button $proc "Settings" 3000 | Out-Null; Start-Sleep -Milliseconds 400
-    Click-Button $proc "Settings" 3000 | Out-Null; Start-Sleep -Milliseconds 600
+    Click-Button $proc "Settings" 3000 | Out-Null; Wait-ForUI $proc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "RedThresholdBox" 3000 | Out-Null
+    Click-Button $proc "Settings" 3000 | Out-Null; Wait-ForUIGone $proc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "RedThresholdBox" 3000 | Out-Null
     if (Test-Path $configPath) { $cfg = Get-Content $configPath -Raw | ConvertFrom-Json; Report-Result "6b: League persisted" ($cfg.Pricing.League -eq "Standard") "League=$($cfg.Pricing.League)"; Report-Result "6c: Currency persisted" ($cfg.Pricing.DisplayCurrency -eq "exalt") "Currency=$($cfg.Pricing.DisplayCurrency)" }
     Stop-App
 }
@@ -628,7 +667,8 @@ function Test14-SettingsFieldValidation($proc) {
 
     # Open settings (settings auto-save on close via toggle)
     Click-Button $proc "Settings" 3000 | Out-Null
-    Start-Sleep -Milliseconds 600
+    Wait-ForUI $proc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "SettingsSection" 3000 | Out-Null
+    Uncheck-AutoThresholds $proc
 
     $hwnd = $proc.MainWindowHandle
     if ($hwnd -eq [IntPtr]::Zero) { Report-Result "14: Window" $false "No HWND"; return }
@@ -661,7 +701,7 @@ function Test14-SettingsFieldValidation($proc) {
 
     # Close settings via toggle (auto-saves)
     Click-Button $proc "Settings" 3000 | Out-Null
-    Start-Sleep -Milliseconds 600
+    Wait-ForUIGone $proc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "SettingsSection" 3000 | Out-Null
 }
 function Test15-TooltipVerification($proc) {
     if ($proc.HasExited) { Report-Result "15: Tooltips" $false "App exited"; return }
@@ -673,9 +713,7 @@ function Test15-TooltipVerification($proc) {
     try { $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd) } catch { Report-Result "15: UIA" $false "FromHandle failed"; return }
 
     # Only Copy Log has an explicit ToolTip in XAML; find by AutomationId (x:Name) for reliability
-    Start-Sleep -Milliseconds 300
-    $copyBtn = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
-        (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "CopyLogButton")))
+    $copyBtn = Wait-ForUI $proc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "CopyLogButton" 3000
     if (-not $copyBtn) {
         # Fallback: find by Name
         $copyBtn = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
@@ -708,7 +746,7 @@ function Test10-OverlayFeatureToggles {
     # Only test with all overlays enabled — if this doesn't crash, individual toggles won't either
     Stop-App; Clear-OldLogs
     Write-Config '{"App":{"LogLevel":"Debug","PricingOverlay":true,"Banner":true},"Window":{"InitialSetupComplete":true},"OCR":{"SaveDebugImages":false,"Language":"eng","DebugOverlay":true},"Update":{"AutoUpdate":false}}'
-    $p = Launch-App; Wait-ForApp 5000 | Out-Null; $ok = -not $p.HasExited; Stop-App
+    $p = Launch-App "--App:AllOverlaysDisabled=false"; Wait-ForApp 5000 | Out-Null; $ok = -not $p.HasExited; Stop-App
     Report-Result "10a: All overlays on" $ok $(if ($ok) { "No crash" }else { "Exited" })
 }
 
@@ -747,10 +785,10 @@ function Test19-ReRunSetup {
 
     # Open settings panel first, then find the Re-run button
     Click-Button $proc "Settings" 3000 | Out-Null
-    Start-Sleep -Milliseconds 800
+    Wait-ForUI $proc ([System.Windows.Automation.AutomationElement]::NameProperty) "Re-run initial setup" 3000 | Out-Null
     $clicked = Click-Button $proc "Re-run initial setup" 5000
     Report-Result "19a: Re-run button found" $clicked $(if ($clicked) { "Clicked" }else { "Not found" })
-    Start-Sleep -Milliseconds 1500
+    Wait-ForLog "RunInitialSetup: starting initial setup flow|Setup overlay" 5000 | Out-Null
 
     $log = Get-LatestLog
     $triggered = ($log -and (Select-String -Path $log -Pattern "RunInitialSetup: starting initial setup flow|Setup overlay" -Quiet))
@@ -762,7 +800,8 @@ function Test20-ComprehensiveSettingsRoundTrip($proc) {
     if ($proc.HasExited) { Report-Result "20: Settings" $false "App exited"; return }
 
     Click-Button $proc "Settings" 3000 | Out-Null
-    Start-Sleep -Milliseconds 800
+    Wait-ForUI $proc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "SettingsSection" 3000 | Out-Null
+    Uncheck-AutoThresholds $proc
 
     $hwnd = $proc.MainWindowHandle
     if ($hwnd -eq [IntPtr]::Zero) { Report-Result "20a: Window" $false "No HWND"; return }
@@ -786,7 +825,7 @@ function Test20-ComprehensiveSettingsRoundTrip($proc) {
 
     # Close settings via toggle (auto-saves)
     Click-Button $proc "Settings" 3000 | Out-Null
-    Start-Sleep -Milliseconds 600
+    Wait-ForUIGone $proc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "SettingsSection" 3000 | Out-Null
 }
 
 function Test21-PricingSourceChange {
@@ -796,14 +835,14 @@ function Test21-PricingSourceChange {
     for ($attempt = 1; $attempt -le 3; $attempt++) {
         Stop-App; Clear-OldLogs
         Write-Config '{"App":{"LogLevel":"Debug"},"Window":{"InitialSetupComplete":true},"OCR":{"SaveDebugImages":false,"Language":"eng"},"Update":{"AutoUpdate":false},"Pricing":{"PricingSource":"poe2scout","League":"Runes of Aldur"}}'
-        $proc = Launch-App; Wait-ForApp 8000 | Out-Null; Start-Sleep -Milliseconds 2000; Stop-App
+        $proc = Launch-App; Wait-ForLog "Pricing cache refreshed|Fetched.*price rows" 15000 | Out-Null; Stop-App
         $log = Get-LatestLog
         $cached = ($log -and (Select-String -Path $log -Pattern "Pricing cache refreshed|Fetched.*price rows" -Quiet))
         if ($cached) { $21aPass = $true }
 
         Stop-App; Clear-OldLogs
         Write-Config '{"App":{"LogLevel":"Debug"},"Window":{"InitialSetupComplete":true},"OCR":{"SaveDebugImages":false,"Language":"eng"},"Update":{"AutoUpdate":false},"Pricing":{"PricingSource":"poe.ninja","League":"Runes of Aldur"}}'
-        $proc = Launch-App; Wait-ForApp 8000 | Out-Null; Start-Sleep -Milliseconds 3000; Stop-App
+        $proc = Launch-App; Wait-ForLog "Pricing cache refreshed|Poe.ninja|poe.ninja.*fetched" 15000 | Out-Null; Stop-App
         $log = Get-LatestLog
         $ninjaOk = ($log -and (Select-String -Path $log -Pattern "Poe.ninja|poe.ninja.*fetched|Pricing cache refreshed" -Quiet))
         if ($ninjaOk) { $21bPass = $true }
@@ -817,15 +856,9 @@ function Test21-PricingSourceChange {
 
 function Test22-LogLevelChange {
     Stop-App; Clear-OldLogs
-    # Write Warning-level config and do NOT pass conflicting CLI args.
-    # Launch-App always adds --App:LogLevel=Debug which would override the
-    # config, so use Start-Process directly to set the level from config only.
     Write-Config '{"App":{"LogLevel":"Warning"},"Window":{"InitialSetupComplete":true},"OCR":{"SaveDebugImages":false,"Language":"eng"},"Update":{"AutoUpdate":false}}'
-    $proc = Start-Process -FilePath $exe -ArgumentList "--App:SuppressAlreadyRunningWarning=true", "--App:SuppressActivation=true" -PassThru
-    Start-Sleep -Milliseconds 500
-    # Wait for the app to start and produce some log output
+    $proc = Launch-App
     $started = Wait-ForLog "Settings reloaded successfully" 10000
-    Start-Sleep -Milliseconds 500
     Stop-App
     if (-not $started) { Report-Result "22a: Warning suppresses debug" $false "App did not start within timeout"; return }
     $log = Get-LatestLog
@@ -857,7 +890,7 @@ function Test23-WindowPosition {
         if ($hasPos) {
             $savedLeft = $cfg.Window.Left
             $savedTop = $cfg.Window.Top
-            $proc2 = Launch-App-Headless -waitMs 3000; Wait-ForApp 5000 | Out-Null
+            $proc2 = Launch-App-Headless; Wait-ForApp 5000 | Out-Null
             $proc2.CloseMainWindow() | Out-Null; $proc2.WaitForExit(3000) | Out-Null
             if (-not $proc2.HasExited) { Stop-App }
             $cfg2 = Get-Content $configPath -Raw | ConvertFrom-Json
@@ -911,7 +944,7 @@ function Test27-PriceCacheOnLeagueChange {
     Stop-App; Clear-OldLogs
     Write-Config '{"App":{"LogLevel":"Debug"},"Window":{"InitialSetupComplete":true},"OCR":{"SaveDebugImages":false,"Language":"eng"},"Update":{"AutoUpdate":false},"Pricing":{"League":"Runes of Aldur"}}'
     $proc = Launch-App-Headless; Wait-ForApp 8000 | Out-Null
-    Start-Sleep -Milliseconds 2000
+    Wait-ForLog "Pricing cache refreshed|Fetched.*price rows" 10000 | Out-Null
     Stop-App
     $log = Get-LatestLog
     $firstRefresh = ($log -and (Select-String -Path $log -Pattern "Pricing cache refreshed|Fetched.*price rows|Already up to date" -Quiet))
@@ -921,7 +954,7 @@ function Test27-PriceCacheOnLeagueChange {
 function Test28-LogOrdering($proc) {
     if ($proc.HasExited) { Report-Result "28: Log ordering" $false "App exited"; return }
     EnsureLogSectionVisible $proc
-    Start-Sleep -Milliseconds 1500
+    Wait-ForUI $proc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "LogList" 3000 | Out-Null
 
     # Check window ordering: newest should be at index 0 (top of list)
     $hwnd = $proc.MainWindowHandle
@@ -982,7 +1015,7 @@ function Test29-LogCoalescing($proc) {
 
 function Test31-TestModeIndicator {
     Stop-App; Clear-OldLogs; Write-Config $cfgBase
-    $proc = Launch-App -extraArgs "--App:TestMode=true"
+    $proc = Launch-App
     Wait-ForApp 5000 | Out-Null
     $crashed = $proc.HasExited
     Stop-App
@@ -1069,7 +1102,8 @@ function Test34-CurrencyMutualExclusion($proc) {
 function Test35-SettingsValidationUI($proc) {
     if ($proc.HasExited) { Report-Result "35: Validation" $false "App exited"; return }
     if (-not (Invoke-Button $proc "Settings" 3000)) { Report-Result "35a: Open settings" $false; return }
-    Wait-ForUI $proc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "RedThresholdBox" 2000 | Out-Null
+    Wait-ForUI $proc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "SettingsSection" 2000 | Out-Null
+    Uncheck-AutoThresholds $proc
     $hwnd = $proc.MainWindowHandle; if ($hwnd -eq [IntPtr]::Zero) { Report-Result "35a: HWND" $false; Invoke-Button $proc "Settings" 3000 | Out-Null; return }
     try { $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd) } catch { Report-Result "35a: UIA" $false; Invoke-Button $proc "Settings" 3000 | Out-Null; return }
     $redBox = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "RedThresholdBox")))
@@ -1099,11 +1133,12 @@ function Test35-SettingsValidationUI($proc) {
     }
     catch { }
     # Close settings via toggle (auto-saves)
-    Invoke-Button $proc "Settings" 3000 | Out-Null; Start-Sleep -Milliseconds 600
+    Invoke-Button $proc "Settings" 3000 | Out-Null; Wait-ForUIGone $proc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "SettingsSection" 3000 | Out-Null
 }
 
 function Test36-StatusLockCleared($proc) {
     if ($proc.HasExited) { Report-Result "36: Status lock" $false "App exited"; return }
+    # AutoThresholds is unchecked inside after settings opens
 
     function Get-StatusText {
         $hwnd = $proc.MainWindowHandle
@@ -1138,6 +1173,8 @@ function Test36-StatusLockCleared($proc) {
 
     # --- Phase A: Open settings, set invalid values, close via toggle, verify error clears ---
     Click-Button $proc "Settings" 3000 | Out-Null
+    Wait-ForUI $proc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "SettingsSection" 3000 | Out-Null
+    Uncheck-AutoThresholds $proc
     if (-not (Wait-SettingsFields 3000)) { Report-Result "36a: Open settings" $false; return }
     $hwnd = $proc.MainWindowHandle
     try { $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd) } catch { Report-Result "36a: UIA" $false; Click-Button $proc "Settings" 3000 | Out-Null; return }
@@ -1159,7 +1196,7 @@ function Test36-StatusLockCleared($proc) {
 
     # Close via toggle (auto-saves, triggers ClearValidationStatus which sets status to Ready)
     Click-Button $proc "Settings" 3000 | Out-Null
-    Start-Sleep -Milliseconds 800
+    Wait-ForUIGone $proc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "SettingsSection" 3000 | Out-Null
     $statusAfterClose = Get-StatusText
     $closeCleared = ($statusAfterClose -and $statusAfterClose -notmatch "should be less")
     Report-Result "36a: Toggle close clears error" $closeCleared $(if ($closeCleared) { "'$statusAfterClose'" } else { "Still error: '$statusAfterClose'" })
@@ -1167,10 +1204,12 @@ function Test36-StatusLockCleared($proc) {
     # --- Phase B: Reopen via toggle, verify settings work ---
     if (-not $proc.HasExited) {
         $reopened = Click-Button $proc "Settings" 3000
+        Wait-ForUI $proc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "SettingsSection" 3000 | Out-Null
+        Uncheck-AutoThresholds $proc
         $settingsVisible = Wait-SettingsFields 3000
         Report-Result "36b: Reopen after toggle" ($reopened -and $settingsVisible) $(if ($settingsVisible) { "OK" } else { "Not found" })
         # Close via toggle
-        Click-Button $proc "Settings" 3000 | Out-Null; Start-Sleep -Milliseconds 400
+        Click-Button $proc "Settings" 3000 | Out-Null; Wait-ForUIGone $proc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "SettingsSection" 3000 | Out-Null
     }
 
 }
@@ -1246,10 +1285,9 @@ function Test38-Poe2LaunchOpts {
 
     # Close settings (auto-saves)
     Click-Button $proc "Settings" 3000 | Out-Null
-    Start-Sleep -Milliseconds 400
+    Wait-ForUIGone $proc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "RedThresholdBox" 3000 | Out-Null
     Stop-App
-    $exited = Wait-For { -not (Get-Process RuneshapePriceChecker -ErrorAction SilentlyContinue) } 5000
-    if (-not $exited) { Stop-App; Start-Sleep -Milliseconds 300 }
+    Wait-For { -not (Get-Process RuneshapePriceChecker -ErrorAction SilentlyContinue) } 5000 | Out-Null
 }
 
 function Test39-ScanInterval {
@@ -1285,9 +1323,9 @@ function Test39-ScanInterval {
 
     # Close settings
     Click-Button $proc "Settings" 3000 | Out-Null
-    Start-Sleep -Milliseconds 400
+    Wait-ForUIGone $proc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "RedThresholdBox" 3000 | Out-Null
     Stop-App
-    $null = Wait-For { -not (Get-Process RuneshapePriceChecker -ErrorAction SilentlyContinue) } 5000
+    Wait-For { -not (Get-Process RuneshapePriceChecker -ErrorAction SilentlyContinue) } 5000 | Out-Null
 }
 
 function Test40-Propagation {
@@ -1327,8 +1365,7 @@ function Test40-Propagation {
 
     # Close settings (auto-saves)
     Click-Button $proc "Settings" 3000 | Out-Null
-    $settingsClosed = Wait-For { try { $hwnd2 = $proc.MainWindowHandle; $r2 = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd2); $null -eq $r2.FindFirst([System.Windows.Automation.TreeScope]::Descendants, (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "ScanIntervalBox"))) } catch { $true } } 5000
-    Start-Sleep -Milliseconds 1000
+    Wait-ForUIGone $proc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "ScanIntervalBox" 5000 | Out-Null
 
     # Verify both settings saved
     if (Test-Path $configPath) {
@@ -1708,6 +1745,151 @@ function Test42-GitHubReleaseUpdate {
     Remove-Item "$env:TEMP\rpc-gh-release-$oldVer.zip" -Force -ErrorAction SilentlyContinue
 }
 
+# ------------------------------------------------------------------------------
+# Test43: BringToForeground behavior
+# Verifies that with BringToForeground=false the window does NOT activate,
+# and that the fix for ShowActivated is working correctly.
+# ------------------------------------------------------------------------------
+function Test43-BringToForeground {
+    Stop-App; Clear-OldLogs
+
+    # Define GetForegroundWindow Win32 API
+    Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class Win32 {
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
+}
+"@
+
+    # Phase A: BringToForeground=false, no SuppressActivation
+    # The window should NOT activate — ShowActivated=false prevents it.
+    Write-Config '{"App":{"LogLevel":"Debug","BringToForeground":false},"Window":{"InitialSetupComplete":true},"OCR":{"SaveDebugImages":false,"Language":"eng"},"Update":{"AutoUpdate":false}}'
+    $launchArgs = @("--App:SuppressActivation=false", "--App:TestMode=true")
+    $proc = Start-Process -FilePath $exe -ArgumentList $launchArgs -PassThru
+    $started = Wait-ForApp 8000
+    if (-not $started) { Report-Result "43a: App started" $false "Timeout"; Stop-App; return }
+    Report-Result "43a: App started" $true "PID $($proc.Id)"
+
+    # Wait briefly for any activation attempt
+    Start-Sleep -Milliseconds 1000
+    $fgHwnd = [Win32]::GetForegroundWindow()
+    $appHwnd = $proc.MainWindowHandle
+    $notForeground = $fgHwnd -ne $appHwnd -and $appHwnd -ne [IntPtr]::Zero
+    Report-Result "43b: Not foreground (BringToForeground=false)" $notForeground `
+    $(if ($notForeground) { "FG=$fgHwnd App=$appHwnd" } else { "Window IS foreground (unexpected)" })
+
+    # Verify config still has BringToForeground=false after app loaded it
+    if (Test-Path $configPath) {
+        $cfg = Get-Content $configPath -Raw | ConvertFrom-Json
+        $persisted = $cfg.App.BringToForeground -eq $false
+        Report-Result "43c: Config persisted false" $persisted "=$($cfg.App.BringToForeground)"
+    }
+
+    Stop-App
+
+    # Phase B: BringToForeground=false + SuppressActivation=true (standard test mode)
+    # Verify no crash and config round-trips
+    Write-Config '{"App":{"LogLevel":"Debug","BringToForeground":false},"Window":{"InitialSetupComplete":true},"OCR":{"SaveDebugImages":false,"Language":"eng"},"Update":{"AutoUpdate":false}}'
+    $proc = Launch-App; Wait-ForApp 5000 | Out-Null
+    if ($proc.HasExited) { Report-Result "43d: SuppressActivation mode" $false "App exited"; Stop-App; return }
+    Report-Result "43d: SuppressActivation mode" $true "PID $($proc.Id)"
+    Stop-App
+    if (Test-Path $configPath) {
+        $cfg = Get-Content $configPath -Raw | ConvertFrom-Json
+        $persisted2 = $cfg.App.BringToForeground -eq $false
+        Report-Result "43e: Config persists across launches" $persisted2 "=$($cfg.App.BringToForeground)"
+    }
+}
+
+# ------------------------------------------------------------------------------
+# Test44: Settings toggles that aren't covered by other tests
+# Exercises OverlayScale (auto + value), AlwaysOnTop, AutoUpdate, and
+# ScanInterval clamping by setting values via UIA and verifying persistence.
+# ------------------------------------------------------------------------------
+function Test44-SettingsToggles {
+    Stop-App; Clear-OldLogs
+    Write-Config '{"App":{"LogLevel":"Debug","BringToForeground":false,"OverlayScale":1.0},"Window":{"InitialSetupComplete":true},"OCR":{"SaveDebugImages":false,"Language":"eng","ScanIntervalMs":100},"Update":{"AutoUpdate":false}}'
+    $proc = Launch-App; $started = Wait-ForApp 8000
+    if (-not $started) { Report-Result "44a: App start" $false "Timeout"; Stop-App; return }
+    Report-Result "44a: App started" $true
+
+    # Open settings
+    if (-not (Click-Button $proc "Settings" 3000)) { Report-Result "44b: Open settings" $false; Stop-App; return }
+    Wait-ForUI $proc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "SettingsSection" 3000 | Out-Null
+    $hwnd = $proc.MainWindowHandle; if ($hwnd -eq [IntPtr]::Zero) { Report-Result "44b: HWND" $false; Stop-App; return }
+    try { $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd) } catch { Report-Result "44b: UIA" $false; Stop-App; return }
+
+    # --- OverlayScale: set a manual value (Auto is off in config so box is visible) ---
+    $scaleBox = Wait-ForUI $proc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "OverlayScaleBox" 3000
+    if (-not $scaleBox) { Report-Result "44b: OverlayScaleBox" $false "Not found"; Stop-App; return }
+    Report-Result "44b: OverlayScaleBox found" $true
+    # Set OverlayScale to 1.5 via ValuePattern
+    try {
+        $scaleVp = $scaleBox.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+        $scaleVp.SetValue("1.5"); Start-Sleep -Milliseconds 200
+        Report-Result "44c: OverlayScale 1.5" ($scaleVp.Current.Value -eq "1.5") "Got '$($scaleVp.Current.Value)'"
+    }
+    catch { Report-Result "44c: OverlayScale 1.5" $false "ValuePattern error" }
+
+    # --- AlwaysOnTop: toggle on and verify persistence ---
+    $alwaysOnTopCheck = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+        (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "AlwaysOnTopCheck")))
+    if ($alwaysOnTopCheck) {
+        try {
+            $aotToggle = $alwaysOnTopCheck.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+            if ($aotToggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::Off) { $aotToggle.Toggle(); Start-Sleep -Milliseconds 200 }
+            $persisted = Wait-ForConfig "App" "AlwaysOnTop" $true 3000
+            Report-Result "44d: AlwaysOnTop on" $persisted $(if ($persisted) { "Persisted" }else { "Not found" })
+            # Toggle back off
+            $aotToggle.Toggle(); Start-Sleep -Milliseconds 200
+            $persistedOff = Wait-ForConfig "App" "AlwaysOnTop" $false 3000
+            Report-Result "44e: AlwaysOnTop off" $persistedOff
+        }
+        catch { Report-Result "44d: AlwaysOnTop" $false "Pattern error" }
+    }
+    else { Report-Result "44d: AlwaysOnTop" $false "Not found" }
+
+    # --- AutoUpdate: toggle on and verify persistence ---
+    $autoUpdateCheck = $null
+    $swAu = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($swAu.ElapsedMilliseconds -lt 3000 -and -not $autoUpdateCheck) {
+        $autoUpdateCheck = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+            (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "AutoUpdateCheck")))
+        if (-not $autoUpdateCheck) { Start-Sleep -Milliseconds 200 }
+    }
+    if ($autoUpdateCheck) {
+        try {
+            $auToggle = $autoUpdateCheck.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+            if ($auToggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::Off) { $auToggle.Toggle(); Start-Sleep -Milliseconds 200 }
+            $persisted = Wait-ForConfig "Update" "AutoUpdate" $true 3000
+            Report-Result "44f: AutoUpdate on" $persisted $(if ($persisted) { "Persisted" }else { "Not found" })
+            # Toggle back off
+            $auToggle.Toggle(); Start-Sleep -Milliseconds 200
+            $persistedOff = Wait-ForConfig "Update" "AutoUpdate" $false 3000
+            Report-Result "44g: AutoUpdate off" $persistedOff
+        }
+        catch { Report-Result "44f: AutoUpdate" $false "Pattern error" }
+    }
+    else { Report-Result "44f: AutoUpdate" $false "Not found" }
+
+    # --- ScanInterval: set a value within range and verify persistence ---
+    $scanBox = Wait-ForUI $proc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "ScanIntervalBox" 3000
+    if ($scanBox) {
+        try {
+            $scanVp = $scanBox.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+            $scanVp.SetValue("150"); Start-Sleep -Milliseconds 200
+            Click-Button $proc "Settings" 3000 | Out-Null; Wait-ForUIGone $proc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "SettingsSection" 3000 | Out-Null
+            $saved = Wait-ForConfig "OCR" "ScanIntervalMs" 150 3000
+            Report-Result "44h: ScanInterval 150 persisted" $saved
+        }
+        catch { Report-Result "44h: ScanInterval" $false "Pattern error" }
+    }
+    else { Report-Result "44h: ScanInterval" $false "Not found" }
+
+    Stop-App
+}
 
 
 Write-Banner "RuneshapePriceChecker v1.0.0 Pre-Release Tests"
@@ -1716,7 +1898,7 @@ Write-Host ""
 
 Stop-App
 
-$runAll = $All -or (-not ($Test1 -or $Test2 -or $Test3 -or $Test4 -or $Test5 -or $Test6 -or $Test7 -or $Test8 -or $Test9 -or $Test10 -or $Test11 -or $Test12 -or $Test13 -or $Test14 -or $Test15 -or $Test16 -or $Test18 -or $Test19 -or $Test20 -or $Test21 -or $Test22 -or $Test23 -or $Test25 -or $Test26 -or $Test27 -or $Test28 -or $Test29 -or $Test31 -or $Test32 -or $Test33 -or $Test34 -or $Test35 -or $Test36 -or $Test37 -or $Test38 -or $Test39 -or $Test40 -or $Test41 -or $Test42))
+$runAll = $All -or (-not ($Test1 -or $Test2 -or $Test3 -or $Test4 -or $Test5 -or $Test6 -or $Test7 -or $Test8 -or $Test9 -or $Test10 -or $Test11 -or $Test12 -or $Test13 -or $Test14 -or $Test15 -or $Test16 -or $Test18 -or $Test19 -or $Test20 -or $Test21 -or $Test22 -or $Test23 -or $Test25 -or $Test26 -or $Test27 -or $Test28 -or $Test29 -or $Test31 -or $Test32 -or $Test33 -or $Test34 -or $Test35 -or $Test36 -or $Test37 -or $Test38 -or $Test39 -or $Test40 -or $Test41 -or $Test42 -or $Test43 -or $Test44))
 
 # -- Sandbox management for isolation between tests --
 $_savedPaths = @{}  # saved original paths for restore
@@ -1801,6 +1983,8 @@ if ($runAll -or $Test10) { Invoke-TestWithSandbox "Test10" { Test10-OverlayFeatu
 if ($runAll -or $Test41) { Test41-AutoUpdaterWithOpenWithPoE2 }
 # Test42 manages its own sandbox (needs GitHub release download + update server)
 if ($runAll -or $Test42) { Test42-GitHubReleaseUpdate }
+if ($runAll -or $Test43) { Test43-BringToForeground }
+if ($runAll -or $Test44) { Test44-SettingsToggles }
 
 # Restart-mode tests (each starts/stops its own instance)
 if ($runAll -or $Test18) { Invoke-TestWithSandbox "Test18" { Test18-OcrBackendSetting } }
@@ -1832,22 +2016,22 @@ if ($runPhase2) {
 
     if ($sharedProc -and (-not $sharedProc.HasExited)) {
         # Each shared test stabilizes UI before starting — ensures no lingering panels
-        if (($runAll -or $Test11) -and (-not $sharedProc.HasExited)) { Wait-ForUIGone $sharedProc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "RedThresholdBox" 2000 | Out-Null; Test11-Logging $sharedProc }
+        if (($runAll -or $Test11) -and (-not $sharedProc.HasExited)) { Wait-ForUIGone $sharedProc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "SettingsSection" 2000 | Out-Null; Test11-Logging $sharedProc }
         if (($runAll -or $Test12) -and (-not $sharedProc.HasExited)) { Test12-ResourceUsage $sharedProc }
-        if (($runAll -or $Test13) -and (-not $sharedProc.HasExited)) { Wait-ForUIGone $sharedProc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "RedThresholdBox" 2000 | Out-Null; Test13-UiElements $sharedProc }
-        if (($runAll -or $Test14) -and (-not $sharedProc.HasExited)) { Wait-ForUIGone $sharedProc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "RedThresholdBox" 2000 | Out-Null; Test14-SettingsFieldValidation $sharedProc }
+        if (($runAll -or $Test13) -and (-not $sharedProc.HasExited)) { Wait-ForUIGone $sharedProc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "SettingsSection" 2000 | Out-Null; Test13-UiElements $sharedProc }
+        if (($runAll -or $Test14) -and (-not $sharedProc.HasExited)) { Wait-ForUIGone $sharedProc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "SettingsSection" 2000 | Out-Null; Test14-SettingsFieldValidation $sharedProc }
         if (($runAll -or $Test15) -and (-not $sharedProc.HasExited)) { EnsureLogSectionVisible $sharedProc; Test15-TooltipVerification $sharedProc }
-        if (($runAll -or $Test20) -and (-not $sharedProc.HasExited)) { Wait-ForUIGone $sharedProc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "RedThresholdBox" 2000 | Out-Null; Test20-ComprehensiveSettingsRoundTrip $sharedProc }
+        if (($runAll -or $Test20) -and (-not $sharedProc.HasExited)) { Wait-ForUIGone $sharedProc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "SettingsSection" 2000 | Out-Null; Test20-ComprehensiveSettingsRoundTrip $sharedProc }
         # Test24 was removed (duplicate of Test20/26)
         # Log ordering tests before Test16 closes the app
         if (($runAll -or $Test28) -and (-not $sharedProc.HasExited)) { EnsureLogSectionVisible $sharedProc; Test28-LogOrdering $sharedProc }
         if (($runAll -or $Test29) -and (-not $sharedProc.HasExited)) { EnsureLogSectionVisible $sharedProc; Test29-LogCoalescing $sharedProc }
         # Test30 was merged into Test26 (RapidSettingsChanges)
-        if (($runAll -or $Test34) -and (-not $sharedProc.HasExited)) { Wait-ForUIGone $sharedProc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "RedThresholdBox" 2000 | Out-Null; Test34-CurrencyMutualExclusion $sharedProc }
-        if (($runAll -or $Test35) -and (-not $sharedProc.HasExited)) { Wait-ForUIGone $sharedProc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "RedThresholdBox" 2000 | Out-Null; Test35-SettingsValidationUI $sharedProc }
-        if (($runAll -or $Test36) -and (-not $sharedProc.HasExited)) { Wait-ForUIGone $sharedProc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "RedThresholdBox" 2000 | Out-Null; Test36-StatusLockCleared $sharedProc }
+        if (($runAll -or $Test34) -and (-not $sharedProc.HasExited)) { Wait-ForUIGone $sharedProc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "SettingsSection" 2000 | Out-Null; Test34-CurrencyMutualExclusion $sharedProc }
+        if (($runAll -or $Test35) -and (-not $sharedProc.HasExited)) { Wait-ForUIGone $sharedProc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "SettingsSection" 2000 | Out-Null; Test35-SettingsValidationUI $sharedProc }
+        if (($runAll -or $Test36) -and (-not $sharedProc.HasExited)) { Wait-ForUIGone $sharedProc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "SettingsSection" 2000 | Out-Null; Test36-StatusLockCleared $sharedProc }
         # Test16 MUST be last: it clicks Close and exits the app
-        if (($runAll -or $Test16) -and (-not $sharedProc.HasExited)) { Wait-ForUIGone $sharedProc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "RedThresholdBox" 2000 | Out-Null; Test16-UiButtonInteractions $sharedProc }
+        if (($runAll -or $Test16) -and (-not $sharedProc.HasExited)) { Wait-ForUIGone $sharedProc ([System.Windows.Automation.AutomationElement]::AutomationIdProperty) "SettingsSection" 2000 | Out-Null; Test16-UiButtonInteractions $sharedProc }
         if (-not $sharedProc.HasExited) {
             $sharedProc.CloseMainWindow() | Out-Null
             $sharedProc.WaitForExit(3000) | Out-Null

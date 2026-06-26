@@ -39,4 +39,18 @@ public sealed class OcrOptions
     public int ScanIntervalMs { get; set; } = 100;
     public bool BypassOcrCache { get; set; }
     public int PerfMetricsInterval { get; set; }
+
+    // League panel detection thresholds
+    [Range(0.0, 1.0)]
+    public double PanelLeftFraction { get; set; } = 0.40;
+    [Range(0.0, 1.0)]
+    public double PanelRightFraction { get; set; } = 0.98;
+    [Range(0.0, 1.0)]
+    public double PanelTopRowFraction { get; set; } = 0.26;
+    [Range(1, 765)]
+    public int PanelBrightnessThreshold { get; set; } = 120;
+    [Range(1, 765)]
+    public int PanelBlackPixelMaxSum { get; set; } = 20;
+    [Range(1, 10000)]
+    public int PanelMinBlackPixels { get; set; } = 60;
 }

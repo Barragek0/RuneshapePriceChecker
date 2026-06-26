@@ -41,7 +41,7 @@ public sealed class DebugOverlayService(
                     }
                 }
                 else CloseOverlay();
-                if (_appOptions.CurrentValue.Banner) EnsureBannerThreadStarted();
+                if (_appOptions.CurrentValue.Banner && !_appOptions.CurrentValue.AllOverlaysDisabled) EnsureBannerThreadStarted();
             }
             catch (Exception ex)
             {
@@ -99,6 +99,7 @@ public sealed class DebugOverlayService(
 
         var frame = new Rectangle(region.X, region.Y, region.Width, region.Height);
         var scaleFactor = PricingOverlayRenderer.ComputeOverlayScale(windowResolutionProvider, _appOptions);
+        overlay.SetScanFractions(options.PanelLeftFraction, options.PanelRightFraction, options.PanelTopRowFraction);
         overlay.SafeShowFrame(frame, true, scaleFactor: scaleFactor);
     }
 
@@ -430,6 +431,9 @@ public sealed class DebugOverlayService(
         private int _debugGap = BaseDebugGap;
         private int _defaultLineHeight = BaseDefaultLineHeight;
         private float _scaleFactor = 1f;
+        private double _leftFraction = LeaguePanelDetector.DefaultLeftFraction;
+        private double _rightFraction = LeaguePanelDetector.DefaultRightFraction;
+        private double _topRowFraction = LeaguePanelDetector.DefaultTopRowFraction;
         private Rectangle _frame;
         private IReadOnlyList<string> _debugLines = [];
         private IReadOnlyList<string> _debugTranslatedLines = [];
@@ -475,9 +479,9 @@ public sealed class DebugOverlayService(
                     e.Graphics.DrawRectangle(RetryPen, retry.X, retry.Y, retry.Width - 1, retry.Height - 1);
             }
 
-            var scanLeft = (int)(boxWidth * LeaguePanelDetector.LeftFraction);
-            var scanRight = (int)(boxWidth * LeaguePanelDetector.RightFraction);
-            var scanBottom = (int)(_frame.Height * LeaguePanelDetector.TopRowFraction);
+            var scanLeft = (int)(boxWidth * _leftFraction);
+            var scanRight = (int)(boxWidth * _rightFraction);
+            var scanBottom = (int)(_frame.Height * _topRowFraction);
             // Open-bottom bracket (two verticals + top horizontal) so the bottom line
             // doesn't paint over the debug overlay text.
             e.Graphics.DrawLine(ScanPen, scanLeft, 0, scanRight, 0);
@@ -582,6 +586,13 @@ public sealed class DebugOverlayService(
             _statusLine = status;
             if (!IsDisposed && Visible)
                 Invalidate();
+        }
+
+        public void SetScanFractions(double left, double right, double topRow)
+        {
+            _leftFraction = left;
+            _rightFraction = right;
+            _topRowFraction = topRow;
         }
 
         public void SafeShowFrame(Rectangle frame, bool showOverlay, int panelWidth = 400, float scaleFactor = 1f)
