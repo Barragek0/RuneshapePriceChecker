@@ -10,6 +10,9 @@ It reads item rows from the runeshape panel with OCR (Optical Character Recognit
 - Your in-game **UI Brightness** setting under **Graphics** must be above `-0.8` (ideally `0.0` or higher). Lower values may cause incorrect item matching or prevent text detection entirely.
 - **Borderless Windowed** or **Windowed** display mode — exclusive fullscreen blocks screen capture. The tool warns you if it detects fullscreen.
 
+## Download
+The latest version can be downloaded here: https://github.com/Barragek0/RuneshapePriceChecker/releases/
+
 ## How it Looks
 
 ![example](https://i.vgy.me/1XkXx8.png)
