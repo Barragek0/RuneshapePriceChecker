@@ -12,6 +12,8 @@ It reads item rows from the runeshape panel with OCR (Optical Character Recognit
 
 ## Download
 The latest version can be downloaded here: https://github.com/Barragek0/RuneshapePriceChecker/releases/
+- If you want the portable version, download `RuneshapePriceChecker.zip` and extract it to any folder, then run the .exe.
+- If you'd rather use an installer, download `RuneshapePriceChecker-Installer.exe` and run it.
 
 ## How it Looks
 
