@@ -746,19 +746,7 @@ public sealed partial class DashboardWindow : Window
     {
         try
         {
-            // Use pre-populated changelog body from config if available (avoids network call)
             var configPath = Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json");
-            if (File.Exists(configPath))
-            {
-                var cfgJson = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(configPath));
-                var cfgBody = cfgJson?["Changelog"]?["Body"]?.GetValue<string>();
-                if (!string.IsNullOrWhiteSpace(cfgBody))
-                {
-                    ShowChangelog(version, cfgBody);
-                    return;
-                }
-            }
-
             var owner = "Barragek0";
             var repo = "RuneshapePriceChecker";
             var apiBase = "https://api.github.com";
@@ -774,13 +762,17 @@ public sealed partial class DashboardWindow : Window
             http.DefaultRequestHeaders.UserAgent.Add(new System.Net.Http.Headers.ProductInfoHeaderValue("RuneshapePriceChecker", "1.0"));
             http.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
 
-            var body = await FetchReleaseBodyAsync(http, $"{apiBase.TrimEnd('/')}/repos/{owner}/{repo}/releases/tags/v{version}");
-            body ??= await FetchReleaseBodyAsync(http, $"{apiBase.TrimEnd('/')}/repos/{owner}/{repo}/releases/tags/{version}");
+            var (body, statusCode) = await FetchReleaseBodyAsync(http, $"{apiBase.TrimEnd('/')}/repos/{owner}/{repo}/releases/tags/{version}");
 
             if (body is not null) ShowChangelog(version, body);
+            else if (statusCode == 404)
+            {
+                LogError($"Changelog for v{version} is not yet available on GitHub.");
+            }
             else
             {
-                LogError($"Error fetching changelog for v{version}");
+                var code = statusCode.HasValue ? $" (HTTP {(int)statusCode})" : "";
+                LogError($"Error fetching changelog for v{version}{code}");
             }
         }
         catch (Exception ex)
@@ -789,16 +781,16 @@ public sealed partial class DashboardWindow : Window
         }
     }
 
-    private static async Task<string?> FetchReleaseBodyAsync(HttpClient http, string url)
+    private static async Task<(string? Body, int? StatusCode)> FetchReleaseBodyAsync(HttpClient http, string url)
     {
         var response = await http.GetAsync(url).ConfigureAwait(true);
-        if (!response.IsSuccessStatusCode) return null;
+        if (!response.IsSuccessStatusCode) return (null, (int)response.StatusCode);
         var json = await response.Content.ReadAsStringAsync().ConfigureAwait(true);
         using var doc = System.Text.Json.JsonDocument.Parse(json);
         var root = doc.RootElement;
-        return root.TryGetProperty("body", out var bodyProp) && bodyProp.ValueKind == System.Text.Json.JsonValueKind.String
-            ? bodyProp.GetString()
-            : null;
+        var bodyStr = root.TryGetProperty("body", out var bodyProp) && bodyProp.ValueKind == System.Text.Json.JsonValueKind.String
+            ? bodyProp.GetString() : null;
+        return (bodyStr, (int)response.StatusCode);
     }
 
     private void Update_Click(object sender, RoutedEventArgs e)
