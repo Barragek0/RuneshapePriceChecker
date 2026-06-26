@@ -111,7 +111,10 @@ public sealed class PricingOverlayRenderer(
                 }
             }
             var entries = BuildEntries(snapshot, pricesByItemName, rows, pricing);
-            overlay.SafeShow(captureRegion, entries);
+
+            // Scale font proportionally to window height (1080p = scale 1.0, 4k = scale 2.0)
+            var scaleFactor = ComputeOverlayScale(windowResolutionProvider, _appOptions);
+            overlay.SafeShow(captureRegion, entries, scaleFactor);
         }
         catch (Exception ex)
         {
@@ -411,10 +414,23 @@ public sealed class PricingOverlayRenderer(
     private sealed record OverlayTextSegment(string Text, Color Color, float GlowStrength);
     private sealed record OverlayRowEntry(int RowY, int RowHeight, IReadOnlyList<OverlayTextSegment> Segments);
 
+    public static float ComputeOverlayScale(IPoe2WindowResolutionProvider resolutionProvider, IOptionsMonitor<AppOptions> appOptions)
+    {
+        var overrideScale = appOptions.CurrentValue.OverlayScale;
+        if (overrideScale.HasValue)
+            return Math.Max(0.25f, Math.Min(4f, overrideScale.Value));
+
+        var ctx = resolutionProvider.CurrentWindowCaptureContext;
+        return ctx is not null ? Math.Max(0.5f, ctx.ClientHeight / 1080f) : 1f;
+    }
+
     private sealed class PriceOverlayForm : Form
     {
         private static readonly Color TransparencyChroma = Color.FromArgb(1, 2, 3);
-        private readonly Font _font = new("Segoe UI", 21f, FontStyle.Bold, GraphicsUnit.Pixel);
+        private const float BaseFontSizePx = 21f;
+        private const int BaseOverlayWidth = 220;
+        private Font _font = new("Segoe UI", BaseFontSizePx, FontStyle.Bold, GraphicsUnit.Pixel);
+        private float _scaleFactor = 1f;
         private readonly object _stateSync = new();
         private IReadOnlyList<OverlayRowEntry> _entries = [];
         private OcrCaptureRegion _captureRegion = new(0, 0, 1, 1);
@@ -462,7 +478,7 @@ public sealed class PricingOverlayRenderer(
             }
         }
 
-        public void SafeShow(OcrCaptureRegion captureRegion, IReadOnlyList<OverlayRowEntry> entries)
+        public void SafeShow(OcrCaptureRegion captureRegion, IReadOnlyList<OverlayRowEntry> entries, float scaleFactor = 1f)
         {
             if (IsDisposed)
             {
@@ -472,7 +488,7 @@ public sealed class PricingOverlayRenderer(
             if (InvokeRequired)
             {
                 _isHidden = false;
-                _ = BeginInvoke(new Action<OcrCaptureRegion, IReadOnlyList<OverlayRowEntry>>(SafeShow), captureRegion, entries);
+                _ = BeginInvoke(new Action<OcrCaptureRegion, IReadOnlyList<OverlayRowEntry>, float>(SafeShow), captureRegion, entries, scaleFactor);
                 return;
             }
 
@@ -484,7 +500,9 @@ public sealed class PricingOverlayRenderer(
                 _entries = entries;
             }
 
-            var width = 220;
+            ApplyScaleFactor(scaleFactor);
+
+            var width = (int)Math.Round(BaseOverlayWidth * scaleFactor);
             var x = captureRegion.X + captureRegion.Width + 5;
             var y = captureRegion.Y;
             Bounds = new Rectangle(x, y, width, Math.Max(1, captureRegion.Height));
@@ -496,6 +514,18 @@ public sealed class PricingOverlayRenderer(
                 Show();
                 PinTopMost();
             }
+        }
+
+        private void ApplyScaleFactor(float scaleFactor)
+        {
+            if (Math.Abs(_scaleFactor - scaleFactor) < 0.01f)
+                return;
+
+            _scaleFactor = scaleFactor;
+            var newSize = (float)Math.Round(BaseFontSizePx * scaleFactor);
+            var oldFont = _font;
+            _font = new Font("Segoe UI", newSize, FontStyle.Bold, GraphicsUnit.Pixel);
+            oldFont.Dispose();
         }
 
         public void SafeClose()

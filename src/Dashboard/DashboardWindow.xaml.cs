@@ -404,6 +404,9 @@ public sealed partial class DashboardWindow : Window
             if (string.Equals((OcrBackendCombo.Items[i] as string)?.ToLowerInvariant(), _vm.OcrBackend, StringComparison.OrdinalIgnoreCase)) { OcrBackendCombo.SelectedIndex = i; break; }
         }
         ScanIntervalBox.Text = _vm.ScanIntervalMs.ToString(CultureInfo.InvariantCulture);
+        OverlayScaleAutoCheck.IsChecked = _vm.OverlayScaleAuto;
+        OverlayScaleBox.Text = _vm.OverlayScaleValue.ToString("F2", CultureInfo.InvariantCulture);
+        UpdateOverlayScaleInputVisibility();
         _loading = false;
         UpdateOcrBackendWarning();
         HideDebugOverlayCheck.Visibility = _vm.DebugOverlay ? Visibility.Visible : Visibility.Collapsed;
@@ -429,6 +432,9 @@ public sealed partial class DashboardWindow : Window
         _vm.OcrBackend = (OcrBackendCombo.SelectedItem as string)?.ToLowerInvariant() ?? "windows";
         _vm.CaptureMode = (CaptureModeCombo.SelectedItem as string)?.ToLowerInvariant() ?? "printwindow";
         _vm.ScanIntervalMs = int.TryParse(ScanIntervalBox.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var si) ? Math.Clamp(si, 50, 200) : 100;
+        _vm.OverlayScaleAuto = OverlayScaleAutoCheck.IsChecked == true;
+        if (float.TryParse(OverlayScaleBox.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var osv))
+            _vm.OverlayScaleValue = Math.Clamp(osv, 0.5f, 4f);
         _vm.CloseWithPoE2 = CloseWithPoE2Check.IsChecked == true;
         _vm.OpenWithPoE2 = OpenWithPoE2Check.IsChecked == true;
         _vm.AutoUpdate = AutoUpdateCheck.IsChecked == true;
@@ -1537,6 +1543,51 @@ public sealed partial class DashboardWindow : Window
     {
         if (int.TryParse(ScanIntervalBox.Text, NumberStyles.None, CultureInfo.InvariantCulture, out var val))
             ScanIntervalBox.Text = Math.Max(val - 10, 50).ToString(CultureInfo.InvariantCulture);
+    }
+
+    private void OverlayScaleAuto_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        UpdateOverlayScaleInputVisibility();
+        QueueAutoSave();
+    }
+
+    private void UpdateOverlayScaleInputVisibility()
+    {
+        var isAuto = OverlayScaleAutoCheck.IsChecked == true;
+        OverlayScaleBox.Visibility = isAuto ? Visibility.Collapsed : Visibility.Visible;
+        OverlayScaleSpinner.Visibility = isAuto ? Visibility.Collapsed : Visibility.Visible;
+        OverlayScaleInputRow.HorizontalAlignment = isAuto ? HorizontalAlignment.Center : HorizontalAlignment.Left;
+        OverlayScaleCheckboxArea.Margin = isAuto
+            ? new Thickness(0, 6, 0, 0)
+            : new Thickness(0);
+    }
+
+    private void OverlayScaleBox_PreviewTextInput(object sender, TextCompositionEventArgs e)
+    {
+        var box = (TextBox)sender;
+        var proposed = box.Text.Insert(box.SelectionStart, e.Text);
+        if (proposed.Length > box.MaxLength) { e.Handled = true; return; }
+        e.Handled = !float.TryParse(proposed, NumberStyles.Float, CultureInfo.InvariantCulture, out _);
+    }
+
+    private void OverlayScaleBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_loading) return;
+        if (float.TryParse(OverlayScaleBox.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var val) && val >= 0.5f && val <= 4f)
+            QueueAutoSave();
+    }
+
+    private void OverlayScaleUp_Click(object sender, RoutedEventArgs e)
+    {
+        if (float.TryParse(OverlayScaleBox.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var val))
+            OverlayScaleBox.Text = Math.Min(val + 0.25f, 4f).ToString("F2", CultureInfo.InvariantCulture);
+    }
+
+    private void OverlayScaleDown_Click(object sender, RoutedEventArgs e)
+    {
+        if (float.TryParse(OverlayScaleBox.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var val))
+            OverlayScaleBox.Text = Math.Max(val - 0.25f, 0.5f).ToString("F2", CultureInfo.InvariantCulture);
     }
 
     private void ThresholdBox_PreviewTextInput(object sender, TextCompositionEventArgs e)

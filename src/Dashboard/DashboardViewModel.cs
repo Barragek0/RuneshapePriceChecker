@@ -40,6 +40,8 @@ public sealed class DashboardViewModel(string configPath)
     public bool OpenWithPoE2 { get; set; }
     public string CaptureMode { get; set; } = "printwindow";
     public int ScanIntervalMs { get; set; } = 100;
+    public bool OverlayScaleAuto { get; set; } = true;
+    public float OverlayScaleValue { get; set; } = 1f;
 
     public Action<IProgress<int>>? OnUpdateTriggered { get; set; }
     public Action? OnSetupContinue { get; set; }
@@ -131,6 +133,17 @@ public sealed class DashboardViewModel(string configPath)
             {
                 PricingOverlay = appSettings.Val("PricingOverlay", true);
                 Banner = appSettings.Val("Banner", true);
+                var scaleOverride = appSettings["OverlayScale"];
+                if (scaleOverride is not null)
+                {
+                    OverlayScaleAuto = false;
+                    OverlayScaleValue = (float)scaleOverride.GetValue<decimal>();
+                }
+                else
+                {
+                    OverlayScaleAuto = true;
+                    OverlayScaleValue = 1f;
+                }
             }
 
             if (root["Update"] is JsonNode update)
@@ -179,6 +192,10 @@ public sealed class DashboardViewModel(string configPath)
                 app["OpenWithPoE2"] = OpenWithPoE2;
                 app["PricingOverlay"] = PricingOverlay;
                 app["Banner"] = Banner;
+                if (OverlayScaleAuto)
+                    _ = app.Remove("OverlayScale");
+                else
+                    app["OverlayScale"] = (decimal)OverlayScaleValue;
             }
 
             // Migrate: remove old OCR keys if they exist

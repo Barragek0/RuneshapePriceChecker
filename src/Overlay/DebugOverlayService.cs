@@ -98,7 +98,8 @@ public sealed class DebugOverlayService(
         }
 
         var frame = new Rectangle(region.X, region.Y, region.Width, region.Height);
-        overlay.SafeShowFrame(frame, true);
+        var scaleFactor = PricingOverlayRenderer.ComputeOverlayScale(windowResolutionProvider, _appOptions);
+        overlay.SafeShowFrame(frame, true, scaleFactor: scaleFactor);
     }
 
     private void EnsureOverlayThreadStarted()
@@ -419,9 +420,16 @@ public sealed class DebugOverlayService(
     {
         protected override bool ClickThrough => true;
 
-        private int _textPanelWidth = 400;
-        private const int DebugGap = 120;
+        private const float BaseFontSizePx = 14f;
+        private const int BaseTextPanelWidth = 400;
+        private const int BaseDebugGap = 120;
+        private const int BaseDefaultLineHeight = 16;
         private const int BgPadding = 30;
+
+        private int _textPanelWidth = BaseTextPanelWidth;
+        private int _debugGap = BaseDebugGap;
+        private int _defaultLineHeight = BaseDefaultLineHeight;
+        private float _scaleFactor = 1f;
         private Rectangle _frame;
         private IReadOnlyList<string> _debugLines = [];
         private IReadOnlyList<string> _debugTranslatedLines = [];
@@ -430,12 +438,12 @@ public sealed class DebugOverlayService(
         private bool _showDebugOverlay;
         private string? _statusLine;
         private Rectangle? _cropBounds;
+        private Font _statusFont = new("Segoe UI", BaseFontSizePx, FontStyle.Bold, GraphicsUnit.Pixel);
+        private Font _debugFont = new("Segoe UI", BaseFontSizePx, FontStyle.Bold, GraphicsUnit.Pixel);
         private static readonly Pen BoxPen = new(Color.Red, 3);
         private static readonly Pen CropPen = new(Color.FromArgb(200, 0, 255, 0), 2f) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash };
         private static readonly Pen RetryPen = new(Color.FromArgb(220, 200, 50, 220), 2f);
         private static readonly Pen ScanPen = new(Color.FromArgb(220, 255, 255, 0), 2f) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash };
-        private static readonly Font StatusFont = new("Segoe UI", 14f, FontStyle.Bold, GraphicsUnit.Pixel);
-        private static readonly Font DebugFont = new("Segoe UI", 14f, FontStyle.Bold, GraphicsUnit.Pixel);
 
         protected override void OnPaint(PaintEventArgs e)
         {
@@ -449,7 +457,7 @@ public sealed class DebugOverlayService(
             e.Graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
 
             var debugWidth = _showDebugOverlay ? _textPanelWidth + BgPadding : 0;
-            var debugGap = _showDebugOverlay ? DebugGap : 0;
+            var debugGap = _showDebugOverlay ? _debugGap : 0;
             var boxWidth = Width - debugWidth - debugGap;
             var debugX = boxWidth + debugGap;
 
@@ -479,14 +487,15 @@ public sealed class DebugOverlayService(
             var lines = _debugLines;
             var rowY = _debugRowY;
 
-            var defaultLineHeight = 16;
-
             if (_statusLine is { } status)
             {
-                var statusSize = TextRenderer.MeasureText(e.Graphics, status, StatusFont);
+                var displayText = _scaleFactor > 1.01f
+                    ? $"{status}  |  Scale ×{_scaleFactor:F2}"
+                    : status;
+                var statusSize = TextRenderer.MeasureText(e.Graphics, displayText, _statusFont);
                 var statusX = (boxWidth - statusSize.Width) / 2;
                 var statusY = _frame.Height + 4;
-                TextRenderer.DrawText(e.Graphics, status, StatusFont,
+                TextRenderer.DrawText(e.Graphics, displayText, _statusFont,
                     new Point(statusX, statusY), Color.FromArgb(220, 255, 255, 100), Color.Black,
                     TextFormatFlags.NoPadding);
             }
@@ -495,12 +504,12 @@ public sealed class DebugOverlayService(
             {
                 for (var i = 0; i < lines.Count; i++)
                 {
-                    var rowTop = i < rowY.Count ? rowY[i] : 6 + (i * defaultLineHeight);
-                    rowTop = Math.Clamp(rowTop, 0, Height - defaultLineHeight);
+                    var rowTop = i < rowY.Count ? rowY[i] : 6 + (i * _defaultLineHeight);
+                    rowTop = Math.Clamp(rowTop, 0, Height - _defaultLineHeight);
                     var x = debugX + 78;
 
                     // Look up the matching purple box height to center text vertically
-                    var rowH = defaultLineHeight;
+                    var rowH = _defaultLineHeight;
                     if (i < rowY.Count)
                     {
                         foreach (var r in _retryRegions)
@@ -512,11 +521,11 @@ public sealed class DebugOverlayService(
                             }
                         }
                     }
-                    var textSize = TextRenderer.MeasureText(e.Graphics, lines[i], DebugFont);
+                    var textSize = TextRenderer.MeasureText(e.Graphics, lines[i], _debugFont);
                     var y = rowTop + (rowH - textSize.Height) / 2;
                     y = Math.Clamp(y, 0, Height - textSize.Height);
 
-                    TextRenderer.DrawText(e.Graphics, lines[i], DebugFont,
+                    TextRenderer.DrawText(e.Graphics, lines[i], _debugFont,
                         new Point(x, y), Color.Red, Color.Black,
                         TextFormatFlags.NoPadding | TextFormatFlags.NoClipping);
 
@@ -528,8 +537,8 @@ public sealed class DebugOverlayService(
                             !string.Equals(translated, lines[i], StringComparison.OrdinalIgnoreCase))
                         {
                             var ty = rowTop + rowH + 2;
-                            ty = Math.Clamp(ty, 0, Height - defaultLineHeight);
-                            TextRenderer.DrawText(e.Graphics, translated, DebugFont,
+                            ty = Math.Clamp(ty, 0, Height - _defaultLineHeight);
+                            TextRenderer.DrawText(e.Graphics, translated, _debugFont,
                                 new Point(x, ty), Color.Purple, Color.Black,
                                 TextFormatFlags.NoPadding | TextFormatFlags.NoClipping);
                         }
@@ -575,23 +584,24 @@ public sealed class DebugOverlayService(
                 Invalidate();
         }
 
-        public void SafeShowFrame(Rectangle frame, bool showOverlay, int panelWidth = 400)
+        public void SafeShowFrame(Rectangle frame, bool showOverlay, int panelWidth = 400, float scaleFactor = 1f)
         {
             if (IsDisposed) return;
 
             if (InvokeRequired)
             {
                 IsHidden = false;
-                _ = BeginInvoke(new Action<Rectangle, bool, int>(SafeShowFrame), frame, showOverlay, panelWidth);
+                _ = BeginInvoke(new Action<Rectangle, bool, int, float>(SafeShowFrame), frame, showOverlay, panelWidth, scaleFactor);
                 return;
             }
 
             IsHidden = false;
+            ApplyScaleFactor(scaleFactor);
 
             _showDebugOverlay = showOverlay;
             _textPanelWidth = panelWidth;
-            var extraWidth = showOverlay ? _textPanelWidth + BgPadding + DebugGap : 0;
-            var statusHeight = _statusLine is not null ? 30 : 0;
+            var extraWidth = showOverlay ? _textPanelWidth + BgPadding + _debugGap : 0;
+            var statusHeight = _statusLine is not null ? (int)Math.Round(30 * scaleFactor) : 0;
             var fullFrame = new Rectangle(
                 frame.X,
                 frame.Y,
@@ -609,6 +619,35 @@ public sealed class DebugOverlayService(
                 Show();
                 PinTopMost();
             }
+        }
+
+        private void ApplyScaleFactor(float scaleFactor)
+        {
+            if (Math.Abs(_scaleFactor - scaleFactor) < 0.01f)
+                return;
+
+            _scaleFactor = scaleFactor;
+            var newSize = (float)Math.Round(BaseFontSizePx * scaleFactor);
+            var oldStatusFont = _statusFont;
+            var oldDebugFont = _debugFont;
+            _statusFont = new Font("Segoe UI", newSize, FontStyle.Bold, GraphicsUnit.Pixel);
+            _debugFont = new Font("Segoe UI", newSize, FontStyle.Bold, GraphicsUnit.Pixel);
+            oldStatusFont.Dispose();
+            oldDebugFont.Dispose();
+
+            _textPanelWidth = (int)Math.Round(BaseTextPanelWidth * scaleFactor);
+            _debugGap = (int)Math.Round(BaseDebugGap * scaleFactor);
+            _defaultLineHeight = (int)Math.Round(BaseDefaultLineHeight * scaleFactor);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _statusFont.Dispose();
+                _debugFont.Dispose();
+            }
+            base.Dispose(disposing);
         }
     }
 }

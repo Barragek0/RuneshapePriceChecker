@@ -1298,13 +1298,15 @@
                                         <!-- OCR -->
                                         <TextBlock Style="{StaticResource SectionHeader}"
                                                    Text="OCR"/>
-                                        <Grid Margin="0,0,0,10">
+                                        <Grid Margin="0,0,0,0">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="Auto"/>
                                                 <ColumnDefinition Width="Auto"/>
                                                 <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="Auto"/>
                                             </Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0">
+                                            <StackPanel Grid.Row="0"
+                                                    Grid.Column="0">
                                                 <StackPanel Orientation="Horizontal"
                                                             Margin="14,0,0,6">
                                                     <TextBlock Text="OCR Backend"
@@ -1327,7 +1329,8 @@
                                                           IsEditable="False"
                                                           SelectionChanged="OcrBackendCombo_SelectionChanged"/>
                                             </StackPanel>
-                                            <StackPanel Grid.Column="1">
+                                            <StackPanel Grid.Row="0"
+                                                    Grid.Column="1">
                                                 <StackPanel Orientation="Horizontal"
                                                             Margin="14,0,0,6">
                                                     <TextBlock Text="Capture Mode"
@@ -1350,7 +1353,8 @@
                                                           IsEditable="False"
                                                           SelectionChanged="CaptureModeCombo_SelectionChanged"/>
                                             </StackPanel>
-                                            <StackPanel Grid.Column="2">
+                                            <StackPanel Grid.Row="0"
+                                                    Grid.Column="2">
                                                 <StackPanel Orientation="Horizontal"
                                                             Margin="14,0,0,6">
                                                     <TextBlock Text="Scan Interval"
@@ -1398,9 +1402,87 @@
                                                     </StackPanel>
                                                 </StackPanel>
                                             </StackPanel>
+
+                                            <!-- Overlay Scale: next to Scan Interval (same structure) -->
+                                            <StackPanel Grid.Column="3">
+                                                <StackPanel Orientation="Horizontal"
+                                                            Margin="14,0,0,6">
+                                                    <TextBlock Text="Overlay Scale"
+                                                               Foreground="#B8BEC6"
+                                                               FontSize="13"
+                                                               VerticalAlignment="Center"/>
+                                                    <TextBlock Style="{StaticResource TooltipIcon}"
+                                                               ToolTip="Scales the pricing and debug overlay text proportionally to screen resolution.&#10;&#10;Auto: matches text size to your game window height.&#10;Manual: set a fixed scale factor (0.5–4.0)."/>
+                                                </StackPanel>
+                                                <Grid x:Name="OverlayScaleInputRow"
+                                                      Margin="14,0,0,0"
+                                                      HorizontalAlignment="Left">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel Grid.Column="0"
+                                                                x:Name="OverlayScaleCheckboxArea"
+                                                                Orientation="Horizontal">
+                                                        <CheckBox x:Name="OverlayScaleAutoCheck"
+                                                                  VerticalAlignment="Center"
+                                                                  Width="16"
+                                                                  Height="16"
+                                                                  Padding="0"
+                                                                  Margin="-10,0,0,0"
+                                                                  Checked="OverlayScaleAuto_Changed"
+                                                                  Unchecked="OverlayScaleAuto_Changed"/>
+                                                        <TextBlock Text="Auto"
+                                                                   Foreground="#B8BEC6"
+                                                                   FontSize="12"
+                                                                   VerticalAlignment="Center"
+                                                                   Margin="4,0,0,0"/>
+                                                    </StackPanel>
+                                                    <TextBox Grid.Column="1"
+                                                             x:Name="OverlayScaleBox"
+                                                             Width="34"
+                                                             Height="24"
+                                                             MaxLength="4"
+                                                             FontSize="13"
+                                                             Background="{StaticResource SurfaceAltBrush}"
+                                                             Foreground="{StaticResource TextPrimary}"
+                                                             BorderBrush="{StaticResource BorderBrush}"
+                                                             Padding="0,1"
+                                                             TextAlignment="Center"
+                                                             VerticalContentAlignment="Center"
+                                                             Margin="6,0,0,0"
+                                                             PreviewTextInput="OverlayScaleBox_PreviewTextInput"
+                                                             TextChanged="OverlayScaleBox_TextChanged"/>
+                                                    <StackPanel Grid.Column="2"
+                                                                x:Name="OverlayScaleSpinner"
+                                                                Width="16"
+                                                                Margin="2,0,0,0">
+                                                        <RepeatButton x:Name="OverlayScaleUp"
+                                                                      Width="16"
+                                                                      Height="11"
+                                                                      FontSize="8"
+                                                                      Padding="0"
+                                                                      Background="{StaticResource SurfaceAltBrush}"
+                                                                      Foreground="{StaticResource TextSecondary}"
+                                                                      BorderBrush="{StaticResource BorderBrush}"
+                                                                      Click="OverlayScaleUp_Click">&#x25B2;</RepeatButton>
+                                                        <RepeatButton x:Name="OverlayScaleDown"
+                                                                      Width="16"
+                                                                      Height="11"
+                                                                      FontSize="8"
+                                                                      Padding="0"
+                                                                      Background="{StaticResource SurfaceAltBrush}"
+                                                                      Foreground="{StaticResource TextSecondary}"
+                                                                      BorderBrush="{StaticResource BorderBrush}"
+                                                                      Click="OverlayScaleDown_Click">&#x25BC;</RepeatButton>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </StackPanel>
                                         </Grid>
 
                                         <CheckBox x:Name="DebugOverlayCheck"
+                                                  Margin="14,10,0,0"
                                                   Checked="DebugOverlayCheck_Changed"
                                                   Unchecked="DebugOverlayCheck_Changed">
                                             <StackPanel Orientation="Horizontal">
