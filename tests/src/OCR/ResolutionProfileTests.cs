@@ -7,7 +7,9 @@ public class ResolutionProfileTests
     private const int AnchorSampleRadiusPx = 5;
     private const int AnchorSampleRadiusYPx = 10;
 
+#pragma warning disable CA1034 // Nested type is fine for test data
     public record Profile(string Key, int CaptureW, int CaptureH);
+#pragma warning restore CA1034
 
 #pragma warning disable CA1825 // TheoryData<T> is List<T>-derived; collection expression is correct here
     public static readonly TheoryData<Profile> AllProfiles =
@@ -40,6 +42,7 @@ public class ResolutionProfileTests
     [MemberData(nameof(AllProfiles))]
     public void LeftAnchor_AtLeftEdge(Profile p)
     {
+        ArgumentNullException.ThrowIfNull(p);
         var (leftX, _, _, _, _, _, _, _, _, _, _) = ComputeAnchors(p.CaptureW, p.CaptureH);
         Assert.Equal(0, leftX);
     }
@@ -48,6 +51,7 @@ public class ResolutionProfileTests
     [MemberData(nameof(AllProfiles))]
     public void RightAnchor_AtRightEdge(Profile p)
     {
+        ArgumentNullException.ThrowIfNull(p);
         var (_, rightX, _, _, _, _, _, _, _, _, _) = ComputeAnchors(p.CaptureW, p.CaptureH);
         Assert.Equal(p.CaptureW - 1, rightX);
     }
@@ -56,6 +60,7 @@ public class ResolutionProfileTests
     [MemberData(nameof(AllProfiles))]
     public void AnchorY_WithinTop5Percent(Profile p)
     {
+        ArgumentNullException.ThrowIfNull(p);
         var (_, _, sampleY, _, _, _, _, _, _, _, _) = ComputeAnchors(p.CaptureW, p.CaptureH);
         Assert.True(sampleY <= (int)(p.CaptureH * 0.05));
     }
@@ -64,6 +69,7 @@ public class ResolutionProfileTests
     [MemberData(nameof(AllProfiles))]
     public void Radius_BothInRange(Profile p)
     {
+        ArgumentNullException.ThrowIfNull(p);
         var (_, _, _, radiusX, radiusY, _, _, _, _, _, _) = ComputeAnchors(p.CaptureW, p.CaptureH);
         Assert.InRange(radiusX, 2, 20);
         Assert.InRange(radiusY, 2, 20);
@@ -73,6 +79,7 @@ public class ResolutionProfileTests
     [MemberData(nameof(AllProfiles))]
     public void SearchRegions_WithinBitmap(Profile p)
     {
+        ArgumentNullException.ThrowIfNull(p);
         var (_, _, _, _, _, leftMin, leftMax, rightMin, rightMax, minY, maxY) = ComputeAnchors(p.CaptureW, p.CaptureH);
         Assert.True(leftMin >= 0 && leftMax < p.CaptureW, $"Left region [{leftMin},{leftMax}] outside [0,{p.CaptureW - 1}]");
         Assert.True(rightMin >= 0 && rightMax < p.CaptureW, $"Right region [{rightMin},{rightMax}] outside [0,{p.CaptureW - 1}]");
@@ -83,6 +90,7 @@ public class ResolutionProfileTests
     [MemberData(nameof(AllProfiles))]
     public void SearchArea_AtLeast50Pixels(Profile p)
     {
+        ArgumentNullException.ThrowIfNull(p);
         var (_, _, _, _, _, leftMin, leftMax, _, _, minY, maxY) = ComputeAnchors(p.CaptureW, p.CaptureH);
         var area = (leftMax - leftMin + 1) * (maxY - minY + 1);
         Assert.True(area >= 50, $"Area {area} too small");
@@ -92,6 +100,7 @@ public class ResolutionProfileTests
     [MemberData(nameof(AllProfiles))]
     public void Anchors_Symmetric(Profile p)
     {
+        ArgumentNullException.ThrowIfNull(p);
         var (leftX, rightX, _, _, _, _, _, _, _, _, _) = ComputeAnchors(p.CaptureW, p.CaptureH);
         Assert.Equal(leftX, p.CaptureW - 1 - rightX);
     }

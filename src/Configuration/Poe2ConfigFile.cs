@@ -133,6 +133,6 @@ public static class Poe2ConfigFile
     {
         var size = MouseCursorSize ?? 2.75;
         var t = Math.Clamp((size - 1.5) / (4.0 - 1.5), 0.0, 1.0);
-        return (int)Math.Round(min + t * (max - min));
+        return (int)Math.Round(min + (t * (max - min)));
     }
 }

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using RuneshapePriceChecker.Startup;
@@ -10,7 +11,7 @@ public sealed record CaptureResult(Bitmap Bitmap, string Method);
 internal sealed partial class OcrCaptureStrategy(ILogger<OcrCaptureStrategy> logger)
 {
     private readonly ILogger<OcrCaptureStrategy> _logger = logger;
-    internal static readonly HashSet<string> FailedModes = new(StringComparer.OrdinalIgnoreCase);
+    internal static readonly ConcurrentDictionary<string, byte> FailedModes = new(StringComparer.OrdinalIgnoreCase);
 
     public CaptureResult Capture(OcrCaptureRegion region, WindowCaptureContext? context, OcrOptions options)
     {
@@ -26,10 +27,10 @@ internal sealed partial class OcrCaptureStrategy(ILogger<OcrCaptureStrategy> log
         {
             if (TryPrintWindow(context, region, out var pwBmp))
             {
-                _ = FailedModes.Remove("printwindow");
+                _ = FailedModes.TryRemove("printwindow", out _);
                 return new CaptureResult(pwBmp, "window-printwindow");
             }
-            _ = FailedModes.Add("printwindow");
+            _ = FailedModes.TryAdd("printwindow", 0);
             _logger.LogWarning("PrintWindow capture failed — falling back to Desktop.");
             return TryDesktopOnly(region);
         }
@@ -51,12 +52,8 @@ internal sealed partial class OcrCaptureStrategy(ILogger<OcrCaptureStrategy> log
         return false;
     }
 
+#pragma warning disable CA2000 // Ownership transferred to CaptureResult
     private static CaptureResult TryDesktopOnly(OcrCaptureRegion region)
-    {
-        return new CaptureResult(CaptureFromDesktop(region, out var method), method);
-    }
-
-    private static Bitmap CaptureFromDesktop(OcrCaptureRegion region, out string captureMethod)
     {
         var bitmap = new Bitmap(region.Width, region.Height, PixelFormat.Format24bppRgb);
         using (var graphics = Graphics.FromImage(bitmap))
@@ -70,9 +67,9 @@ internal sealed partial class OcrCaptureStrategy(ILogger<OcrCaptureStrategy> log
                 CopyPixelOperation.SourceCopy);
         }
 
-        captureMethod = "desktop-copyfromscreen";
-        return bitmap;
+        return new CaptureResult(bitmap, "desktop-copyfromscreen");
     }
+#pragma warning restore CA2000
 
     public static bool IsLikelyInvalidCapture(Bitmap bitmap)
     {

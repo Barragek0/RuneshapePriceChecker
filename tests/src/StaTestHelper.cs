@@ -13,7 +13,7 @@ public static class StaTestHelper
         lock (_lock)
         {
             if (_dispatcher is not null) return;
-            var ready = new ManualResetEventSlim(false);
+            using var ready = new ManualResetEventSlim(false);
             Dispatcher? d = null;
             var thread = new Thread(() =>
             {

@@ -6,27 +6,18 @@ public sealed class DashboardLoggerProvider(DashboardLogSink sink) : ILoggerProv
 {
     private readonly DashboardLogSink _sink = sink;
 
-    public ILogger CreateLogger(string categoryName)
-    {
-        return new DashboardLogger(_sink);
-    }
+    public ILogger CreateLogger(string categoryName) => new DashboardLogger(_sink);
 
-    public void Dispose() { }
+    public void Dispose() => _sink.Dispose();
 }
 
 internal sealed class DashboardLogger(DashboardLogSink sink) : ILogger
 {
     private readonly DashboardLogSink _sink = sink;
 
-    public IDisposable? BeginScope<TState>(TState state) where TState : notnull
-    {
-        return null;
-    }
+    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
-    public bool IsEnabled(LogLevel logLevel)
-    {
-        return true;
-    }
+    public bool IsEnabled(LogLevel logLevel) => true;
 
     public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
     {
@@ -36,6 +27,8 @@ internal sealed class DashboardLogger(DashboardLogSink sink) : ILogger
             LogLevel.Warning or LogLevel.Error or LogLevel.Critical => "red",
             LogLevel.Debug => "yellow",
             LogLevel.Trace => "white",
+            LogLevel.Information => "green",
+            LogLevel.None => "white",
             _ => "green"
         };
 

@@ -224,7 +224,7 @@ internal static partial class MarkdownRenderer
                 if (!Uri.TryCreate(url, UriKind.Absolute, out var linkUri))
                 {
                     doc.Blocks.Add(new Paragraph(new Run(line) { Foreground = TextBrush })
-                        { Margin = new Thickness(0, 1, 0, 1) });
+                    { Margin = new Thickness(0, 1, 0, 1) });
                     continue;
                 }
                 var link = new Hyperlink(new Run("Full Changelog") { FontWeight = FontWeights.Bold, Foreground = LinkBrush })

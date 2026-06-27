@@ -11,6 +11,7 @@ public sealed class MultiLanguageMatchingTests(ITestOutputHelper output)
 {
     private readonly ITestOutputHelper _output = output;
 
+#pragma warning disable CA2000 // Ownership transferred to caller
     private static TranslationCache CreateCache(string lang, string ndjson)
     {
         var ocrDir = Path.Combine(Path.GetTempPath(), "RPC-Test", Guid.NewGuid().ToString());
@@ -18,6 +19,7 @@ public sealed class MultiLanguageMatchingTests(ITestOutputHelper output)
         cache.LoadFromString(lang, ndjson);
         return cache;
     }
+#pragma warning restore CA2000
     // French (ndjson format: one JSON object per line)
     public static readonly string FrNdjson = """
 {"name":"Orbe du Chaos","refName":"Chaos Orb","namespace":"ITEM"}
@@ -187,7 +189,7 @@ public sealed class MultiLanguageMatchingTests(ITestOutputHelper output)
     public void ExactMatch(string lang, string displayName, string input, string expected)
     {
         var locJson = GetNdjson(lang);
-        var cache = CreateCache(lang, locJson);
+        using var cache = CreateCache(lang, locJson);
         var result = cache.ToEnglish(input);
         Assert.NotNull(result);
         Assert.Equal(expected, result);
@@ -243,7 +245,7 @@ public sealed class MultiLanguageMatchingTests(ITestOutputHelper output)
     public void FuzzyMatch(string lang, string displayName, string input, string expected)
     {
         var locJson = GetNdjson(lang);
-        var cache = CreateCache(lang, locJson);
+        using var cache = CreateCache(lang, locJson);
         var result = cache.ToEnglish(input);
         Assert.NotNull(result);
         Assert.Equal(expected, result);
@@ -266,7 +268,7 @@ public sealed class MultiLanguageMatchingTests(ITestOutputHelper output)
     public void NoMatch_ReturnsNull(string lang, string displayName, string input)
     {
         var locJson = GetNdjson(lang);
-        var cache = CreateCache(lang, locJson);
+        using var cache = CreateCache(lang, locJson);
         var result = cache.ToEnglish(input);
         Assert.Null(result);
         _output.WriteLine($"[PASS] {displayName}: '{input}' → null (as expected)");

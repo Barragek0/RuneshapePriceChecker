@@ -37,14 +37,14 @@ internal sealed class WindowsOcrEngine : IDisposable
     {
         if (appLanguage is not null && AppToWindowsLang.TryGetValue(appLanguage, out var winLang))
         {
-            _engine = TryCreateFromLanguageOrFamily(winLang, appLanguage, logger);
+            var engine = TryCreateFromLanguageOrFamily(winLang, appLanguage, logger);
+            _engine = engine ?? OcrEngine.TryCreateFromUserProfileLanguages()
+                      ?? throw new InvalidOperationException("Windows OCR engine not available on this system.");
         }
         else
         {
             _engine = OcrEngine.TryCreateFromUserProfileLanguages() ?? throw new InvalidOperationException("No Windows OCR language available.");
         }
-
-        _engine = _engine ?? throw new InvalidOperationException("Windows OCR engine not available on this system.");
     }
 
     private static OcrEngine? TryCreateFromLanguageOrFamily(string winLang, string appLang, ILogger? logger)
@@ -90,7 +90,7 @@ internal sealed class WindowsOcrEngine : IDisposable
 
     public string Recognize(Bitmap bitmap, out int[] wordYPositions, int upscaleFactor, OcrPerfTiming? perf = null)
     {
-        var sw = perf?.RecordStart(OcrPerfTiming.Slot.Recognize);
+        long? sw = perf is not null ? OcrPerfTiming.RecordStart(OcrPerfTiming.Slot.Recognize) : null;
 
         using var ms = new MemoryStream();
         bitmap.Save(ms, ImageFormat.Bmp);
@@ -118,7 +118,7 @@ internal sealed class WindowsOcrEngine : IDisposable
             lineTexts[i] = string.Join(" ", words);
 
             var yTop = line.Words.Count > 0
-                ? (int)((ySum / line.Words.Count - 6) / upscaleFactor)
+                ? (int)(((ySum / line.Words.Count) - 6) / upscaleFactor)
                 : 0;
             positions.Add(yTop);
         }

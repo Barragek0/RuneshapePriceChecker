@@ -78,7 +78,7 @@ public sealed partial class DashboardWindow : Window
                 var val = obj["WorkingSetPrivate"];
                 if (val is not null)
                 {
-                    _cachedWorkingSetMb = Convert.ToInt64(val) / (1024 * 1024);
+                    _cachedWorkingSetMb = Convert.ToInt64(val, CultureInfo.InvariantCulture) / (1024 * 1024);
                     return;
                 }
             }
@@ -98,7 +98,7 @@ public sealed partial class DashboardWindow : Window
     private static partial IntPtr GetForegroundWindow();
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    private static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
+    private static extern int GetWindowText(IntPtr hWnd, char[] lpString, int nMaxCount);
 
 
 
@@ -149,12 +149,13 @@ public sealed partial class DashboardWindow : Window
         InitializeScale();
         LogList.DataContext = this;
 
-        // Cache brushes once to avoid costly FindResource calls on every timer tick
-        _greenBrush = (Brush)FindResource("GreenBrush");
-        _amberBrush = (Brush)FindResource("AmberBrush");
-        _redBrush = (Brush)FindResource("RedBrush");
-        _textPrimaryBrush = (Brush)FindResource("TextPrimary");
-        _darkGreenBgBrush = (Brush)FindResource("DarkGreenBgBrush");
+        // Cache brushes once to avoid costly FindResource calls on every timer tick.
+        // Use TryFindResource so a missing resource key doesn't crash the window.
+        _greenBrush = TryFindResource("GreenBrush") as Brush ?? new SolidColorBrush(Color.FromRgb(76, 175, 80));
+        _amberBrush = TryFindResource("AmberBrush") as Brush ?? new SolidColorBrush(Color.FromRgb(255, 193, 7));
+        _redBrush = TryFindResource("RedBrush") as Brush ?? new SolidColorBrush(Color.FromRgb(244, 67, 54));
+        _textPrimaryBrush = TryFindResource("TextPrimary") as Brush ?? new SolidColorBrush(Color.FromRgb(220, 220, 220));
+        _darkGreenBgBrush = TryFindResource("DarkGreenBgBrush") as Brush ?? new SolidColorBrush(Color.FromRgb(30, 50, 30));
 
         var version = Assembly.GetExecutingAssembly()
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
@@ -212,7 +213,12 @@ public sealed partial class DashboardWindow : Window
         Closed += (_, _) =>
         {
             if (_vm.OpenWithPoE2 && !_loading)
+            {
+                // Signal the RPC service that this was a manual close (not CloseWithPoE2).
+                // This prevents re-launching if PoE2 is still running.
+                RpcServiceRunner.SignalManualClose();
                 _ = Task.Run(() => RpcServiceRunner.Register());
+            }
         };
 
         foreach (var entry in _sink.Snapshot().Reverse())
@@ -1181,8 +1187,10 @@ public sealed partial class DashboardWindow : Window
         // Check on background thread — OcrEngine.TryCreateFromLanguage can block for 50-200ms.
         _ = Task.Run(() =>
         {
+#pragma warning disable CA1416 // Validate the platform above guards entry, but analyzer can't track through lambda
             var lang = new Language(winTag);
             var engine = OcrEngine.TryCreateFromLanguage(lang);
+#pragma warning restore CA1416
             if (engine is null)
                 return;
 
@@ -1274,9 +1282,10 @@ public sealed partial class DashboardWindow : Window
         try
         {
             var fgHwnd = GetForegroundWindow();
-            var sb = new System.Text.StringBuilder(256);
-            if (GetWindowText(fgHwnd, sb, sb.Capacity) > 0)
-                isForeground = sb.ToString().Equals("Path of Exile 2", StringComparison.OrdinalIgnoreCase);
+            var sb = new char[256];
+            var len = GetWindowText(fgHwnd, sb, sb.Length);
+            if (len > 0)
+                isForeground = new string(sb, 0, len).Equals("Path of Exile 2", StringComparison.OrdinalIgnoreCase);
         }
         catch { }
         DbgWindowStatus.Text = isForeground ? "\u2713 Active" : "\u2717 Not active";
@@ -1316,7 +1325,7 @@ public sealed partial class DashboardWindow : Window
                 _ => "desktop"
             };
             // Only auto-switch when the user's chosen mode is in the failed set
-            if (_metrics?.FailedCaptureModes.Contains(_vm.CaptureMode) == true)
+            if (_metrics?.FailedCaptureModes.ContainsKey(_vm.CaptureMode) == true)
             {
                 if (!string.Equals(_vm.CaptureMode, actualSimple, StringComparison.OrdinalIgnoreCase))
                 {
@@ -1745,7 +1754,7 @@ public sealed partial class DashboardWindow : Window
             var m = 4d;
 
             // Center horizontally on the mouse cursor
-            var x = mouseX - tipW / 2;
+            var x = mouseX - (tipW / 2);
             // Show below the element by default
             var y = elemBounds.Bottom + 4;
 
@@ -1796,15 +1805,6 @@ public sealed partial class DashboardWindow : Window
             },
             Dispatcher);
         _moveResizeTimer.Start();
-    }
-
-    private void ShowValidation(string message, Control target)
-    {
-        ValidationError.Text = message;
-        target.Tag = "invalid";
-        target.BorderBrush = new SolidColorBrush(Color.FromRgb(0xF8, 0x71, 0x71));
-        target.BorderThickness = new Thickness(1);
-        _ = target.Focus();
     }
 
     private void ClearValidation()
@@ -1878,8 +1878,8 @@ public sealed partial class DashboardWindow : Window
         }
         else
         {
-            Left = (SystemParameters.WorkArea.Width - Width) / 2 + SystemParameters.WorkArea.Left;
-            Top = (SystemParameters.WorkArea.Height - Height) / 2 + SystemParameters.WorkArea.Top;
+            Left = ((SystemParameters.WorkArea.Width - Width) / 2) + SystemParameters.WorkArea.Left;
+            Top = ((SystemParameters.WorkArea.Height - Height) / 2) + SystemParameters.WorkArea.Top;
         }
     }
 
@@ -2008,7 +2008,7 @@ public sealed partial class DashboardWindow : Window
     {
         if (CaptureModeWarning is null || CaptureModeTooltip is null) return;
         var lsRunning = IsLosslessScalingRunning();
-        var hasFailedModes = _metrics?.FailedCaptureModes is { Count: > 0 };
+        var hasFailedModes = _metrics?.FailedCaptureModes.Count > 0;
         var showWarning = lsRunning || hasFailedModes;
         CaptureModeWarning.Visibility = showWarning ? Visibility.Visible : Visibility.Collapsed;
         CaptureModeTooltip.Visibility = showWarning ? Visibility.Collapsed : Visibility.Visible;
@@ -2026,7 +2026,7 @@ public sealed partial class DashboardWindow : Window
         else if (hasFailedModes)
         {
             CaptureModeCombo.IsEnabled = true;
-            var failedList = string.Join(", ", _metrics!.FailedCaptureModes);
+            var failedList = string.Join(", ", _metrics!.FailedCaptureModes.Keys);
             CaptureModeWarning.ToolTip = $"The following capture modes are not working on your system and will be ignored: {failedList}.\nThe active mode will update automatically.";
         }
         else

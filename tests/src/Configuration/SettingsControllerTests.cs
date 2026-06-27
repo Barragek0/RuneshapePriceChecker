@@ -31,7 +31,8 @@ public class SettingsControllerTests : IDisposable
     {
         File.WriteAllText(_configPath, """{"App":{"LogLevel":"Debug"}}""");
         var config = BuildConfig(_configPath);
-        using var controller = new SettingsController(config, new LoggerFactory().CreateLogger<SettingsController>());
+        using var loggerFactory0 = new LoggerFactory();
+        using var controller = new SettingsController(config, loggerFactory0.CreateLogger<SettingsController>());
         Assert.NotNull(controller);
     }
 
@@ -40,7 +41,8 @@ public class SettingsControllerTests : IDisposable
     {
         File.WriteAllText(_configPath, """{"App":{"LogLevel":"Debug"}}""");
         var config = BuildConfig(_configPath);
-        var logger = new LoggerFactory().CreateLogger<SettingsController>();
+        using var loggerFactory = new LoggerFactory();
+        var logger = loggerFactory.CreateLogger<SettingsController>();
         using var controller = new SettingsController(config, logger);
 
         var refreshMethod = typeof(SettingsController).GetMethod("RefreshConfiguration",
@@ -55,7 +57,8 @@ public class SettingsControllerTests : IDisposable
         var config = new ConfigurationBuilder().AddInMemoryCollection(
             new Dictionary<string, string?> { ["App:LogLevel"] = "Debug" }).Build();
 
-        var logger = new LoggerFactory().CreateLogger<SettingsController>();
+        using var loggerFactory2 = new LoggerFactory();
+        var logger = loggerFactory2.CreateLogger<SettingsController>();
         using var controller = new SettingsController(config, logger);
 
         var refreshMethod = typeof(SettingsController).GetMethod("RefreshConfiguration",
@@ -69,8 +72,8 @@ public class SettingsControllerTests : IDisposable
     {
         File.WriteAllText(_configPath, "{}");
         var config = BuildConfig(_configPath);
-        using var controller = new SettingsController(config, new LoggerFactory().CreateLogger<SettingsController>());
-        controller.Dispose();
+        using var loggerFactory3 = new LoggerFactory();
+        using var controller = new SettingsController(config, loggerFactory3.CreateLogger<SettingsController>());
     }
 
     [Fact]

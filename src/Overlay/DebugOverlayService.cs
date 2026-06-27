@@ -216,7 +216,7 @@ public sealed class DebugOverlayService(
         logger.LogInformation("RunSetupFlow: entering setup loop");
         while (true)
         {
-            var continueClicked = new ManualResetEventSlim(false);
+            using var continueClicked = new ManualResetEventSlim(false);
             dashboard.SetOnSetupContinue(continueClicked.Set);
             logger.LogInformation("RunSetupFlow: showing Continue prompt in Dashboard");
             dashboard.ShowSetupPrompt();
@@ -526,7 +526,7 @@ public sealed class DebugOverlayService(
                         }
                     }
                     var textSize = TextRenderer.MeasureText(e.Graphics, lines[i], _debugFont);
-                    var y = rowTop + (rowH - textSize.Height) / 2;
+                    var y = rowTop + ((rowH - textSize.Height) / 2);
                     y = Math.Clamp(y, 0, Height - textSize.Height);
 
                     TextRenderer.DrawText(e.Graphics, lines[i], _debugFont,

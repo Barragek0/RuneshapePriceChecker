@@ -137,12 +137,13 @@ internal static class FallbackProvider
     {
         correctedKey = string.Empty;
         var matchCount = 0;
+        var knownList = knownKeys as IReadOnlyList<string> ?? [.. knownKeys];
 
         foreach (var key in keys)
         {
             if (key.Length < 7) continue;
 
-            foreach (var known in knownKeys)
+            foreach (var known in knownList)
             {
                 if (!IsSingleSubstitutionAway(key, known)) continue;
 
@@ -162,12 +163,14 @@ internal static class FallbackProvider
     public static string? ResolveFewCharsAwayCandidate(IReadOnlyList<string> keys,
         IEnumerable<string> knownKeys)
     {
+        var knownList = knownKeys as IReadOnlyList<string> ?? [.. knownKeys];
+
         foreach (var key in keys)
         {
             if (key.Length < 7) continue;
 
             string? best = null;
-            foreach (var known in knownKeys)
+            foreach (var known in knownList)
             {
                 if (!StrComp.AreFewCharsAway(key, known, 2)) continue;
                 if (best is not null) return null; // ambiguous

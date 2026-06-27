@@ -53,7 +53,7 @@ internal static class OcrPipeline
             var count = 0;
             for (var x = 0; x < scanW; x++)
             {
-                var idx = rowOffset + x * 3;
+                var idx = rowOffset + (x * 3);
                 if (bytes[idx] < 128)
                     count++;
             }
@@ -93,9 +93,9 @@ internal static class OcrPipeline
         var merged = new List<(int Start, int End)> { regions[0] };
         for (var r = 1; r < regions.Count; r++)
         {
-            var last = merged[^1];
-            if (regions[r].Start - last.End <= 10)
-                merged[^1] = (last.Start, regions[r].End);
+            var (Start, End) = merged[^1];
+            if (regions[r].Start - End <= 10)
+                merged[^1] = (Start, regions[r].End);
             else
                 merged.Add(regions[r]);
         }

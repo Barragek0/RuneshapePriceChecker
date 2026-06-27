@@ -44,7 +44,8 @@ public class LeagueListServiceTests
     [Fact]
     public async Task FetchLeagues_Success_ReturnsFilteredLeagues()
     {
-        var leagues = await LeagueListService.FetchLeaguesAsync(SuccessHandler(), CancellationToken.None);
+        using var handler = SuccessHandler();
+        var leagues = await LeagueListService.FetchLeaguesAsync(handler, CancellationToken.None);
         Assert.Equal(2, leagues.Count);
         Assert.Contains("Standard", leagues);
         Assert.Contains("Hardcore", leagues);
@@ -54,7 +55,8 @@ public class LeagueListServiceTests
     [Fact]
     public async Task FetchLeagues_EmptyResult_ReturnsFallback()
     {
-        var leagues = await LeagueListService.FetchLeaguesAsync(EmptyResultHandler(), CancellationToken.None);
+        using var handler = EmptyResultHandler();
+        var leagues = await LeagueListService.FetchLeaguesAsync(handler, CancellationToken.None);
         Assert.Equal(2, leagues.Count);
         Assert.Contains("Standard", leagues);
     }
@@ -62,14 +64,16 @@ public class LeagueListServiceTests
     [Fact]
     public async Task FetchLeagues_HttpError_ReturnsFallback()
     {
-        var leagues = await LeagueListService.FetchLeaguesAsync(ErrorHandler(), CancellationToken.None);
+        using var handler = ErrorHandler();
+        var leagues = await LeagueListService.FetchLeaguesAsync(handler, CancellationToken.None);
         Assert.Equal(2, leagues.Count);
     }
 
     [Fact]
     public async Task FetchLeagues_MissingResult_ReturnsFallback()
     {
-        var leagues = await LeagueListService.FetchLeaguesAsync(MissingResultHandler(), CancellationToken.None);
+        using var handler = MissingResultHandler();
+        var leagues = await LeagueListService.FetchLeaguesAsync(handler, CancellationToken.None);
         Assert.Equal(2, leagues.Count);
     }
 
@@ -84,7 +88,7 @@ public class LeagueListServiceTests
                 new { id = "" }
             }
         });
-        var handler = new TestHandler(json, HttpStatusCode.OK);
+        using var handler = new TestHandler(json, HttpStatusCode.OK);
         var leagues = await LeagueListService.FetchLeaguesAsync(handler, CancellationToken.None);
         _ = Assert.Single(leagues);
         Assert.Equal("Standard", leagues[0]);

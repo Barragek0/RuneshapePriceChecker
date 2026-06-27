@@ -1,5 +1,4 @@
 ﻿using System.Diagnostics;
-using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using RuneshapePriceChecker.App.Dashboard;
@@ -206,7 +205,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
                             var rowOffset = ry * stride;
                             for (var rx = 0; rx < pbmp.Width; rx++)
                             {
-                                if (bytes[rowOffset + rx * 3] < 128)
+                                if (bytes[rowOffset + (rx * 3)] < 128)
                                 {
                                     if (rx < minX) minX = rx;
                                     if (rx > maxX) maxX = rx;
@@ -218,7 +217,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
                         {
                             const int margin = 4;
                             var boxX = Math.Max(0, minX - margin);
-                            var boxW = Math.Min(pbmp.Width - boxX, maxX - minX + margin * 2);
+                            var boxW = Math.Min(pbmp.Width - boxX, maxX - minX + (margin * 2));
                             _retryRegions.Add(new Rectangle(boxX, y, boxW, h));
                         }
                         else
@@ -280,7 +279,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         attemptedRecognition = false;
         fromCache = false;
         _perf.ResetCycleSlotMs();
-        var t0 = _perf.RecordStart(OcrPerfTiming.Slot.Total);
+        var t0 = OcrPerfTiming.RecordStart(OcrPerfTiming.Slot.Total);
         var options = _options.CurrentValue;
         if (_detectedLanguage is not null)
         {
@@ -332,8 +331,13 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         _logState &= ~OcrLogState.WindowContextLogged;
 
         var region = ResolveCaptureRegion();
+        if (region is null)
+        {
+            _metrics.InterfaceDetected = false;
+            return string.Empty;
+        }
         ValidateRegion(region);
-        _metrics.RegionInfo = region is not null ? $"{region.Width}x{region.Height}" : "none";
+        _metrics.RegionInfo = $"{region.Width}x{region.Height}";
 
         // Pre-capture panel check: capture only the scan rectangle area (~40K px)
         // instead of the full region (266K px) to check if the panel is still closed.
@@ -374,9 +378,9 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
             _ => "desktop"
         };
         if (!string.Equals(configuredMode, actualPrefix, StringComparison.OrdinalIgnoreCase))
-            _metrics.FailedCaptureModes.Add(configuredMode);
+            _ = _metrics.FailedCaptureModes.TryAdd(configuredMode, 0);
         else
-            _metrics.FailedCaptureModes.Remove(configuredMode);
+            _ = _metrics.FailedCaptureModes.TryRemove(configuredMode, out _);
         using var capturedBitmap = captureResult.Bitmap;
 
         // Keep a clone for per-line retry OCR (used when lines fail to price)
@@ -423,12 +427,14 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
             : null;
 
         attemptedRecognition = true;
+#pragma warning disable CA2000 // Ownership transferred; disposed at method exit via explicit Dispose calls
         Bitmap masked;
         using (_perf.Measure(OcrPerfTiming.Slot.KeepBlack))
             masked = OcrImagePreprocessor.KeepBlackAndNeighbors(capturedBitmap);
         Bitmap preprocessed;
         using (_perf.Measure(OcrPerfTiming.Slot.Preprocess))
             preprocessed = OcrImagePreprocessor.PreprocessForOcr(masked, options);
+#pragma warning restore CA2000
         _lastPreprocessedBitmap?.Dispose();
         _lastPreprocessedBitmap = new Bitmap(preprocessed);
         Rectangle? crop;
@@ -472,17 +478,21 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
                 {
                     for (var i = 0; i < rowYs.Length; i++)
                     {
-                        Bitmap rowBitmap;
-                        using (_perf.Measure(OcrPerfTiming.Slot.PixEncode))
-                            rowBitmap = OcrPipeline.PrepareRowBitmap(preprocessed, crop, rowYs[i], rowHeights[i]);
-                        var rawText = _windowsOcrEngine!.Recognize(rowBitmap, out _, 3, null);
-                        rowBitmap.Dispose();
-                        var lines = OcrImagePreprocessor.SplitAndTrim(rawText);
-                        var cleaned = lines.Length > 0
-                            ? (OcrTextPostProcessor.ExtractLikelyItemNames(lines[0], _detectedLanguage) is { Count: > 0 } cl ? cl[0] : lines[0])
-                            : string.Empty;
-                        _logger.LogTrace("OCR: row {Row} raw='{Raw}' cleaned='{Clean}' lang={Lang}", i, rawText, cleaned, _detectedLanguage);
-                        rowTexts[i] = cleaned;
+                        var rowBitmap = OcrPipeline.PrepareRowBitmap(preprocessed, crop, rowYs[i], rowHeights[i]);
+                        try
+                        {
+                            var rawText = _windowsOcrEngine!.Recognize(rowBitmap, out _, 3, null);
+                            var lines = OcrImagePreprocessor.SplitAndTrim(rawText);
+                            var cleaned = lines.Length > 0
+                                ? (OcrTextPostProcessor.ExtractLikelyItemNames(lines[0], _detectedLanguage) is { Count: > 0 } cl ? cl[0] : lines[0])
+                                : string.Empty;
+                            _logger.LogTrace("OCR: row {Row} raw='{Raw}' cleaned='{Clean}' lang={Lang}", i, rawText, cleaned, _detectedLanguage);
+                            rowTexts[i] = cleaned;
+                        }
+                        finally
+                        {
+                            rowBitmap.Dispose();
+                        }
 
                         if (debugDir is not null)
                             OcrPipeline.SaveRowDebugImage(preprocessed, crop, rowYs[i], rowHeights[i], i, debugDir);
@@ -503,11 +513,15 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
                         string? text;
                         try
                         {
-                            Bitmap rowBitmap;
-                            using (_perf.Measure(OcrPerfTiming.Slot.PixEncode))
-                                rowBitmap = OcrPipeline.PrepareRowBitmap(preprocessed, crop, rowYs[i], rowHeights[i]);
-                            text = engine.RecognizeSingleLine(rowBitmap);
-                            rowBitmap.Dispose();
+                            var rowBitmap = OcrPipeline.PrepareRowBitmap(preprocessed, crop, rowYs[i], rowHeights[i]);
+                            try
+                            {
+                                text = engine.RecognizeSingleLine(rowBitmap);
+                            }
+                            finally
+                            {
+                                rowBitmap.Dispose();
+                            }
                         }
                         catch (Exception ex)
                         {
@@ -670,12 +684,12 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
                 const int stepY = 4;
                 for (var y = 0; y < data.Height; y += stepY)
                 {
-                    Marshal.Copy(data.Scan0 + y * stride, rowBytes, 0, stride);
+                    Marshal.Copy(data.Scan0 + (y * stride), rowBytes, 0, stride);
                     for (var x = 0; x < data.Width; x += stepX)
                     {
                         var idx = x * bpp;
                         if (idx + 2 < stride)
-                            hash = hash * 31 + rowBytes[idx] + rowBytes[idx + 1] + rowBytes[idx + 2];
+                            hash = (hash * 31) + rowBytes[idx] + rowBytes[idx + 1] + rowBytes[idx + 2];
                     }
                 }
                 return hash;
@@ -849,6 +863,9 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
 
     public void Dispose()
     {
+        _windowsOcrEngine?.Dispose();
+        _lastCaptureBitmap?.Dispose();
+        _lastPreprocessedBitmap?.Dispose();
         _engineManager.Dispose();
     }
 

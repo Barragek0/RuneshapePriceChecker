@@ -35,10 +35,7 @@ internal sealed class OcrPerfTiming
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public long RecordStart(Slot _)
-    {
-        return Stopwatch.GetTimestamp();
-    }
+    public static long RecordStart(Slot _) => Stopwatch.GetTimestamp();
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void RecordEnd(Slot slot, long startTicks)
@@ -51,10 +48,7 @@ internal sealed class OcrPerfTiming
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void Record(Slot slot, long startTicks)
-    {
-        RecordEnd(slot, startTicks);
-    }
+    public void Record(Slot slot, long startTicks) => RecordEnd(slot, startTicks);
     public double GetSlotAverageMs(Slot slot)
     {
         var idx = (int)slot;
@@ -62,14 +56,8 @@ internal sealed class OcrPerfTiming
         if (count == 0) return 0;
         return _accum[idx] * 1000.0 / Stopwatch.Frequency / count;
     }
-    public void ResetCycleSlotMs()
-    {
-        Array.Clear(_cycleSlotMs);
-    }
-    public double[] GetCycleSlotMs()
-    {
-        return _cycleSlotMs;
-    }
+    public void ResetCycleSlotMs() => Array.Clear(_cycleSlotMs);
+    public double[] GetCycleSlotMs() => _cycleSlotMs;
 
     public string GetAndResetReport()
     {
@@ -89,9 +77,6 @@ internal sealed class OcrPerfTiming
 
     internal readonly struct TimedRegion(OcrPerfTiming owner, Slot slot, long startTicks) : IDisposable
     {
-        public void Dispose()
-        {
-            owner.Record(slot, startTicks);
-        }
+        public void Dispose() => owner.Record(slot, startTicks);
     }
 }

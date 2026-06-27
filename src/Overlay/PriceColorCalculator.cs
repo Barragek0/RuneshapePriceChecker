@@ -43,7 +43,7 @@ internal static class PriceColorCalculator
             return 0f;
 
         var trimmed = text.Trim();
-        if (!trimmed.EndsWith("d", StringComparison.OrdinalIgnoreCase))
+        if (!trimmed.EndsWith('d'))
             return 0f;
 
         var numericPart = trimmed[..^1];
@@ -80,7 +80,7 @@ internal static class PriceColorCalculator
             return false;
         }
 
-        if (trimmed.EndsWith("c", StringComparison.OrdinalIgnoreCase))
+        if (trimmed.EndsWith('c'))
         {
             var valueText = trimmed[..^1].Trim();
             if (valueText.StartsWith('<'))
@@ -94,7 +94,7 @@ internal static class PriceColorCalculator
             return false;
         }
 
-        if (trimmed.EndsWith("d", StringComparison.OrdinalIgnoreCase))
+        if (trimmed.EndsWith('d'))
         {
             var valueText = trimmed[..^1].Trim();
             if (valueText.StartsWith('<'))

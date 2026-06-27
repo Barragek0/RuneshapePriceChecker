@@ -21,7 +21,10 @@ internal sealed class BannerForm : OverlayFormBase
     public override void SafeHide()
     {
         base.SafeHide();
-        Bounds = new Rectangle(-32000, -32000, 1, 1);
+        if (InvokeRequired)
+            BeginInvoke(() => Bounds = new Rectangle(-32000, -32000, 1, 1));
+        else
+            Bounds = new Rectangle(-32000, -32000, 1, 1);
     }
 
     protected override void OnPaint(PaintEventArgs e)

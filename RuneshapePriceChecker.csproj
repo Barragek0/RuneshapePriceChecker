@@ -36,7 +36,7 @@
 
   <!-- Pre-build: check for updated translation files from Exiled Exchange 2 -->
   <Target Name="UpdateTranslations" BeforeTargets="BeforeBuild" Condition="'$(GITHUB_ACTIONS)' != 'true'">
-    <Exec Command="powershell -ExecutionPolicy Bypass -File &quot;scripts\update-translations.ps1&quot;" ContinueOnError="WarnAndContinue" />
+    <Exec Command="powershell -ExecutionPolicy Bypass -File &quot;scripts\update-translations.ps1&quot;" ContinueOnError="true" />
   </Target>
 
   <!-- Publish: trimmed self-contained (Release only, Debug uses framework-dependent for hot reload) -->
@@ -83,8 +83,7 @@
 
   <!-- Kill any running RuneshapePriceChecker before build to avoid file locks -->
   <Target Name="KillRunningApp" BeforeTargets="BeforeBuild;BeforeRebuild">
-    <Exec Command="powershell -NoProfile -Command &quot;Get-Process RuneshapePriceChecker -ErrorAction SilentlyContinue | Stop-Process -Force&quot;"
-          ContinueOnError="WarnAndContinue" />
+    <Exec Command="powershell -NoProfile -Command &quot;Get-Process RuneshapePriceChecker -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; exit 0&quot;" />
   </Target>
 
   <!-- Tesseract: embed traineddata + native DLLs -->

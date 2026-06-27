@@ -74,14 +74,9 @@ public class ConsoleOverlayRendererTests
         Assert.Equal(expectedScale, scale, precision: 2);
     }
 
-    private sealed class FakeResolutionProvider : IPoe2WindowResolutionProvider
+    private sealed class FakeResolutionProvider(int? clientHeight) : IPoe2WindowResolutionProvider
     {
-        private readonly int? _clientHeight;
-
-        public FakeResolutionProvider(int? clientHeight)
-        {
-            _clientHeight = clientHeight;
-        }
+        private readonly int? _clientHeight = clientHeight;
 
         public OcrCaptureRegion? CurrentCaptureRegion => null;
         public OcrResolutionProfile? CurrentResolutionProfile => null;
@@ -96,7 +91,14 @@ public class ConsoleOverlayRendererTests
     private sealed class FakeAppOptionsMonitor(float? overlayScale) : IOptionsMonitor<AppOptions>
     {
         public AppOptions CurrentValue => new() { OverlayScale = overlayScale };
-        public AppOptions Get(string? name) => CurrentValue;
-        public IDisposable? OnChange(Action<AppOptions, string?> listener) => null;
+        public AppOptions Get(string? name)
+        {
+            return CurrentValue;
+        }
+
+        public IDisposable? OnChange(Action<AppOptions, string?> listener)
+        {
+            return null;
+        }
     }
 }

@@ -12,7 +12,7 @@ public class PoeNinjaClientTests
     [Fact]
     public async Task FetchPrices_EmptyLines_ReturnsEmptySnapshot()
     {
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddResponse("/api/poe2/economy/exchange/current/overview?league=Standard&type=Currency",
             new { lines = Array.Empty<object>() });
 
@@ -26,7 +26,7 @@ public class PoeNinjaClientTests
     [Fact]
     public async Task FetchPrices_WithCurrencyLines_ParsesChaosEquivalent()
     {
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddResponse("/api/poe2/economy/exchange/current/overview?league=Standard&type=Currency",
             new
             {
@@ -46,11 +46,13 @@ public class PoeNinjaClientTests
     [Fact]
     public async Task FetchPrices_DifferentLeague_EncodedCorrectly()
     {
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddResponse("/api/poe2/economy/exchange/current/overview?league=Runes%20of%20Aldur&type=Currency",
             new { lines = Array.Empty<object>() });
 
+#pragma warning disable CA2000 // HttpClient ownership transfers to PoeNinjaClient
         var httpClient = new HttpClient(handler);
+#pragma warning restore CA2000
         var options = Options.Create(new PricingCacheOptions
         {
             PoeNinjaBaseUrl = "https://poe.ninja",
@@ -59,13 +61,15 @@ public class PoeNinjaClientTests
             ExchangeOverviewPath = "api/poe2/economy/exchange/current/overview",
             StashItemOverviewPath = "api/poe2/economy/stash/current/item/overview"
         });
-        var logger = new LoggerFactory().CreateLogger<PoeNinjaClient>();
+        using var loggerFactory = new LoggerFactory();
+        var logger = loggerFactory.CreateLogger<PoeNinjaClient>();
         var client = new PoeNinjaClient(httpClient, new NinjaOptionsMonitor<PricingCacheOptions>(options), logger);
 
         var snapshot = await client.FetchPricesAsync("Runes of Aldur", CancellationToken.None);
         Assert.NotNull(snapshot);
     }
 
+#pragma warning disable CA2000 // HttpClient and LoggerFactory ownership transfers to client
     private static PoeNinjaClient CreateClient(MockHttpHandler handler)
     {
         var httpClient = new HttpClient(handler);
@@ -80,6 +84,7 @@ public class PoeNinjaClientTests
         var logger = new LoggerFactory().CreateLogger<PoeNinjaClient>();
         return new PoeNinjaClient(httpClient, new NinjaOptionsMonitor<PricingCacheOptions>(options), logger);
     }
+#pragma warning restore CA2000
 }
 
 internal sealed class NinjaOptionsMonitor<T>(IOptions<T> options) : IOptionsMonitor<T> where T : class

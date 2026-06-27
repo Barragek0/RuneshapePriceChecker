@@ -78,10 +78,10 @@ public static class OcrResolutionProfiles
         ty = Math.Clamp(ty, 0.0, 1.0);
 
         return new OcrResolutionProfile(
-            (int)(lower.Value.CaptureOffsetX + (upper.Value.CaptureOffsetX - lower.Value.CaptureOffsetX) * tx),
-            (int)(lower.Value.CaptureOffsetY + (upper.Value.CaptureOffsetY - lower.Value.CaptureOffsetY) * ty),
-            (int)(lower.Value.CaptureWidth + (upper.Value.CaptureWidth - lower.Value.CaptureWidth) * tx),
-            (int)(lower.Value.CaptureHeight + (upper.Value.CaptureHeight - lower.Value.CaptureHeight) * ty));
+            (int)(lower.Value.CaptureOffsetX + ((upper.Value.CaptureOffsetX - lower.Value.CaptureOffsetX) * tx)),
+            (int)(lower.Value.CaptureOffsetY + ((upper.Value.CaptureOffsetY - lower.Value.CaptureOffsetY) * ty)),
+            (int)(lower.Value.CaptureWidth + ((upper.Value.CaptureWidth - lower.Value.CaptureWidth) * tx)),
+            (int)(lower.Value.CaptureHeight + ((upper.Value.CaptureHeight - lower.Value.CaptureHeight) * ty)));
     }
 }
 

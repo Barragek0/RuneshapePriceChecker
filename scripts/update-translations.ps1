@@ -97,7 +97,7 @@ if ($updated) {
 
 if ($hasError) {
     Write-Host ""
-    Write-Host "Warning: Some translation files could not be checked. Using local versions."
+    Write-Host "Some translation files could not be checked. Using local versions."
 }
 
 exit 0  # Always exit 0 — build should succeed even if check fails

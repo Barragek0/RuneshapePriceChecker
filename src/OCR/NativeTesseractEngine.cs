@@ -184,7 +184,7 @@ internal sealed partial class NativeTesseractEngine : IDisposable
             for (var y = height - 1; y >= 0; y--)
             {
                 var srcRow = IntPtr.Add(srcPtr, y * stride);
-                var dstOffset = 54 + (height - 1 - y) * stride;
+                var dstOffset = 54 + ((height - 1 - y) * stride);
                 Marshal.Copy(srcRow, bmpBytes, dstOffset, stride);
             }
 

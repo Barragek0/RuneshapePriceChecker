@@ -1,4 +1,5 @@
-﻿using System.IO;
+﻿using System.Collections.Concurrent;
+using System.IO;
 
 namespace RuneshapePriceChecker.App.Dashboard;
 
@@ -31,9 +32,7 @@ public sealed class DebugMetricsCollector
     private double _accumulatedScanMs;
     private double _scansPerSec;
     private double _scanCpuPercent;
-    private long _lastReadBytes;
     private long _lastWriteBytes;
-    private double _diskReadBytesPerSec;
     private double _diskWriteBytesPerSec;
     private volatile bool _isPoe2Foreground;
     private volatile bool _interfaceDetected;
@@ -52,7 +51,7 @@ public sealed class DebugMetricsCollector
 
     public string CaptureMethod { get; set; } = "";
     public string OcrBackend { get; set; } = "";
-    public HashSet<string> FailedCaptureModes { get; } = new(StringComparer.OrdinalIgnoreCase);
+    public ConcurrentDictionary<string, byte> FailedCaptureModes { get; } = new(StringComparer.OrdinalIgnoreCase);
     public string PricingSource { get; set; } = "";
     public string CurrentLeague { get; set; } = "";
     public string RegionInfo { get; set; } = "";
@@ -87,7 +86,7 @@ public sealed class DebugMetricsCollector
 
     private const int MaxSamples = 40;
     private readonly object _lock = new();
-    public static class SlotIndex
+    internal static class SlotIndex
     {
         public const int Total = 0;
         public const int Capture = 1;
@@ -303,7 +302,7 @@ public sealed class DebugMetricsCollector
                 CpuPercent = Math.Round(_cpuPercent, 1),
                 ScanCpuPercent = Math.Round(_scanCpuPercent, 1),
                 MemoryMb = memBytes / (1024 * 1024),
-                DiskReadBytesPerSec = Math.Round(_diskReadBytesPerSec, 0),
+                DiskReadBytesPerSec = 0,
                 DiskWriteBytesPerSec = Math.Round(_diskWriteBytesPerSec, 0),
             };
         }

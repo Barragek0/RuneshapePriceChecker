@@ -15,7 +15,8 @@ public class DebugOverlayServiceTests
         var resolver = new MockWindowResolutionProvider();
         var ocrOpts = Options.Create(new OcrOptions());
         var winOpts = Options.Create(new WindowOptions());
-        var logger = new LoggerFactory().CreateLogger<DebugOverlayService>();
+        using var loggerFactory = new LoggerFactory();
+        var logger = loggerFactory.CreateLogger<DebugOverlayService>();
 
         using var service = new DebugOverlayService(
             resolver, new MockOcrOptionsMonitor(ocrOpts), new MockWindowOptionsMonitor(winOpts),

@@ -58,11 +58,13 @@ static async Task<IPricingSource> CreatePricingSourceAsync(SimOptions options)
 
     if (options.Source.Equals("poe2scout", StringComparison.OrdinalIgnoreCase))
     {
+#pragma warning disable CA2000 // Ownership transferred to the client class
         var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
         var appOpts = new StaticOptionsMonitor<AppOptions>(new AppOptions());
         return new Poe2ScoutClient(httpClient, appOpts, NullLogger<Poe2ScoutClient>.Instance);
     }
 
+#pragma warning disable CA2000 // Ownership transferred to the client class
     var ninjaHttpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
     var ninjaOptions = new StaticOptionsMonitor<PricingCacheOptions>(options.ToCacheOptions());
     return new PoeNinjaClient(ninjaHttpClient, ninjaOptions, NullLogger<PoeNinjaClient>.Instance);

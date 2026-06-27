@@ -72,10 +72,8 @@ internal static class StrComp
         return d <= 2;
     }
 
-    public static bool AreFewCharsAway(ReadOnlySpan<char> source, ReadOnlySpan<char> target, int maxDistance)
-    {
-        return GetEditDistance(source, target, maxDistance) >= 0;
-    }
+    public static bool AreFewCharsAway(ReadOnlySpan<char> source, ReadOnlySpan<char> target, int maxDistance) =>
+        GetEditDistance(source, target, maxDistance) >= 0;
 
     public static int GetEditDistance(ReadOnlySpan<char> source, ReadOnlySpan<char> target, int maxDistance)
     {

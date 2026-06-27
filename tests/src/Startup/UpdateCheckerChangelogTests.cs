@@ -115,6 +115,7 @@ public class UpdateCheckerChangelogTests : IDisposable
         Assert.True(root.TryGetProperty("Changelog", out _));
     }
 
+#pragma warning disable CA2000 // Ownership transferred to UpdateChecker via factory/sink/dashboard
     private static UpdateChecker CreateChecker()
     {
         var updateOptions = Options.Create(new UpdateOptions());
@@ -127,6 +128,7 @@ public class UpdateCheckerChangelogTests : IDisposable
 
         return new UpdateChecker(updateOptions, appOptions, lifetime, logger, dashboard, factory);
     }
+#pragma warning restore CA2000
 
     private static void SetPrivateFields(UpdateChecker checker, string changelogVersion)
     {

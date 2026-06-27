@@ -49,6 +49,7 @@ public sealed class DashboardViewModel(string configPath)
 
     public void OnLogEntry(LogEntry entry)
     {
+        ArgumentNullException.ThrowIfNull(entry);
         var brush = entry.Color switch
         {
             "red" => new SolidColorBrush(Color.FromRgb(0xF8, 0x71, 0x71)),

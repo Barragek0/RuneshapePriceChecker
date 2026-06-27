@@ -19,7 +19,7 @@ var port = args.Length > 1 && int.TryParse(args[1], out var p) ? p : 8099;
 string releaseTag;
 if (args.Length > 2)
 {
-    releaseTag = args[2].StartsWith("v", StringComparison.OrdinalIgnoreCase) ? args[2] : $"v{args[2]}";
+    releaseTag = args[2].StartsWith('v') ? args[2] : $"v{args[2]}";
 }
 else
 {
@@ -75,7 +75,7 @@ Console.WriteLine($"  GET /download/{zipName}");
 Console.WriteLine();
 Console.WriteLine("Press Ctrl+C to stop.");
 
-var cts = new CancellationTokenSource();
+using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 
 try

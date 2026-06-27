@@ -1,4 +1,3 @@
-using System.Linq;
 using RuneshapePriceChecker.Pricing;
 using Xunit;
 
@@ -13,7 +12,7 @@ public class UniqueCategoryLookupTests
         // The word "SCOURING" contains "RING" as a substring (SCOU-RING).
         // Word-boundary matching must reject this.
         var candidates = ItemNameParser.BuildUniqueCategoryLookupCandidates("SUPPORT SCOURING FLAME").ToArray();
-        Assert.DoesNotContain(candidates, c => c.StartsWith("UNIQUE RING", System.StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(candidates, c => c.StartsWith("UNIQUE RING", StringComparison.OrdinalIgnoreCase));
     }
 
     [Theory]
@@ -32,7 +31,7 @@ public class UniqueCategoryLookupTests
     public void LegitimateRingKeyword_MatchesUniqueRing(string itemName)
     {
         var candidates = ItemNameParser.BuildUniqueCategoryLookupCandidates(itemName).ToArray();
-        Assert.Contains(candidates, c => c.StartsWith("UNIQUE RING", System.StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(candidates, c => c.StartsWith("UNIQUE RING", StringComparison.OrdinalIgnoreCase));
     }
 
     [Theory]
@@ -59,16 +58,16 @@ public class UniqueCategoryLookupTests
     {
         var candidates = ItemNameParser.BuildUniqueCategoryLookupCandidates(itemName).ToArray();
         Assert.NotEmpty(candidates);
-        Assert.All(candidates, c => Assert.StartsWith("UNIQUE ", c, System.StringComparison.OrdinalIgnoreCase));
+        Assert.All(candidates, c => Assert.StartsWith("UNIQUE ", c, StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
     public void RingKeyword_DoesNotMatchBelt()
     {
         var candidates = ItemNameParser.BuildUniqueCategoryLookupCandidates("RING").ToArray();
-        Assert.All(candidates, c => Assert.Contains("RING", c, System.StringComparison.OrdinalIgnoreCase));
-        Assert.DoesNotContain(candidates, c => c.Contains("BELT", System.StringComparison.OrdinalIgnoreCase));
-        Assert.DoesNotContain(candidates, c => c.Contains("AMULET", System.StringComparison.OrdinalIgnoreCase));
+        Assert.All(candidates, c => Assert.Contains("RING", c, StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(candidates, c => c.Contains("BELT", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(candidates, c => c.Contains("AMULET", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -97,7 +96,7 @@ public class UniqueCategoryLookupTests
     {
         var candidates = ItemNameParser.BuildUniqueCategoryLookupCandidates(itemName).ToArray();
         Assert.NotEmpty(candidates);
-        Assert.All(candidates, c => Assert.StartsWith("UNIQUE ", c, System.StringComparison.OrdinalIgnoreCase));
+        Assert.All(candidates, c => Assert.StartsWith("UNIQUE ", c, StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

@@ -394,13 +394,6 @@ public sealed class MultiLanguageWorkerTests
 {"name":"Gema de Suporte Bruta","refName":"Uncut Support Gem","namespace":"ITEM"}
 {"name":"Gema de Espírito Bruta","refName":"Uncut Spirit Gem","namespace":"ITEM"}
 """;
-
-    private static readonly string JaGemNdjson = """
-{"name":"スキルジェムの原石","refName":"Uncut Skill Gem","namespace":"ITEM"}
-{"name":"サポートジェムの原石","refName":"Uncut Support Gem","namespace":"ITEM"}
-{"name":"スピリットジェムの原石","refName":"Uncut Spirit Gem","namespace":"ITEM"}
-""";
-
     private static readonly string KoGemNdjson = """
 {"name":"미가공 스킬 젬","refName":"Uncut Skill Gem","namespace":"ITEM"}
 {"name":"미가공 보조 젬","refName":"Uncut Support Gem","namespace":"ITEM"}
@@ -413,6 +406,7 @@ public sealed class MultiLanguageWorkerTests
 {"name":"精魂寶石","refName":"Uncut Spirit Gem","namespace":"ITEM"}
 """;
 
+#pragma warning disable CA2000 // Ownership transferred to ItemNameTranslator via cache
     private static TranslationCache CreateCache(string lang, string ndjson)
     {
         var ocrDir = Path.Combine(Path.GetTempPath(), "RPC-Test", Guid.NewGuid().ToString());
@@ -420,7 +414,9 @@ public sealed class MultiLanguageWorkerTests
         cache.LoadFromString(lang, ndjson);
         return cache;
     }
+#pragma warning restore CA2000
 
+#pragma warning disable CA2000 // Ownership transferred to returned ItemNameTranslator
     private static ItemNameTranslator CreateTranslator(string lang, string ndjson)
     {
         var cache = CreateCache(lang, ndjson);
@@ -428,6 +424,7 @@ public sealed class MultiLanguageWorkerTests
         translator.SetLanguage(lang);
         return translator;
     }
+#pragma warning restore CA2000
 
     private static string? InvokeBuildUnpriceableBanner(string[] names, ItemNameTranslator? translator = null)
     {
@@ -441,7 +438,7 @@ public sealed class MultiLanguageWorkerTests
     public void BuildUnpriceableBanner_FrenchUncutGemsWithTranslator_NotFlagged()
     {
         // French uncut gems should translate to English uncut gems (priced)
-        var translator = CreateTranslator("fra", FrGemNdjson);
+        using var translator = CreateTranslator("fra", FrGemNdjson);
         var result = InvokeBuildUnpriceableBanner(
             ["Gemme de Compétence Brute", "Gemme de Soutien Brute", "Gemme d'Esprit Brute"],
             translator);
@@ -451,7 +448,7 @@ public sealed class MultiLanguageWorkerTests
     [Fact]
     public void BuildUnpriceableBanner_SpanishUncutGemsWithTranslator_NotFlagged()
     {
-        var translator = CreateTranslator("spa", EsGemNdjson);
+        using var translator = CreateTranslator("spa", EsGemNdjson);
         var result = InvokeBuildUnpriceableBanner(
             ["Gema de Habilidad Bruta", "Gema de Apoyo Bruta", "Gema de Espíritu Bruta"],
             translator);
@@ -461,7 +458,7 @@ public sealed class MultiLanguageWorkerTests
     [Fact]
     public void BuildUnpriceableBanner_GermanUncutGemsWithTranslator_NotFlagged()
     {
-        var translator = CreateTranslator("deu", DeGemNdjson);
+        using var translator = CreateTranslator("deu", DeGemNdjson);
         var result = InvokeBuildUnpriceableBanner(
             ["Roher Fertigkeitsedelstein", "Roher Unterstützungsedelstein", "Roher Geistesedelstein"],
             translator);
@@ -471,7 +468,7 @@ public sealed class MultiLanguageWorkerTests
     [Fact]
     public void BuildUnpriceableBanner_RussianUncutGemsWithTranslator_NotFlagged()
     {
-        var translator = CreateTranslator("rus", RuGemNdjson);
+        using var translator = CreateTranslator("rus", RuGemNdjson);
         var result = InvokeBuildUnpriceableBanner(
             ["Неогранённый самоцвет умений", "Неогранённый самоцвет поддержки", "Неогранённый самоцвет духа"],
             translator);
@@ -481,7 +478,7 @@ public sealed class MultiLanguageWorkerTests
     [Fact]
     public void BuildUnpriceableBanner_PortugueseUncutGemsWithTranslator_NotFlagged()
     {
-        var translator = CreateTranslator("por", PtGemNdjson);
+        using var translator = CreateTranslator("por", PtGemNdjson);
         var result = InvokeBuildUnpriceableBanner(
             ["Gema de Habilidade Bruta", "Gema de Suporte Bruta", "Gema de Espírito Bruta"],
             translator);
@@ -491,7 +488,7 @@ public sealed class MultiLanguageWorkerTests
     [Fact]
     public void BuildUnpriceableBanner_KoreanUncutGemsWithTranslator_NotFlagged()
     {
-        var translator = CreateTranslator("kor", KoGemNdjson);
+        using var translator = CreateTranslator("kor", KoGemNdjson);
         var result = InvokeBuildUnpriceableBanner(
             ["미가공 스킬 젬", "미가공 보조 젬", "미가공 정신력 젬"],
             translator);
@@ -501,7 +498,7 @@ public sealed class MultiLanguageWorkerTests
     [Fact]
     public void BuildUnpriceableBanner_ChineseUncutGemsWithTranslator_NotFlagged()
     {
-        var translator = CreateTranslator("chi_tra", ZhGemNdjson);
+        using var translator = CreateTranslator("chi_tra", ZhGemNdjson);
         var result = InvokeBuildUnpriceableBanner(
             ["未切割的技能寶石", "未切割的輔助寶石", "精魂寶石"],
             translator);

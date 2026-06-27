@@ -30,7 +30,8 @@ public class InMemoryPricingCacheConstructionTests
     {
         var source = new MockPricingSource();
         var options = Options.Create(new PricingCacheOptions());
-        var logger = new LoggerFactory().CreateLogger<InMemoryPricingCache>();
+        using var loggerFactory = new LoggerFactory();
+        var logger = loggerFactory.CreateLogger<InMemoryPricingCache>();
 
         var cache = new InMemoryPricingCache(source, new NinjaOptionsMonitor<PricingCacheOptions>(options), logger);
         Assert.False(cache.IsReady);
@@ -41,7 +42,8 @@ public class InMemoryPricingCacheConstructionTests
     {
         var source = new MockPricingSource();
         var options = Options.Create(new PricingCacheOptions());
-        var logger = new LoggerFactory().CreateLogger<InMemoryPricingCache>();
+        using var loggerFactory2 = new LoggerFactory();
+        var logger = loggerFactory2.CreateLogger<InMemoryPricingCache>();
 
         var cache = new InMemoryPricingCache(source, new NinjaOptionsMonitor<PricingCacheOptions>(options), logger);
         await cache.RefreshAsync(CancellationToken.None);

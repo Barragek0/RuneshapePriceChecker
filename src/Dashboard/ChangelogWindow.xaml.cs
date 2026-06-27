@@ -7,6 +7,7 @@ public sealed partial class ChangelogWindow : Window
 {
     public ChangelogWindow(string version, string body)
     {
+        ArgumentNullException.ThrowIfNull(body);
         InitializeComponent();
 
         TitleText.Text = $"What's New in v{version}";

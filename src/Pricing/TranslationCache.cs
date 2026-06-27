@@ -358,6 +358,7 @@ public sealed class TranslationCache : IDisposable
 
     public void Dispose()
     {
+        _watcher?.Dispose();
         _httpClient?.Dispose();
     }
 

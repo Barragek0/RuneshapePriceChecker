@@ -17,7 +17,7 @@ public class UpdateCheckerIntegrationTests
     [Fact]
     public async Task FetchLatestRelease_ValidReleaseWithZip_ParsesCorrectly()
     {
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddResponse("/repos/Barragek0/RuneshapePriceChecker/releases?per_page=10", new[]
         {
             new
@@ -52,7 +52,7 @@ public class UpdateCheckerIntegrationTests
     [Fact]
     public async Task FetchLatestRelease_MultipleReleases_SkipsPrereleases()
     {
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddResponse("/repos/Barragek0/RuneshapePriceChecker/releases?per_page=10", new[]
         {
             new
@@ -85,7 +85,7 @@ public class UpdateCheckerIntegrationTests
     [Fact]
     public async Task FetchLatestRelease_IgnoresPrereleasesFalse_ReturnsPrerelease()
     {
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddResponse("/repos/Barragek0/RuneshapePriceChecker/releases?per_page=10", new[]
         {
             new
@@ -109,7 +109,7 @@ public class UpdateCheckerIntegrationTests
     [Fact]
     public async Task FetchLatestRelease_NoZipAsset_StillParsesRelease()
     {
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddResponse("/repos/Barragek0/RuneshapePriceChecker/releases?per_page=10", new[]
         {
             new
@@ -132,7 +132,7 @@ public class UpdateCheckerIntegrationTests
     [Fact]
     public async Task FetchLatestRelease_EmptyArray_ReturnsNull()
     {
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddResponse("/repos/Barragek0/RuneshapePriceChecker/releases?per_page=10", Array.Empty<object>());
 
         var checker = CreateChecker(handler);
@@ -144,7 +144,7 @@ public class UpdateCheckerIntegrationTests
     [Fact]
     public async Task FetchLatestRelease_NotFound_ReturnsNull()
     {
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddErrorResponse("/repos/Barragek0/RuneshapePriceChecker/releases?per_page=10", HttpStatusCode.NotFound);
 
         var checker = CreateChecker(handler);
@@ -156,7 +156,7 @@ public class UpdateCheckerIntegrationTests
     [Fact]
     public async Task FetchLatestRelease_ServerError_Throws()
     {
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddErrorResponse("/repos/Barragek0/RuneshapePriceChecker/releases?per_page=10", HttpStatusCode.InternalServerError);
 
         var checker = CreateChecker(handler);
@@ -168,7 +168,7 @@ public class UpdateCheckerIntegrationTests
     public async Task FetchLatestRelease_ReleaseWithBody_ParsesReleaseTag()
     {
         var expectedBody = "## Changelog\n\n### Features\n- Item 1\n- Item 2";
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddResponse("/repos/Barragek0/RuneshapePriceChecker/releases?per_page=10", new[]
         {
             new
@@ -196,7 +196,7 @@ public class UpdateCheckerIntegrationTests
     [Fact]
     public async Task FetchLatestRelease_AssetWithoutSize_HandlesNull()
     {
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddResponse("/repos/Barragek0/RuneshapePriceChecker/releases?per_page=10", new[]
         {
             new
@@ -219,6 +219,7 @@ public class UpdateCheckerIntegrationTests
         Assert.Null(release.Assets![0].Size);
     }
 
+#pragma warning disable CA2000 // Ownership transferred to UpdateChecker via factory/sink/dashboard
     private static UpdateChecker CreateChecker(MockHttpHandler handler)
     {
         var httpClient = new HttpClient(handler)
@@ -242,6 +243,7 @@ public class UpdateCheckerIntegrationTests
 
         return new UpdateChecker(updateOptions, appOptions, lifetime, logger, dashboard, factory);
     }
+#pragma warning restore CA2000
 
     private static async Task<GitHubRelease?> InvokeFetchLatestReleaseAsync(
         UpdateChecker checker, string owner, string repo, bool ignorePrereleases)

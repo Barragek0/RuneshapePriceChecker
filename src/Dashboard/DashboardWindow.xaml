@@ -2200,7 +2200,8 @@
                                                            x:Name="DbgRecognizeCpu"
                                                            Text="—"
                                                            Foreground="{StaticResource TextPrimary}"
-                                                           FontSize="12"/>
+                                                           FontSize="12"
+                                                           Margin="0,0,0,4"/>
 
                                                 <TextBlock Grid.Row="3"
                                                            Grid.Column="0"
@@ -2213,7 +2214,7 @@
                                                            Text="—"
                                                            Foreground="{StaticResource TextPrimary}"
                                                            FontSize="12"
-                                                           Margin="0,4,10,0"/>
+                                                           Margin="0,0,10,0"/>
                                                 <TextBlock Grid.Row="3"
                                                            Grid.Column="2"
                                                            Text="Disk Write"
@@ -2224,8 +2225,7 @@
                                                            x:Name="DbgDiskWrite"
                                                            Text="—"
                                                            Foreground="{StaticResource TextPrimary}"
-                                                           FontSize="12"
-                                                           Margin="0,4,0,0"/>
+                                                           FontSize="12"/>
                                             </Grid>
                                         </Border>
 

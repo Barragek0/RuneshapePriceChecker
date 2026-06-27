@@ -666,11 +666,29 @@ internal sealed class UpdateChecker(
     }
 }
 
-internal sealed class RateLimitExceededException(DateTimeOffset resetTime, int remaining)
-    : Exception($"Github API rate limit exceeded. Resets at {resetTime:yyyy-MM-dd HH:mm:ss} UTC.")
+internal sealed class RateLimitExceededException : Exception
 {
-    public DateTimeOffset ResetTime { get; } = resetTime;
-    public string RemainingString { get; } = remaining >= 0 ? remaining.ToString(CultureInfo.InvariantCulture) : "?";
+    public DateTimeOffset ResetTime { get; }
+    public string RemainingString { get; } = "?";
+
+    public RateLimitExceededException()
+    {
+    }
+
+    public RateLimitExceededException(string message) : base(message)
+    {
+    }
+
+    public RateLimitExceededException(string message, Exception innerException) : base(message, innerException)
+    {
+    }
+
+    public RateLimitExceededException(DateTimeOffset resetTime, int remaining)
+        : base($"Github API rate limit exceeded. Resets at {resetTime:yyyy-MM-dd HH:mm:ss} UTC.")
+    {
+        ResetTime = resetTime;
+        RemainingString = remaining >= 0 ? remaining.ToString(CultureInfo.InvariantCulture) : "?";
+    }
 }
 
 internal sealed class UpdateOptions

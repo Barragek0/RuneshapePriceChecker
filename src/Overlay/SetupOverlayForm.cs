@@ -216,14 +216,14 @@ internal sealed class SetupOverlayForm : OverlayFormBase
         using var handleBrush = new SolidBrush(Color.FromArgb(220, 255, 80, 80));
         var handles = new[]
         {
-            new Rectangle(rect.Left - hs/2, rect.Top - hs/2, hs, hs),
-            new Rectangle(rect.Right - hs/2, rect.Top - hs/2, hs, hs),
-            new Rectangle(rect.Left - hs/2, rect.Bottom - hs/2, hs, hs),
-            new Rectangle(rect.Right - hs/2, rect.Bottom - hs/2, hs, hs),
-            new Rectangle(rect.Left + rect.Width/2 - hs/2, rect.Top - hs/2, hs, hs),
-            new Rectangle(rect.Left + rect.Width/2 - hs/2, rect.Bottom - hs/2, hs, hs),
-            new Rectangle(rect.Left - hs/2, rect.Top + rect.Height/2 - hs/2, hs, hs),
-            new Rectangle(rect.Right - hs/2, rect.Top + rect.Height/2 - hs/2, hs, hs),
+            new Rectangle(rect.Left - (hs/2), rect.Top - (hs/2), hs, hs),
+            new Rectangle(rect.Right - (hs/2), rect.Top - (hs/2), hs, hs),
+            new Rectangle(rect.Left - (hs/2), rect.Bottom - (hs/2), hs, hs),
+            new Rectangle(rect.Right - (hs/2), rect.Bottom - (hs/2), hs, hs),
+            new Rectangle(rect.Left + (rect.Width/2) - (hs/2), rect.Top - (hs/2), hs, hs),
+            new Rectangle(rect.Left + (rect.Width/2) - (hs/2), rect.Bottom - (hs/2), hs, hs),
+            new Rectangle(rect.Left - (hs/2), rect.Top + (rect.Height/2) - (hs/2), hs, hs),
+            new Rectangle(rect.Right - (hs/2), rect.Top + (rect.Height/2) - (hs/2), hs, hs),
         };
         foreach (var h in handles)
             g.FillEllipse(handleBrush, h);
@@ -364,5 +364,19 @@ internal sealed class SetupOverlayForm : OverlayFormBase
         if (pt.Y >= rect.Top - edge && pt.Y <= rect.Top + edge) result |= 4;
         if (pt.Y >= rect.Bottom - edge && pt.Y <= rect.Bottom + edge) result |= 8;
         return result;
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _confirmBtn?.Dispose();
+            _backBtn?.Dispose();
+            _titleLabel?.Dispose();
+            _hintLabel?.Dispose();
+            _exampleLabel?.Dispose();
+            _exampleBox?.Dispose();
+        }
+        base.Dispose(disposing);
     }
 }

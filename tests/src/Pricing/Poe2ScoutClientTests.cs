@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
@@ -14,7 +14,7 @@ public class Poe2ScoutClientTests
     [Fact]
     public async Task FetchLeagues_ReturnsParsedLeagueNames()
     {
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddResponse("/poe2/Leagues", new
         {
             Items = new[]
@@ -35,7 +35,7 @@ public class Poe2ScoutClientTests
     [Fact]
     public async Task FetchLeagues_EmptyItems_ReturnsEmpty()
     {
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddResponse("/poe2/Leagues", new { Items = Array.Empty<object>() });
 
         var client = CreateClient(handler);
@@ -47,7 +47,7 @@ public class Poe2ScoutClientTests
     [Fact]
     public async Task FetchLeagues_HttpError_ReturnsEmpty()
     {
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddErrorResponse("/poe2/Leagues", HttpStatusCode.ServiceUnavailable);
 
         var client = CreateClient(handler);
@@ -59,7 +59,7 @@ public class Poe2ScoutClientTests
     [Fact]
     public async Task FetchPrices_ParsesExactPrices()
     {
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddResponse("/poe2/Leagues", new
         {
             Items = new[] { new { Value = "Standard", ShortName = "standard" } }
@@ -87,7 +87,7 @@ public class Poe2ScoutClientTests
     [Fact]
     public async Task FetchPrices_ParsesUniqueCategoryRanges()
     {
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddResponse("/poe2/Leagues", new
         {
             Items = new[] { new { Value = "Standard", ShortName = "standard" } }
@@ -115,7 +115,7 @@ public class Poe2ScoutClientTests
     [Fact]
     public async Task FetchPrices_LeagueResolutionFallsBack_WhenApiFails()
     {
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddErrorResponse("/poe2/Leagues", HttpStatusCode.InternalServerError);
 
         var client = CreateClient(handler);
@@ -127,7 +127,7 @@ public class Poe2ScoutClientTests
     [Fact]
     public async Task FetchPrices_HandlesPartialCategoryFailure()
     {
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddResponse("/poe2/Leagues", new
         {
             Items = new[] { new { Value = "Standard", ShortName = "standard" } }
@@ -149,7 +149,7 @@ public class Poe2ScoutClientTests
     [Fact]
     public async Task FetchPrices_IgnoresZeroPriceItems()
     {
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddResponse("/poe2/Leagues", new
         {
             Items = new[] { new { Value = "Standard", ShortName = "standard" } }
@@ -176,7 +176,7 @@ public class Poe2ScoutClientTests
     [Fact]
     public async Task FetchPrices_CapturesUniqueBaseTypes()
     {
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddResponse("/poe2/Leagues", new
         {
             Items = new[] { new { Value = "Standard", ShortName = "standard" } }
@@ -204,7 +204,7 @@ public class Poe2ScoutClientTests
     [Fact]
     public async Task FetchPrices_ShortLeagueNameUsed_AfterFirstResolution()
     {
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddResponse("/poe2/Leagues", new
         {
             Items = new[] { new { Value = "Standard", ShortName = "std" } }
@@ -220,12 +220,12 @@ public class Poe2ScoutClientTests
     [Fact]
     public async Task FetchPrices_Pagination_HandlesMultiplePages()
     {
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddResponse("/poe2/Leagues", new
         {
             Items = new[] { new { Value = "Standard", ShortName = "standard" } }
         });
-        // Return many items to trigger pagination — all in page 1 since MockHttpHandler returns all
+        // Return many items to trigger pagination â€” all in page 1 since MockHttpHandler returns all
         var items = Enumerable.Range(0, 5).Select(i => new { Text = $"Item {i}", CurrentPrice = i + 1.0 }).ToArray();
         handler.AddResponse("/poe2/Leagues/standard/Currencies/ByCategory?Category=currency",
             new { Items = items });
@@ -235,6 +235,7 @@ public class Poe2ScoutClientTests
         Assert.Equal(5, snapshot.ExactPrices.Count);
     }
 
+#pragma warning disable CA2000 // HttpClient and LoggerFactory ownership transfers to client
     private static Poe2ScoutClient CreateClient(MockHttpHandler handler)
     {
         var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://api.poe2scout.com") };
@@ -242,6 +243,7 @@ public class Poe2ScoutClientTests
         var logger = new LoggerFactory().CreateLogger<Poe2ScoutClient>();
         return new Poe2ScoutClient(httpClient, new WrappedOptionsMonitor(appOptions), logger);
     }
+#pragma warning restore CA2000
 
     private sealed class WrappedOptionsMonitor(IOptions<AppOptions> options) : IOptionsMonitor<AppOptions>
     {

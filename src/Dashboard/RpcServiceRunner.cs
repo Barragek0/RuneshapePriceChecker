@@ -12,8 +12,7 @@ internal static class RpcServiceRunner
     private const string RegistryValueName = "RuneshapePriceChecker";
     private const string ExitEventName = "Global\\RuneshapePriceChecker_ExitService";
     private const string ServiceActiveEventName = "Global\\RuneshapePriceChecker_ServiceActive";
-    internal const string CloseByPoe2EventName = "Global\\RuneshapePriceChecker_CloseByPoe2";
-
+    internal const string CloseByPoe2EventName = "Global\\RuneshapePriceChecker_CloseByPoe2"; internal const string ManualCloseEventName = "Global\\RuneshapePriceChecker_ManualClose";
     public static void Register()
     {
         KillExistingService();
@@ -34,7 +33,7 @@ internal static class RpcServiceRunner
             UseShellExecute = true,
             WindowStyle = ProcessWindowStyle.Hidden
         };
-        Process.Start(psi);
+        _ = Process.Start(psi);
     }
 
     public static void Unregister()
@@ -57,6 +56,16 @@ internal static class RpcServiceRunner
         catch { }
     }
 
+    public static void SignalManualClose()
+    {
+        try
+        {
+            using var evt = new EventWaitHandle(false, EventResetMode.ManualReset, ManualCloseEventName);
+            _ = evt.Set();
+        }
+        catch { }
+    }
+
     private static volatile bool _appLaunched;
     private static volatile int _lastPoe2Pid;
     private static volatile bool _hasPoe2Pid;
@@ -70,6 +79,19 @@ internal static class RpcServiceRunner
             using var closeByPoe2Event = new EventWaitHandle(false, EventResetMode.ManualReset, CloseByPoe2EventName);
             var selfId = Environment.ProcessId;
             _appLaunched = false;
+
+            // If the user manually closed the app before this RPC service started
+            // (e.g. Register() was called in the Closed handler), don't re-launch
+            // during this PoE2 session. The ManualCloseEvent is set by SignalManualClose()
+            // in the Closed handler before Register() starts this process.
+            using (var manualCloseEvent = new EventWaitHandle(false, EventResetMode.ManualReset, ManualCloseEventName))
+            {
+                if (manualCloseEvent.WaitOne(0))
+                {
+                    _appLaunched = true;
+                    _ = manualCloseEvent.Reset();
+                }
+            }
 
             // Watch all process creations, then check for PoE2 by window title (more reliable than process names)
             var query = "SELECT * FROM __InstanceCreationEvent WITHIN 1 " +
@@ -98,47 +120,55 @@ internal static class RpcServiceRunner
                                 // CloseWithPoE2 — reset so next PoE2 session re-launches
                                 _appLaunched = false;
                                 _hasPoe2Pid = false;
-                                closeByPoe2Event.Reset();
+                                _ = closeByPoe2Event.Reset();
+                                return;
                             }
-                            else
-                            {
-                                // Manual close (or crash). Check if PoE2 PID changed (new session) or exited.
-                                var currentPid = 0;
-                                foreach (var p in Process.GetProcesses())
-                                {
-                                    try
-                                    {
-                                        if (p.MainWindowHandle != IntPtr.Zero &&
-                                            !string.IsNullOrWhiteSpace(p.MainWindowTitle) &&
-                                            p.MainWindowTitle.Equals("Path of Exile 2", StringComparison.OrdinalIgnoreCase))
-                                        {
-                                            currentPid = p.Id;
-                                            break;
-                                        }
-                                    }
-                                    finally { p.Dispose(); }
-                                }
 
-                                if (currentPid == 0)
+                            // Check if user manually closed the app (Exit button, window close)
+                            using var manualCloseEvent = new EventWaitHandle(false, EventResetMode.ManualReset, ManualCloseEventName);
+                            var wasManualClose = manualCloseEvent.WaitOne(0);
+                            if (wasManualClose)
+                                _ = manualCloseEvent.Reset();
+
+                            // Manual close (or crash). Check if PoE2 PID changed (new session) or exited.
+                            var currentPid = 0;
+                            foreach (var p in Process.GetProcesses())
+                            {
+                                try
                                 {
-                                    // PoE2 not running — session ended, reset
-                                    _appLaunched = false;
-                                    _hasPoe2Pid = false;
+                                    if (p.MainWindowHandle != IntPtr.Zero &&
+                                        !string.IsNullOrWhiteSpace(p.MainWindowTitle) &&
+                                        p.MainWindowTitle.Equals("Path of Exile 2", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        currentPid = p.Id;
+                                        break;
+                                    }
                                 }
-                                else if (_hasPoe2Pid && currentPid != _lastPoe2Pid)
-                                {
-                                    // PoE2 PID changed — new session (exited and restarted), reset
-                                    _appLaunched = false;
-                                    _lastPoe2Pid = currentPid;
-                                }
-                                else if (!_hasPoe2Pid)
-                                {
-                                    // First time seeing PoE2 PID — cache it
-                                    _lastPoe2Pid = currentPid;
-                                    _hasPoe2Pid = true;
-                                }
-                                // else: same PID, same session — keep _appLaunched
+                                finally { p.Dispose(); }
                             }
+
+                            if (currentPid == 0)
+                            {
+                                // PoE2 not running — session ended, reset
+                                _appLaunched = false;
+                                _hasPoe2Pid = false;
+                            }
+                            else if (_hasPoe2Pid && currentPid != _lastPoe2Pid)
+                            {
+                                // PoE2 PID changed — new session (exited and restarted), reset
+                                _appLaunched = false;
+                                _lastPoe2Pid = currentPid;
+                            }
+                            else if (!_hasPoe2Pid)
+                            {
+                                // First time seeing PoE2 PID — cache it
+                                _lastPoe2Pid = currentPid;
+                                _hasPoe2Pid = true;
+                                // If user manually closed the app this same session, don't re-launch
+                                if (wasManualClose)
+                                    _appLaunched = true;
+                            }
+                            // else: same PID, same session — keep _appLaunched
                         }
                     }
 
@@ -168,7 +198,7 @@ internal static class RpcServiceRunner
                                     _appLaunched = true;
                                     _lastPoe2Pid = p.Id;
                                     _hasPoe2Pid = true;
-                                    Process.Start(new ProcessStartInfo(exePath) { UseShellExecute = true });
+                                    _ = Process.Start(new ProcessStartInfo(exePath) { UseShellExecute = true });
                                     return;
                                 }
                             }
@@ -181,12 +211,12 @@ internal static class RpcServiceRunner
             };
             watcher.Start();
 
-            exitEvent.WaitOne();
+            _ = exitEvent.WaitOne();
             watcher.Stop();
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"RpcServiceRunner.Run failed: {ex.GetType().Name}: {ex.Message}");
+            Debug.WriteLine($"RpcServiceRunner.Run failed: {ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -213,11 +243,11 @@ internal static class RpcServiceRunner
             {
                 p.Kill();
                 if (!p.WaitForExit(3000))
-                    System.Diagnostics.Debug.WriteLine($"RpcServiceRunner: PID {p.Id} did not exit within 3s of Kill");
+                    Debug.WriteLine($"RpcServiceRunner: PID {p.Id} did not exit within 3s of Kill");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"RpcServiceRunner: Kill PID {p.Id} failed: {ex.Message}");
+                Debug.WriteLine($"RpcServiceRunner: Kill PID {p.Id} failed: {ex.Message}");
             }
             p.Dispose();
         }

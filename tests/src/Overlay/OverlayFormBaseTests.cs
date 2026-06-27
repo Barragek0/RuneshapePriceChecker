@@ -15,21 +15,21 @@ public class OverlayFormBaseTests
     [Fact]
     public void Constructor_SetsNoTaskbarEntry()
     {
-        var form = new TestOverlayForm();
+        using var form = new TestOverlayForm();
         Assert.False(form.ShowInTaskbar);
     }
 
     [Fact]
     public void Constructor_SetsTopMost()
     {
-        var form = new TestOverlayForm();
+        using var form = new TestOverlayForm();
         Assert.True(form.TopMost);
     }
 
     [Fact]
     public void Constructor_SetsDoubleBuffered()
     {
-        var form = new TestOverlayForm();
+        using var form = new TestOverlayForm();
         // DoubleBuffered is protected — verify via reflection
         var prop = typeof(Form).GetProperty("DoubleBuffered",
             BindingFlags.Instance | BindingFlags.NonPublic);
@@ -40,14 +40,14 @@ public class OverlayFormBaseTests
     [Fact]
     public void Constructor_IsHidden_StartsFalse()
     {
-        var form = new TestOverlayForm();
+        using var form = new TestOverlayForm();
         Assert.False(form.IsHidden);
     }
 
     [Fact]
     public void ShowWithoutActivation_ReturnsTrue()
     {
-        var form = new TestOverlayForm();
+        using var form = new TestOverlayForm();
         var prop = typeof(Form).GetProperty("ShowWithoutActivation",
             BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(prop);
@@ -57,7 +57,7 @@ public class OverlayFormBaseTests
     [Fact]
     public void CreateParams_HasNoActivateStyle()
     {
-        var form = new TestOverlayForm();
+        using var form = new TestOverlayForm();
 
         // Access CreateParams via reflection since it's protected
         var cpProp = typeof(Form).GetProperty("CreateParams",
@@ -71,7 +71,7 @@ public class OverlayFormBaseTests
     [Fact]
     public void SafeHide_WhenDisposed_ReturnsEarly()
     {
-        var form = new TestOverlayForm();
+        using var form = new TestOverlayForm();
         Assert.False(form.IsHidden);
     }
 
@@ -101,7 +101,7 @@ public class OverlayFormBaseTests
     [Fact]
     public void Constructor_IsDisposed_InitiallyFalse()
     {
-        var form = new TestOverlayForm();
+        using var form = new TestOverlayForm();
         Assert.False(form.IsDisposed);
     }
 

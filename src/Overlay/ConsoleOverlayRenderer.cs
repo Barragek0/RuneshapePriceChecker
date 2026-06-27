@@ -12,12 +12,10 @@ namespace RuneshapePriceChecker.Overlay;
 public sealed class PricingOverlayRenderer(
     IPoe2WindowResolutionProvider windowResolutionProvider,
     IOptionsMonitor<PricingCacheOptions> pricingOptions,
-    IOptionsMonitor<OcrOptions> ocrOptions,
     IOptionsMonitor<AppOptions> appOptions,
     ILogger<PricingOverlayRenderer> logger) : IOverlayRenderer, IDisposable
 {
     private readonly object _sync = new();
-    private readonly IOptionsMonitor<OcrOptions> _ocrOptions = ocrOptions;
     private readonly IOptionsMonitor<AppOptions> _appOptions = appOptions;
     private Thread? _overlayThread;
     private PriceOverlayForm? _overlayForm;
@@ -25,6 +23,9 @@ public sealed class PricingOverlayRenderer(
 
     public void Render(LeagueWindowSnapshot snapshot, IReadOnlyDictionary<string, PriceQuote?> pricesByItemName)
     {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentNullException.ThrowIfNull(pricesByItemName);
+
         try
         {
             if (!_appOptions.CurrentValue.PricingOverlay || _appOptions.CurrentValue.AllOverlaysDisabled)
@@ -211,7 +212,7 @@ public sealed class PricingOverlayRenderer(
         }
 
         var trimmed = text.Trim();
-        if (!trimmed.EndsWith("d", StringComparison.OrdinalIgnoreCase))
+        if (!trimmed.EndsWith('d'))
         {
             return 0f;
         }
@@ -260,7 +261,7 @@ public sealed class PricingOverlayRenderer(
             return false;
         }
 
-        if (trimmed.EndsWith("c", StringComparison.OrdinalIgnoreCase))
+        if (trimmed.EndsWith('c'))
         {
             var valueText = trimmed[..^1].Trim();
             if (valueText.StartsWith('<'))
@@ -277,7 +278,7 @@ public sealed class PricingOverlayRenderer(
             return false;
         }
 
-        if (trimmed.EndsWith("d", StringComparison.OrdinalIgnoreCase))
+        if (trimmed.EndsWith('d'))
         {
             var valueText = trimmed[..^1].Trim();
             if (valueText.StartsWith('<'))
@@ -416,6 +417,9 @@ public sealed class PricingOverlayRenderer(
 
     public static float ComputeOverlayScale(IPoe2WindowResolutionProvider resolutionProvider, IOptionsMonitor<AppOptions> appOptions)
     {
+        ArgumentNullException.ThrowIfNull(resolutionProvider);
+        ArgumentNullException.ThrowIfNull(appOptions);
+
         var overrideScale = appOptions.CurrentValue.OverlayScale;
         if (overrideScale.HasValue)
             return Math.Max(0.25f, Math.Min(4f, overrideScale.Value));
@@ -433,7 +437,6 @@ public sealed class PricingOverlayRenderer(
         private float _scaleFactor = 1f;
         private readonly object _stateSync = new();
         private IReadOnlyList<OverlayRowEntry> _entries = [];
-        private OcrCaptureRegion _captureRegion = new(0, 0, 1, 1);
         private volatile bool _isHidden = true;
 
         public PriceOverlayForm()
@@ -496,7 +499,6 @@ public sealed class PricingOverlayRenderer(
 
             lock (_stateSync)
             {
-                _captureRegion = captureRegion;
                 _entries = entries;
             }
 

@@ -20,7 +20,7 @@ public class ListDetectorTests
             int rowOff = y * stride;
             for (int x = 0; x < w; x++)
             {
-                int idx = rowOff + x * 3;
+                int idx = rowOff + (x * 3);
                 if (x % 4 == 0 && y % 4 == 0)
                 {
                     bytes[idx] = 5; bytes[idx + 1] = 5; bytes[idx + 2] = 5;

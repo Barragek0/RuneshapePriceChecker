@@ -296,7 +296,7 @@ public static class ItemNameParser
         if (string.IsNullOrWhiteSpace(categoryTail))
             yield break;
 
-        var singularTail = categoryTail.EndsWith("S", StringComparison.OrdinalIgnoreCase)
+        var singularTail = categoryTail.EndsWith('S')
             ? categoryTail[..^1]
             : categoryTail;
 
@@ -375,10 +375,7 @@ public static class ItemNameParser
         return $"{truncatedChaos.ToString("0.#", CultureInfo.InvariantCulture)}c";
     }
 
-    private static decimal TruncateToSingleDecimal(decimal value)
-    {
-        return Math.Truncate(value * 10m) / 10m;
-    }
+    public static decimal TruncateToSingleDecimal(decimal value) => Math.Truncate(value * 10m) / 10m;
 
     private static string TrimLeadingEcho(string name)
     {

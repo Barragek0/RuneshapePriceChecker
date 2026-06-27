@@ -13,11 +13,13 @@ public class PoeNinjaClientStashTests
     [Fact]
     public async Task FetchPrices_WithStashEndpoint_DoesNotThrow()
     {
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddResponse("/api/poe2/economy/stash/current/item/overview?league=Standard&type=UniqueAccessories",
             new { lines = Array.Empty<object>() });
 
+#pragma warning disable CA2000 // HttpClient ownership transfers to PoeNinjaClient
         var httpClient = new HttpClient(handler);
+#pragma warning restore CA2000
         var options = Options.Create(new PricingCacheOptions
         {
             PoeNinjaBaseUrl = "https://poe.ninja",
@@ -25,7 +27,8 @@ public class PoeNinjaClientStashTests
             IncludedTypes = ["UniqueAccessories"],
             StashItemOverviewPath = "api/poe2/economy/stash/current/item/overview"
         });
-        var logger = new LoggerFactory().CreateLogger<PoeNinjaClient>();
+        using var loggerFactory = new LoggerFactory();
+        var logger = loggerFactory.CreateLogger<PoeNinjaClient>();
         var client = new PoeNinjaClient(httpClient, new NinjaOptionsMonitor<PricingCacheOptions>(options), logger);
 
         var snapshot = await client.FetchPricesAsync("Standard", CancellationToken.None);
@@ -35,11 +38,13 @@ public class PoeNinjaClientStashTests
     [Fact]
     public async Task FetchPrices_ServerError_ReturnsEmptySnapshot()
     {
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddErrorResponse("/api/poe2/economy/stash/current/item/overview?league=Standard&type=UniqueAccessories",
             HttpStatusCode.InternalServerError);
 
+#pragma warning disable CA2000 // HttpClient ownership transfers to PoeNinjaClient
         var httpClient = new HttpClient(handler);
+#pragma warning restore CA2000
         var options = Options.Create(new PricingCacheOptions
         {
             PoeNinjaBaseUrl = "https://poe.ninja",
@@ -47,7 +52,8 @@ public class PoeNinjaClientStashTests
             IncludedTypes = ["UniqueAccessories"],
             StashItemOverviewPath = "api/poe2/economy/stash/current/item/overview"
         });
-        var logger = new LoggerFactory().CreateLogger<PoeNinjaClient>();
+        using var loggerFactory = new LoggerFactory();
+        var logger = loggerFactory.CreateLogger<PoeNinjaClient>();
         var client = new PoeNinjaClient(httpClient, new NinjaOptionsMonitor<PricingCacheOptions>(options), logger);
 
         var snapshot = await client.FetchPricesAsync("Standard", CancellationToken.None);

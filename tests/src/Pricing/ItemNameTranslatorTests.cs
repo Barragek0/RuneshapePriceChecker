@@ -9,6 +9,7 @@ namespace RuneshapePriceChecker.Tests.Pricing;
 
 public sealed class ItemNameTranslatorTests
 {
+#pragma warning disable CA2000 // Ownership transferred to the returned object
     private static ItemNameTranslator CreateTranslator(HttpMessageHandler? handler = null)
     {
         var logger = NullLogger<ItemNameTranslator>.Instance;
@@ -24,11 +25,12 @@ public sealed class ItemNameTranslatorTests
         var ocrDir = Path.Combine(Path.GetTempPath(), "RPC-Tests", Guid.NewGuid().ToString());
         return new TranslationCache(client, NullLogger<TranslationCache>.Instance, ocrDir);
     }
+#pragma warning restore CA2000
 
     [Fact]
     public void ToEnglish_English_ReturnsOriginal()
     {
-        var t = CreateTranslator();
+        using var t = CreateTranslator();
         t.SetLanguage("eng");
 
         Assert.True(t.IsLoaded);
@@ -40,7 +42,7 @@ public sealed class ItemNameTranslatorTests
     [Fact]
     public void ToEnglish_NotLoaded_ReturnsOriginal()
     {
-        var t = CreateTranslator();
+        using var t = CreateTranslator();
         // Don't call SetLanguage — should be !IsLoaded
         Assert.False(t.IsLoaded);
         Assert.Equal("Orbe du Chaos", t.ToEnglish("Orbe du Chaos"));
@@ -49,7 +51,7 @@ public sealed class ItemNameTranslatorTests
     [Fact]
     public void SetLanguage_SameLanguage_NoReload()
     {
-        var t = CreateTranslator();
+        using var t = CreateTranslator();
         t.SetLanguage("eng");
         Assert.True(t.IsLoaded);
 
@@ -60,7 +62,7 @@ public sealed class ItemNameTranslatorTests
     [Fact]
     public void SetLanguage_DifferentLanguage_ResetsLoadState()
     {
-        var t = CreateTranslator();
+        using var t = CreateTranslator();
         t.SetLanguage("eng");
         Assert.True(t.IsLoaded);
 
@@ -79,9 +81,11 @@ public sealed class ItemNameTranslatorTests
 """;
 
         var ocrDir = Path.Combine(Path.GetTempPath(), "RPC-Tests", Guid.NewGuid().ToString());
+#pragma warning disable CA2000 // Ownership transfers to ItemNameTranslator
         var cache = new TranslationCache(new HttpClient(), NullLogger<TranslationCache>.Instance, ocrDir);
+#pragma warning restore CA2000
         cache.LoadFromString("fr", frNdjson);
-        var t = new ItemNameTranslator(NullLogger<ItemNameTranslator>.Instance, cache);
+        using var t = new ItemNameTranslator(NullLogger<ItemNameTranslator>.Instance, cache);
         t.SetLanguage("fr");
         await t.LoadAsync("fr", CancellationToken.None); // safe: _loadedLanguage already "fr"
 
@@ -107,9 +111,11 @@ public sealed class ItemNameTranslatorTests
 """;
 
         var ocrDir = Path.Combine(Path.GetTempPath(), "RPC-Tests", Guid.NewGuid().ToString());
+#pragma warning disable CA2000 // Ownership transfers to ItemNameTranslator
         var cache = new TranslationCache(new HttpClient(), NullLogger<TranslationCache>.Instance, ocrDir);
+#pragma warning restore CA2000
         cache.LoadFromString("fr", ndjson);
-        var t = new ItemNameTranslator(NullLogger<ItemNameTranslator>.Instance, cache);
+        using var t = new ItemNameTranslator(NullLogger<ItemNameTranslator>.Instance, cache);
         t.SetLanguage("fr");
         await t.LoadAsync("fr", CancellationToken.None); // safe: _loadedLanguage already "fr"
 
@@ -120,7 +126,7 @@ public sealed class ItemNameTranslatorTests
     [Fact]
     public void ToEnglish_CaseInsensitive()
     {
-        var t = CreateTranslator();
+        using var t = CreateTranslator();
         t.SetLanguage("eng");
         Assert.Equal("chaos orb", t.ToEnglish("chaos orb"));
         Assert.Equal("CHAOS ORB", t.ToEnglish("CHAOS ORB"));
@@ -131,9 +137,11 @@ public sealed class ItemNameTranslatorTests
     public async Task LoadAsync_EmptyNdjson_LoadsButNoTranslations()
     {
         var ocrDir = Path.Combine(Path.GetTempPath(), "RPC-Tests", Guid.NewGuid().ToString());
+#pragma warning disable CA2000 // Ownership transfers to ItemNameTranslator
         var cache = new TranslationCache(new HttpClient(), NullLogger<TranslationCache>.Instance, ocrDir);
+#pragma warning restore CA2000
         cache.LoadFromString("de", "");
-        var t = new ItemNameTranslator(NullLogger<ItemNameTranslator>.Instance, cache);
+        using var t = new ItemNameTranslator(NullLogger<ItemNameTranslator>.Instance, cache);
         t.SetLanguage("de");
         await t.LoadAsync("de", CancellationToken.None);
 
@@ -146,8 +154,10 @@ public sealed class ItemNameTranslatorTests
     {
         // No LoadFromString — TryReadNdjson will find the real deu.ndjson on disk.
         var ocrDir = Path.Combine(Path.GetTempPath(), "RPC-Tests", Guid.NewGuid().ToString());
+#pragma warning disable CA2000 // Ownership transfers to ItemNameTranslator
         var cache = new TranslationCache(new HttpClient(), NullLogger<TranslationCache>.Instance, ocrDir);
-        var t = new ItemNameTranslator(NullLogger<ItemNameTranslator>.Instance, cache);
+#pragma warning restore CA2000
+        using var t = new ItemNameTranslator(NullLogger<ItemNameTranslator>.Instance, cache);
         t.SetLanguage("de");
         await t.LoadAsync("de", CancellationToken.None);
 
@@ -158,7 +168,7 @@ public sealed class ItemNameTranslatorTests
     [Fact]
     public async Task LoadAsync_EnglishLanguage_SkipsFetch()
     {
-        var t = CreateTranslator();
+        using var t = CreateTranslator();
         t.SetLanguage("eng");
         await t.LoadAsync("eng", CancellationToken.None);
 
@@ -168,7 +178,7 @@ public sealed class ItemNameTranslatorTests
     [Fact]
     public void BundledFallback_PortalScroll_Translated()
     {
-        var t = CreateTranslator();
+        using var t = CreateTranslator();
         t.SetLanguage("fr");
         t.LoadAsync("fr", CancellationToken.None).GetAwaiter().GetResult();
 

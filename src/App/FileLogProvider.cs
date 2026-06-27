@@ -30,10 +30,8 @@ public sealed class FileLogProvider : ILoggerProvider, IDisposable
         _flushTimer = new System.Threading.Timer(FlushCallback, null, FlushIntervalMs, FlushIntervalMs);
     }
 
-    public ILogger CreateLogger(string categoryName)
-    {
-        return new FileLogger(categoryName, this, _path is not null);
-    }
+    public ILogger CreateLogger(string categoryName) =>
+        new FileLogger(categoryName, this, _path is not null);
 
     internal void Write(string entry)
     {
@@ -73,23 +71,16 @@ public sealed class FileLogProvider : ILoggerProvider, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        if (_flushTimer is not null)
-            _ = _flushTimer.DisposeAsync();
+        _flushTimer?.Dispose();
         if (_buffer is not null)
             FlushToDisk();
     }
 
     private sealed class FileLogger(string category, FileLogProvider provider, bool enabled) : ILogger
     {
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull
-        {
-            return null;
-        }
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
-        public bool IsEnabled(LogLevel logLevel)
-        {
-            return enabled;
-        }
+        public bool IsEnabled(LogLevel logLevel) => enabled;
 
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {

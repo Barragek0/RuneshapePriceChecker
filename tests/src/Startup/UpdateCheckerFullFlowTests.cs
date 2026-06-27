@@ -16,7 +16,7 @@ public class UpdateCheckerFullFlowTests
     [Fact]
     public async Task CheckForUpdates_FullCycle_DetectsUpdateAndWritesChangelog()
     {
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddResponse("/repos/Barragek0/RuneshapePriceChecker/releases?per_page=10", new[]
         {
             new
@@ -51,7 +51,7 @@ public class UpdateCheckerFullFlowTests
     [Fact]
     public async Task CheckForUpdates_RetryLogic_RecoversAfterFailure()
     {
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddErrorResponse("/repos/Barragek0/RuneshapePriceChecker/releases?per_page=10", HttpStatusCode.InternalServerError);
 
         var checker = CreateChecker(handler);
@@ -64,7 +64,7 @@ public class UpdateCheckerFullFlowTests
     [Fact]
     public async Task CheckForUpdates_ForceUpdateAvailable_DetectedByConfig()
     {
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddResponse("/repos/Barragek0/RuneshapePriceChecker/releases?per_page=10", new[]
         {
             new
@@ -94,7 +94,7 @@ public class UpdateCheckerFullFlowTests
     [Fact]
     public async Task CheckForUpdates_NoReleases_ReturnsNull()
     {
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddResponse("/repos/Barragek0/RuneshapePriceChecker/releases?per_page=10", Array.Empty<object>());
 
         var checker = CreateChecker(handler);
@@ -111,7 +111,7 @@ public class UpdateCheckerFullFlowTests
         Assert.True(newVer > oldVer);
 
         // Simulate: old version 0.2.2, GitHub has 1.0.0
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddResponse("/repos/Barragek0/RuneshapePriceChecker/releases?per_page=10", new[]
         {
             new
@@ -144,7 +144,7 @@ public class UpdateCheckerFullFlowTests
     [Fact]
     public async Task CheckForUpdates_ReleaseWithNoAssets_ReturnsReleaseWithoutAssets()
     {
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddResponse("/repos/Barragek0/RuneshapePriceChecker/releases?per_page=10", new[]
         {
             new
@@ -165,7 +165,7 @@ public class UpdateCheckerFullFlowTests
     [Fact]
     public async Task CheckForUpdates_NotFound_ReturnsNull()
     {
-        var handler = new MockHttpHandler();
+        using var handler = new MockHttpHandler();
         handler.AddErrorResponse("/repos/Barragek0/RuneshapePriceChecker/releases?per_page=10", HttpStatusCode.NotFound);
 
         var checker = CreateChecker(handler);
@@ -174,6 +174,7 @@ public class UpdateCheckerFullFlowTests
         Assert.Null(release);
     }
 
+#pragma warning disable CA2000 // Ownership transferred to UpdateChecker via factory/sink/dashboard
     private static UpdateChecker CreateChecker(MockHttpHandler handler)
     {
         var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://api.github.com") };
@@ -194,6 +195,7 @@ public class UpdateCheckerFullFlowTests
 
         return new UpdateChecker(updateOptions, appOptions, lifetime, logger, dashboard, factory);
     }
+#pragma warning restore CA2000
 
     private static async Task<GitHubRelease?> InvokeFetchLatestReleaseAsync(
         UpdateChecker checker, string owner, string repo, bool ignorePrereleases)

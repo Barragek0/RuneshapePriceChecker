@@ -72,8 +72,12 @@ public sealed class DashboardLogSink : IDisposable
         }
     }
 
+    private volatile bool _disposed;
+
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
         _flushTimer.Dispose();
         Flush();
     }

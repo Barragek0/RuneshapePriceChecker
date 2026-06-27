@@ -17,7 +17,9 @@ public sealed class ItemNameTranslatorIntegrationTests
         ItemNameTranslator? translator = null)
     {
         source ??= new FakePricingSource();
+#pragma warning disable CA2000 // Ownership transfers to InMemoryPricingCache
         translator ??= CreateTranslatorWithData();
+#pragma warning restore CA2000
         var monitor = new FakeOptionsMonitor<PricingCacheOptions>(options);
         return new InMemoryPricingCache(source, monitor, NullLogger<InMemoryPricingCache>.Instance, translator);
     }
@@ -37,7 +39,9 @@ public sealed class ItemNameTranslatorIntegrationTests
 """;
 
         var ocrDir = Path.Combine(Path.GetTempPath(), "RPC-Tests", Guid.NewGuid().ToString());
+#pragma warning disable CA2000 // Ownership transfers to ItemNameTranslator
         var cache = new TranslationCache(new HttpClient(), NullLogger<TranslationCache>.Instance, ocrDir);
+#pragma warning restore CA2000
         cache.LoadFromString("fr", frNdjson);
         var translator = new ItemNameTranslator(NullLogger<ItemNameTranslator>.Instance, cache);
         translator.SetLanguage("fr");
@@ -138,7 +142,7 @@ public sealed class ItemNameTranslatorIntegrationTests
     public async Task SetOcrLanguage_English_NoFetch_TranslationsNotLoaded()
     {
         // No TranslationCache = no HTTP calls for English
-        var translator = new ItemNameTranslator(NullLogger<ItemNameTranslator>.Instance);
+        using var translator = new ItemNameTranslator(NullLogger<ItemNameTranslator>.Instance);
         translator.SetLanguage("eng");
 
         var cache = CreateCache(new PricingCacheOptions { League = "Test" }, translator: translator);

@@ -2,6 +2,18 @@
     "version": "2.0.0",
     "tasks": [
         {
+            "label": "Build (Full)",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-NoProfile",
+                "-Command",
+                "dotnet clean RuneshapePriceChecker.slnx; dotnet build RuneshapePriceChecker.slnx"
+            ],
+            "problemMatcher": "$msCompile",
+            "detail": "Cleans then builds the full solution from scratch (no incremental caching)."
+        },
+        {
             "label": "Publish (Release)",
             "type": "shell",
             "command": "dotnet",
@@ -11,12 +23,28 @@
                 "-c",
                 "Release"
             ],
+            "dependsOn": [
+                "Clean (Release)"
+            ],
             "group": {
                 "kind": "build",
                 "isDefault": true
             },
             "problemMatcher": "$msCompile",
-            "detail": "Publishes RuneshapePriceChecker as a trimmed compressed single-file Release executable, runs tests, and packages the release zip + installer."
+            "detail": "Cleans then publishes RuneshapePriceChecker as a trimmed compressed single-file Release executable, runs tests, and packages the release zip + installer."
+        },
+        {
+            "label": "Clean (Release)",
+            "type": "shell",
+            "command": "dotnet",
+            "args": [
+                "clean",
+                "RuneshapePriceChecker.csproj",
+                "-c",
+                "Release"
+            ],
+            "problemMatcher": [],
+            "detail": "Cleans Release build artifacts (called automatically by Publish (Release))."
         },
         {
             "label": "Run with Hot Reload",
@@ -82,7 +110,7 @@
             ],
             "group": "test",
             "problemMatcher": [],
-            "detail": "Runs the full pre-release test suite (80 tests). Output is clean PASS/FAIL lines."
+            "detail": "Runs the full pre-release test suite. Output is clean PASS/FAIL lines."
         }
     ]
 }

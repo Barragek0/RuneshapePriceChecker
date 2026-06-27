@@ -240,20 +240,21 @@ public sealed class Poe2WindowResolutionService(
 
     private static List<Poe2WindowCandidate> FindPoe2WindowCandidates()
     {
-        return
-        [
-            .. Process.GetProcesses()
-                .ToStructEnumerable()
-                .Where(p => p.MainWindowHandle != IntPtr.Zero, _ => _)
-                .Where(p => !string.IsNullOrWhiteSpace(p.MainWindowTitle), _ => _)
-                .Where(p => p.MainWindowTitle.Equals("Path of Exile 2", StringComparison.OrdinalIgnoreCase), _ => _)
-                .Select(p =>
+        var candidates = new List<Poe2WindowCandidate>();
+        foreach (var p in Process.GetProcesses())
+        {
+            try
+            {
+                if (p.MainWindowHandle != IntPtr.Zero &&
+                    !string.IsNullOrWhiteSpace(p.MainWindowTitle) &&
+                    p.MainWindowTitle.Equals("Path of Exile 2", StringComparison.OrdinalIgnoreCase))
                 {
-                    var processId = (uint)p.Id;
-                    return new Poe2WindowCandidate(p.MainWindowHandle, processId);
-                }, _ => _)
-                .ToArray()
-        ];
+                    candidates.Add(new Poe2WindowCandidate(p.MainWindowHandle, (uint)p.Id));
+                }
+            }
+            finally { p.Dispose(); }
+        }
+        return candidates;
     }
 
     private void ShowUiBrightnessWarningPopupIfNeeded(float? uiBrightness)

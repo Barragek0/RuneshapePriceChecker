@@ -1,5 +1,4 @@
-﻿using System.Globalization;
-using System.Reflection;
+﻿using System.Reflection;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 
@@ -11,7 +10,8 @@ public sealed class ItemNameTranslator(ILogger<ItemNameTranslator> logger, Trans
     private readonly ILogger<ItemNameTranslator> _logger = logger;
     private static Lazy<Dictionary<string, string>> _bundledTranslations = new(LoadBundledTranslations);
     private static Lazy<Dictionary<string, LanguageInfo>> _languageInfo = new(LoadLanguageInfo);
-    private readonly Dictionary<string, string> _recentTranslations = new();
+    private readonly Dictionary<string, string> _recentTranslations = [];
+    private FileSystemWatcher? _watcher;
 
     private static readonly HashSet<string> _supportedLanguages = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -21,7 +21,7 @@ public sealed class ItemNameTranslator(ILogger<ItemNameTranslator> logger, Trans
     public bool IsLoaded { get; private set; }
     public string? LoadedLanguage { get; private set; }
 
-    public static bool IsLanguageSupported(string? language) =>
+    public static bool IsLanguageSupported(string language) =>
         !string.IsNullOrWhiteSpace(language) && _supportedLanguages.Contains(language);
 
     public static IReadOnlyDictionary<string, LanguageInfo> Languages => _languageInfo.Value;
@@ -224,14 +224,14 @@ public sealed class ItemNameTranslator(ILogger<ItemNameTranslator> logger, Trans
             var fileName = Path.GetFileName(translationsPath);
             if (dir is not null)
             {
-                var jsonWatcher = new FileSystemWatcher(dir, fileName)
+                _watcher = new FileSystemWatcher(dir, fileName)
                 {
                     NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size,
                     EnableRaisingEvents = true
                 };
 
                 var lastReload = DateTime.MinValue;
-                jsonWatcher.Changed += (_, e) =>
+                _watcher.Changed += (_, e) =>
                 {
                     var now = DateTime.UtcNow;
                     if ((now - lastReload).TotalMilliseconds < 500) return;
@@ -403,6 +403,7 @@ public sealed class ItemNameTranslator(ILogger<ItemNameTranslator> logger, Trans
 
     public void Dispose()
     {
+        _watcher?.Dispose();
         _cache?.Dispose();
     }
 }

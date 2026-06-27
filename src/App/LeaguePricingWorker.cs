@@ -8,6 +8,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Diagnostics;
+using System.Globalization;
 using StructLinq;
 
 namespace RuneshapePriceChecker.App;
@@ -94,7 +95,7 @@ public sealed class LeaguePricingWorker(
                         {
                             using var evt = new EventWaitHandle(false, EventResetMode.ManualReset,
                                 RpcServiceRunner.CloseByPoe2EventName);
-                            evt.Set();
+                            _ = evt.Set();
                         }
                         catch { }
                         Process.GetCurrentProcess().Kill();
@@ -293,10 +294,8 @@ public sealed class LeaguePricingWorker(
 
 
 
-    private static Task<LeagueWindowSnapshot> StartSnapshotReadTask(OcrLeagueWindowReader reader, CancellationToken stoppingToken)
-    {
-        return Task.Run(reader.ReadSnapshot, stoppingToken);
-    }
+    private static Task<LeagueWindowSnapshot> StartSnapshotReadTask(OcrLeagueWindowReader reader, CancellationToken stoppingToken) =>
+        Task.Run(reader.ReadSnapshot, stoppingToken);
 
     private static (string ItemName, int Quantity, int Level) ParseItemAndQuantity(string itemName)
     {
@@ -309,13 +308,13 @@ public sealed class LeaguePricingWorker(
         // Quick hash of item names + row positions + capture method + interface state
         var hash = 17;
         foreach (var name in snapshot.ItemNames)
-            hash = hash * 31 + name.GetHashCode(StringComparison.Ordinal);
+            hash = (hash * 31) + name.GetHashCode(StringComparison.Ordinal);
         if (snapshot.RowYPositions is not null)
             foreach (var y in snapshot.RowYPositions)
-                hash = hash * 31 + y;
-        hash = hash * 31 + (snapshot.CaptureMethod?.GetHashCode(StringComparison.Ordinal) ?? 0);
-        hash = hash * 31 + (snapshot.InterfaceDetected ? 1 : 0);
-        return hash.ToString();
+                hash = (hash * 31) + y;
+        hash = (hash * 31) + (snapshot.CaptureMethod?.GetHashCode(StringComparison.Ordinal) ?? 0);
+        hash = (hash * 31) + (snapshot.InterfaceDetected ? 1 : 0);
+        return hash.ToString(CultureInfo.InvariantCulture);
     }
 
     private static bool IsRareUniqueItem(string itemName)

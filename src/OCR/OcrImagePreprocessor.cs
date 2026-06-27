@@ -44,7 +44,7 @@ internal static class OcrImagePreprocessor
             var rowOffset = y * stride;
             for (var x = 0; x < width; x++)
             {
-                var idx = rowOffset + x * 3;
+                var idx = rowOffset + (x * 3);
                 if (srcBytes[idx] > 15 || srcBytes[idx + 1] > 15 || srcBytes[idx + 2] > 15)
                     continue;
 
@@ -75,10 +75,10 @@ internal static class OcrImagePreprocessor
             var keepRow = y * width;
             for (var x = 0; x < width; x++)
             {
-                var di = dstRow + x * 3;
+                var di = dstRow + (x * 3);
                 if (keep[keepRow + x] != 0)
                 {
-                    var si = srcRow + x * 3;
+                    var si = srcRow + (x * 3);
                     dstBytes[di] = srcBytes[si];
                     dstBytes[di + 1] = srcBytes[si + 1];
                     dstBytes[di + 2] = srcBytes[si + 2];
@@ -103,7 +103,7 @@ internal static class OcrImagePreprocessor
         var height = source.Height;
 
         // Fast grayscale via LockBits (avoids GDI ColorMatrix rendering overhead)
-        var grayscale = new Bitmap(width, height, PixelFormat.Format24bppRgb);
+        Bitmap? grayscale = new(width, height, PixelFormat.Format24bppRgb);
         FastGrayscale(source, grayscale);
 
         using var grayscaleSnapshot = (Bitmap)grayscale.Clone();
@@ -166,6 +166,9 @@ internal static class OcrImagePreprocessor
             var blackRatio = totalPixels == 0 ? 1d : (double)finalBlackCount / totalPixels;
             if (blackRatio > 0.97d)
             {
+                grayscale.UnlockBits(data);
+                grayscale.Dispose();
+                grayscale = null;
                 return (Bitmap)grayscaleSnapshot.Clone();
             }
 
@@ -184,11 +187,15 @@ internal static class OcrImagePreprocessor
             }
 
             Marshal.Copy(bytes, 0, data.Scan0, length);
-            return grayscale;
+            grayscale.UnlockBits(data);
+            var result = grayscale;
+            grayscale = null;
+            return result;
         }
         finally
         {
-            grayscale.UnlockBits(data);
+            grayscale?.UnlockBits(data);
+            grayscale?.Dispose();
         }
     }
 
@@ -222,15 +229,15 @@ internal static class OcrImagePreprocessor
             var srcRow = sy * srcStride;
             for (var dy = 0; dy < scale; dy++)
             {
-                var dstRow = (sy * scale + dy) * dstStride;
+                var dstRow = ((sy * scale) + dy) * dstStride;
                 for (var sx = 0; sx < srcW; sx++)
                 {
-                    var b = srcBytes[srcRow + sx * 3];
-                    var g = srcBytes[srcRow + sx * 3 + 1];
-                    var r = srcBytes[srcRow + sx * 3 + 2];
+                    var b = srcBytes[srcRow + (sx * 3)];
+                    var g = srcBytes[srcRow + (sx * 3) + 1];
+                    var r = srcBytes[srcRow + (sx * 3) + 2];
                     for (var dx = 0; dx < scale; dx++)
                     {
-                        var di = dstRow + (sx * scale + dx) * 3;
+                        var di = dstRow + (((sx * scale) + dx) * 3);
                         dstBytes[di] = b;
                         dstBytes[di + 1] = g;
                         dstBytes[di + 2] = r;
@@ -252,8 +259,8 @@ internal static class OcrImagePreprocessor
 
         var srcW = source.Width;
         var srcH = source.Height;
-        var dstW = srcW + border * 2;
-        var dstH = srcH + border * 2;
+        var dstW = srcW + (border * 2);
+        var dstH = srcH + (border * 2);
 
         var bordered = new Bitmap(dstW, dstH, PixelFormat.Format24bppRgb);
         var dstRect = new Rectangle(0, 0, dstW, dstH);
@@ -276,11 +283,11 @@ internal static class OcrImagePreprocessor
             for (var y = 0; y < srcH; y++)
             {
                 var srcRow = y * srcStride;
-                var dstRow = (y + border) * dstStride + border * 3;
+                var dstRow = ((y + border) * dstStride) + (border * 3);
                 for (var x = 0; x < srcW; x++)
                 {
-                    var si = srcRow + x * 3;
-                    var di = dstRow + x * 3;
+                    var si = srcRow + (x * 3);
+                    var di = dstRow + (x * 3);
                     dstBytes[di] = srcBytes[si];
                     dstBytes[di + 1] = srcBytes[si + 1];
                     dstBytes[di + 2] = srcBytes[si + 2];
@@ -316,7 +323,7 @@ internal static class OcrImagePreprocessor
                 var row = y * stride;
                 for (var x = 0; x < width; x++)
                 {
-                    if (bytes[row + x * 3] >= 128) continue;
+                    if (bytes[row + (x * 3)] >= 128) continue;
                     if (x < minX) minX = x;
                     if (y < minY) minY = y;
                     if (x > maxX) maxX = x;
@@ -380,13 +387,13 @@ internal static class OcrImagePreprocessor
                 var dstRow = y * dstStride;
                 for (var x = 0; x < w; x++)
                 {
-                    var si = srcRow + x * srcBpp;
+                    var si = srcRow + (x * srcBpp);
                     // ITU-R BT.601 luminance: integer approx of 0.299R + 0.587G + 0.114B
                     byte r = srcBytes[si + 2]; // BGR in memory
                     byte g = srcBytes[si + 1];
                     byte b = srcBytes[si];
-                    byte lum = (byte)((77 * r + 150 * g + 29 * b) >> 8);
-                    var di = dstRow + x * 3;
+                    byte lum = (byte)(((77 * r) + (150 * g) + (29 * b)) >> 8);
+                    var di = dstRow + (x * 3);
                     dstBytes[di] = lum;
                     dstBytes[di + 1] = lum;
                     dstBytes[di + 2] = lum;
@@ -531,6 +538,9 @@ internal static class OcrImagePreprocessor
                     }
                 }
 
+                // Only the pixel itself was black — all neighbors are white; remove as noise
+                if (blackCount == 1)
+                    pixels[idx] = 255;
             }
         }
     }

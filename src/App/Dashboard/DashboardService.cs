@@ -25,15 +25,9 @@ public sealed class DashboardService(DashboardLogSink sink, DebugMetricsCollecto
 
     public DebugMetricsCollector? Metrics { get; } = metrics;
 
-    public void SetOnWindowClosed(Action callback)
-    {
-        _onWindowClosed = callback;
-    }
+    public void SetOnWindowClosed(Action callback) => _onWindowClosed = callback;
 
-    public void SetOnWindowLoaded(Action callback)
-    {
-        _onWindowLoaded = callback;
-    }
+    public void SetOnWindowLoaded(Action callback) => _onWindowLoaded = callback;
 
     public void Start()
     {
@@ -219,6 +213,7 @@ public sealed class DashboardService(DashboardLogSink sink, DebugMetricsCollecto
 
     public void Dispose()
     {
+        _sink.Dispose();
         _windowReady.Dispose();
     }
 }

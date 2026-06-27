@@ -28,6 +28,8 @@ public sealed class InMemoryPricingCache(
 
     public void SetOcrLanguage(string language)
     {
+        ArgumentNullException.ThrowIfNull(language);
+
         translator?.SetLanguage(language);
         if (translator is not null && !translator.IsLoaded && !language.Equals("eng", StringComparison.OrdinalIgnoreCase))
         {
@@ -42,10 +44,7 @@ public sealed class InMemoryPricingCache(
     private static readonly Regex TrailingLevel = new("\\s+LEVEL\\s+\\d+$", RegexOptions.Compiled);
     private static readonly Regex TrailingOrb = new("\\s+ORB$", RegexOptions.Compiled);
 
-    public PriceQuote? TryGetPriceQuote(string itemName)
-    {
-        return TryGetPriceQuote(itemName, 1);
-    }
+    public PriceQuote? TryGetPriceQuote(string itemName) => TryGetPriceQuote(itemName, 1);
 
     public PriceQuote? TryGetPriceQuote(string itemName, int quantity)
     {
@@ -367,18 +366,18 @@ public sealed class InMemoryPricingCache(
         foreach (var pair in _uniqueCategoryRanges)
         {
             var key = pair.Key;
-            var price = pair.Value;
-            allMin = allMin.HasValue ? Math.Min(allMin.Value, price.MinChaos) : price.MinChaos;
-            allMax = allMax.HasValue ? Math.Max(allMax.Value, price.MaxChaos) : price.MaxChaos;
+            var (MinChaos, MaxChaos) = pair.Value;
+            allMin = allMin.HasValue ? Math.Min(allMin.Value, MinChaos) : MinChaos;
+            allMax = allMax.HasValue ? Math.Max(allMax.Value, MaxChaos) : MaxChaos;
 
             var isRing = key.Contains("RING", StringComparison.OrdinalIgnoreCase);
             var isAmulet = key.Contains("AMULET", StringComparison.OrdinalIgnoreCase);
             var isBelt = key.Contains("BELT", StringComparison.OrdinalIgnoreCase) || key.Contains("SASH", StringComparison.OrdinalIgnoreCase);
 
-            if (isRing) { ringMin = Min(ringMin, price.MinChaos); ringMax = Max(ringMax, price.MaxChaos); }
-            if (isAmulet) { amuletMin = Min(amuletMin, price.MinChaos); amuletMax = Max(amuletMax, price.MaxChaos); }
-            if (isBelt) { beltMin = Min(beltMin, price.MinChaos); beltMax = Max(beltMax, price.MaxChaos); }
-            if (isRing || isAmulet || isBelt) { jewelleryMin = Min(jewelleryMin, price.MinChaos); jewelleryMax = Max(jewelleryMax, price.MaxChaos); }
+            if (isRing) { ringMin = Min(ringMin, MinChaos); ringMax = Max(ringMax, MaxChaos); }
+            if (isAmulet) { amuletMin = Min(amuletMin, MinChaos); amuletMax = Max(amuletMax, MaxChaos); }
+            if (isBelt) { beltMin = Min(beltMin, MinChaos); beltMax = Max(beltMax, MaxChaos); }
+            if (isRing || isAmulet || isBelt) { jewelleryMin = Min(jewelleryMin, MinChaos); jewelleryMax = Max(jewelleryMax, MaxChaos); }
 
             // Per-specific-category aggregate: map item name to its unique category (e.g. "ONE HAND MACE")
             // Falls back to the base-type slot (HELMET, GLOVES, etc.) for items not in the explicit lookup.
@@ -394,18 +393,20 @@ public sealed class InMemoryPricingCache(
             if (categoryForAggregate is not null)
             {
                 perCategoryMin[categoryForAggregate] = perCategoryMin.TryGetValue(categoryForAggregate, out var existingCMin)
-                    ? Math.Min(existingCMin, price.MinChaos) : price.MinChaos;
+                    ? Math.Min(existingCMin, MinChaos) : MinChaos;
                 perCategoryMax[categoryForAggregate] = perCategoryMax.TryGetValue(categoryForAggregate, out var existingCMax)
-                    ? Math.Max(existingCMax, price.MaxChaos) : price.MaxChaos;
+                    ? Math.Max(existingCMax, MaxChaos) : MaxChaos;
             }
 
             switch (slot)
             {
-                case "BODY ARMOUR": bodyMin = Min(bodyMin, price.MinChaos); bodyMax = Max(bodyMax, price.MaxChaos); break;
-                case "HELMET": helmetMin = Min(helmetMin, price.MinChaos); helmetMax = Max(helmetMax, price.MaxChaos); break;
-                case "GLOVES": glovesMin = Min(glovesMin, price.MinChaos); glovesMax = Max(glovesMax, price.MaxChaos); break;
-                case "BOOTS": bootsMin = Min(bootsMin, price.MinChaos); bootsMax = Max(bootsMax, price.MaxChaos); break;
-                case "WEAPON": weaponMin = Min(weaponMin, price.MinChaos); weaponMax = Max(weaponMax, price.MaxChaos); break;
+                case "BODY ARMOUR": bodyMin = Min(bodyMin, MinChaos); bodyMax = Max(bodyMax, MaxChaos); break;
+                case "HELMET": helmetMin = Min(helmetMin, MinChaos); helmetMax = Max(helmetMax, MaxChaos); break;
+                case "GLOVES": glovesMin = Min(glovesMin, MinChaos); glovesMax = Max(glovesMax, MaxChaos); break;
+                case "BOOTS": bootsMin = Min(bootsMin, MinChaos); bootsMax = Max(bootsMax, MaxChaos); break;
+                case "WEAPON": weaponMin = Min(weaponMin, MinChaos); weaponMax = Max(weaponMax, MaxChaos); break;
+                default:
+                    break;
             }
         }
 

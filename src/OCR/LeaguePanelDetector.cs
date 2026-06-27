@@ -11,7 +11,7 @@ public sealed record ListDetectorDiag(
     bool PanelOpen,
     int MinSum);
 
-public sealed class LeaguePanelDetector
+public sealed class LeaguePanelDetector(IOptionsMonitor<OcrOptions>? options = null)
 {
     public const double DefaultLeftFraction = 0.40;
     public const double DefaultRightFraction = 0.98;
@@ -20,19 +20,16 @@ public sealed class LeaguePanelDetector
     public const int DefaultBlackPixelMaxSum = 20;
     public const int DefaultMinBlackPixels = 60;
 
-    private readonly IOptionsMonitor<OcrOptions>? _options;
+    private readonly IOptionsMonitor<OcrOptions>? _options = options;
     private int _brightStreak;
     private int _darkStreak;
-
-    public LeaguePanelDetector(IOptionsMonitor<OcrOptions>? options = null)
-    {
-        _options = options;
-    }
 
     public bool IsOpen { get; private set; }
 
     public bool Update(Bitmap regionBitmap, out ListDetectorDiag diag)
     {
+        ArgumentNullException.ThrowIfNull(regionBitmap);
+
         var opts = _options?.CurrentValue;
         var brightnessThreshold = opts?.PanelBrightnessThreshold ?? DefaultBrightnessThreshold;
         var blackPixelMaxSum = opts?.PanelBlackPixelMaxSum ?? DefaultBlackPixelMaxSum;
@@ -81,7 +78,7 @@ public sealed class LeaguePanelDetector
                     int rowOff = y * stride;
                     for (int cx = 0; cx < bmp.Width; cx++)
                     {
-                        int idx = rowOff + cx * bpp;
+                        int idx = rowOff + (cx * bpp);
                         int r = bytes[idx + 2];
                         int g = bytes[idx + 1];
                         int b = bytes[idx];

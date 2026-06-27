@@ -12,7 +12,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 if (args.Contains("--rpcservice"))
 {
@@ -49,6 +48,7 @@ if (!suppressWarning)
 
 Mutex? mutex = null;
 var createdNew = false;
+#pragma warning disable CA2000 // Mutex held for app lifetime; disposed at program exit
 try
 {
     mutex = new Mutex(true, @"Global\RuneshapePriceChecker_SingleInstance", out createdNew);
@@ -87,6 +87,7 @@ if (!createdNew && !suppressWarning)
         return;
     }
 }
+#pragma warning restore CA2000
 
 var dashboardSink = new DashboardLogSink();
 var dashboardLoggerProvider = new DashboardLoggerProvider(dashboardSink);
@@ -274,6 +275,9 @@ await host.RunAsync(hostCts.Token).ConfigureAwait(false);
 
 dashboardService.Stop();
 dashboardService.Dispose();
+dashboardLoggerProvider.Dispose();
+dashboardSink.Dispose();
+hostCts.Dispose();
 mutex?.Dispose();
 
 static void TryDeleteFile(string path)
