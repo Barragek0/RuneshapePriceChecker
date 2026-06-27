@@ -18,7 +18,7 @@ public class FileLogProviderTests : IDisposable
     [Fact]
     public void CreateLogger_ReturnsNonNullLogger()
     {
-        using var provider = new FileLogProvider();
+        using var provider = new FileLogProvider(LogLevel.Trace);
         var logger = provider.CreateLogger("TestCategory");
         Assert.NotNull(logger);
     }
@@ -26,7 +26,7 @@ public class FileLogProviderTests : IDisposable
     [Fact]
     public void CreateLogger_DifferentCategories_ReturnDifferentLoggers()
     {
-        using var provider = new FileLogProvider();
+        using var provider = new FileLogProvider(LogLevel.Trace);
         var logger1 = provider.CreateLogger("CatA");
         var logger2 = provider.CreateLogger("CatB");
         Assert.NotNull(logger1);
@@ -37,7 +37,7 @@ public class FileLogProviderTests : IDisposable
     [Fact]
     public void Logger_IsEnabled_ReturnsTrue()
     {
-        using var provider = new FileLogProvider();
+        using var provider = new FileLogProvider(LogLevel.Trace);
         var logger = provider.CreateLogger("Test");
         Assert.True(logger.IsEnabled(LogLevel.Information));
         Assert.True(logger.IsEnabled(LogLevel.Error));
@@ -47,7 +47,7 @@ public class FileLogProviderTests : IDisposable
     [Fact]
     public void Logger_Log_DoesNotThrow()
     {
-        using var provider = new FileLogProvider();
+        using var provider = new FileLogProvider(LogLevel.Trace);
         var logger = provider.CreateLogger("Test");
 
         var ex = logger.BeginScope("scope");
@@ -61,7 +61,7 @@ public class FileLogProviderTests : IDisposable
     [Fact]
     public void Logger_LogWithException_DoesNotThrow()
     {
-        using var provider = new FileLogProvider();
+        using var provider = new FileLogProvider(LogLevel.Trace);
         var logger = provider.CreateLogger("Test");
 
         logger.Log(LogLevel.Error, new EventId(1), "state",
@@ -72,7 +72,7 @@ public class FileLogProviderTests : IDisposable
     [Fact]
     public void Logger_BeginScope_ReturnsNull()
     {
-        using var provider = new FileLogProvider();
+        using var provider = new FileLogProvider(LogLevel.Trace);
         var logger = provider.CreateLogger("Test");
         Assert.Null(logger.BeginScope("any state"));
     }
@@ -80,7 +80,7 @@ public class FileLogProviderTests : IDisposable
     [Fact]
     public void Provider_Dispose_DoesNotThrow()
     {
-        var provider = new FileLogProvider();
+        var provider = new FileLogProvider(LogLevel.Trace);
         provider.Dispose();
         // Double dispose should be safe
         provider.Dispose();

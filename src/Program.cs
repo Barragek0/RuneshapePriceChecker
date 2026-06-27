@@ -206,7 +206,7 @@ var host = Host.CreateDefaultBuilder(args)
 
         _ = logging.ClearProviders();
         _ = logging.AddProvider(dashboardLoggerProvider);
-        _ = logging.AddProvider(new FileLogProvider());
+        _ = logging.AddProvider(new FileLogProvider(minLevel));
         _ = logging.AddSimpleConsole(options =>
         {
             options.TimestampFormat = "HH:mm:ss.fff ";
