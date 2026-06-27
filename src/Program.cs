@@ -44,15 +44,19 @@ foreach (var a in args)
 if (!suppressWarning)
 {
     // Also check config file — post-update restarts won't have CLI args.
-    var cfgPath = Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json");
-    if (File.Exists(cfgPath))
+    try
     {
-        using var cfgDoc = JsonDocument.Parse(File.ReadAllText(cfgPath));
-        if (cfgDoc.RootElement.TryGetProperty("App", out var app) &&
-            app.TryGetProperty("SuppressAlreadyRunningWarning", out var sw) &&
-            sw.ValueKind == JsonValueKind.True)
-            suppressWarning = true;
+        var cfgPath = Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json");
+        if (File.Exists(cfgPath))
+        {
+            using var cfgDoc = JsonDocument.Parse(File.ReadAllText(cfgPath));
+            if (cfgDoc.RootElement.TryGetProperty("App", out var app) &&
+                app.TryGetProperty("SuppressAlreadyRunningWarning", out var sw) &&
+                sw.ValueKind == JsonValueKind.True)
+                suppressWarning = true;
+        }
     }
+    catch { }
 }
 
 Mutex? mutex = null;
@@ -244,19 +248,23 @@ var translator = host.Services.GetRequiredService<ItemNameTranslator>();
 translator.WatchForChanges();
 
 // Seed metrics collector with config values
-var metricsCfgPath = Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json");
-if (File.Exists(metricsCfgPath))
+try
 {
-    using var cfgDoc = JsonDocument.Parse(File.ReadAllText(metricsCfgPath));
-    var root = cfgDoc.RootElement;
-    if (root.TryGetProperty("Pricing", out var pricing))
+    var metricsCfgPath = Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json");
+    if (File.Exists(metricsCfgPath))
     {
-        if (pricing.TryGetProperty("PricingSource", out var ps))
-            metricsCollector.PricingSource = ps.GetString() ?? "poe2scout";
-        if (pricing.TryGetProperty("League", out var lg))
-            metricsCollector.CurrentLeague = lg.GetString() ?? "";
+        using var cfgDoc = JsonDocument.Parse(File.ReadAllText(metricsCfgPath));
+        var root = cfgDoc.RootElement;
+        if (root.TryGetProperty("Pricing", out var pricing))
+        {
+            if (pricing.TryGetProperty("PricingSource", out var ps))
+                metricsCollector.PricingSource = ps.GetString() ?? "poe2scout";
+            if (pricing.TryGetProperty("League", out var lg))
+                metricsCollector.CurrentLeague = lg.GetString() ?? "";
+        }
     }
 }
+catch { }
 
 // Clean up old directory layouts from before v1.0.2
 foreach (var staleDir in new[] { "tesseract", "ocr-debug" })
