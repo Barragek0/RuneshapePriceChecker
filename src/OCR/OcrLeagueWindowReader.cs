@@ -44,7 +44,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         _metrics = metrics;
         _captureStrategy = new OcrCaptureStrategy(loggerFactory.CreateLogger<OcrCaptureStrategy>());
         _engineManager = new TesseractEngineManager(loggerFactory.CreateLogger<TesseractEngineManager>());
-        _listDetector = new LeaguePanelDetector(options);
+        _listDetector = new LeaguePanelDetector(options, loggerFactory.CreateLogger<LeaguePanelDetector>());
 
         var effectiveBackend = ResolveEffectiveOcrBackend(_options.CurrentValue.OcrBackend);
         if (!string.Equals(effectiveBackend, _options.CurrentValue.OcrBackend, StringComparison.OrdinalIgnoreCase))
@@ -53,6 +53,8 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         else
             _logger.LogInformation("OCR backend: {Backend}", effectiveBackend);
         _detectedLanguage = Poe2ConfigFile.Language;
+        _logger.LogDebug("PoE2 game language detected: {Detected} (configured default: {Configured})",
+            _detectedLanguage ?? "(none)", _options.CurrentValue.Language);
         _metrics.OcrBackend = effectiveBackend;
         _metrics.Language = _detectedLanguage ?? _options.CurrentValue.Language;
         _metrics.OcrEngineMode = _options.CurrentValue.OcrEngineMode.ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -138,6 +140,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
     public LeagueWindowSnapshot ReadSnapshot()
     {
         var capturedAt = DateTimeOffset.UtcNow;
+
 
         if (_logState.HasFlag(OcrLogState.TesseractUnavailable))
         {
@@ -285,11 +288,15 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         {
             if (!string.Equals(options.Language, _detectedLanguage, StringComparison.OrdinalIgnoreCase))
             {
-                _logger.LogWarning(
+                _logger.LogInformation(
                     "OCR language mismatch: configured={Configured}, detected={Detected}. Using detected language.",
                     options.Language, _detectedLanguage);
             }
             options.Language = _detectedLanguage;
+        }
+        else
+        {
+            _logger.LogTrace("OCR language: using configured default '{Lang}' (no detected language override).", options.Language);
         }
         if (options.SaveDebugImages)
             EnsureDebugImageDirectoryExists(options);

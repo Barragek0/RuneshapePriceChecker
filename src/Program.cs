@@ -13,6 +13,19 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
+AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
+{
+    var ex = args.ExceptionObject as Exception;
+    CrashLogger.WriteCrash($"AppDomain unhandled exception (terminating={args.IsTerminating})", ex);
+    TrySaveCrashLog();
+};
+
+TaskScheduler.UnobservedTaskException += (sender, args) =>
+{
+    CrashLogger.WriteCaught("Unobserved task exception", args.Exception);
+    args.SetObserved();
+};
+
 if (args.Contains("--rpcservice"))
 {
     RpcServiceRunner.Run();
@@ -30,20 +43,16 @@ foreach (var a in args)
 }
 if (!suppressWarning)
 {
-    // Also check config file — post-update restarts won't have CLI args
-    try
+    // Also check config file — post-update restarts won't have CLI args.
+    var cfgPath = Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json");
+    if (File.Exists(cfgPath))
     {
-        var cfgPath = Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json");
-        if (File.Exists(cfgPath))
-        {
-            var cfgJson = JsonDocument.Parse(File.ReadAllText(cfgPath));
-            if (cfgJson.RootElement.TryGetProperty("App", out var app) &&
-                app.TryGetProperty("SuppressAlreadyRunningWarning", out var sw) &&
-                sw.ValueKind == JsonValueKind.True)
-                suppressWarning = true;
-        }
+        using var cfgDoc = JsonDocument.Parse(File.ReadAllText(cfgPath));
+        if (cfgDoc.RootElement.TryGetProperty("App", out var app) &&
+            app.TryGetProperty("SuppressAlreadyRunningWarning", out var sw) &&
+            sw.ValueKind == JsonValueKind.True)
+            suppressWarning = true;
     }
-    catch { }
 }
 
 Mutex? mutex = null;
@@ -207,7 +216,7 @@ var host = Host.CreateDefaultBuilder(args)
 
         _ = logging.ClearProviders();
         _ = logging.AddProvider(dashboardLoggerProvider);
-        _ = logging.AddProvider(new FileLogProvider(minLevel));
+        _ = logging.AddProvider(new FileLogProvider());
         _ = logging.AddSimpleConsole(options =>
         {
             options.TimestampFormat = "HH:mm:ss.fff ";
@@ -220,6 +229,13 @@ var host = Host.CreateDefaultBuilder(args)
     })
     .Build();
 
+// Inject logger into static Poe2ConfigFile so config-file reads are visible in logs
+Poe2ConfigFile.SetLogger(host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Poe2ConfigFile"));
+RpcServiceRunner.SetLogger(host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("RpcServiceRunner"));
+LeagueListService.SetLogger(host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("LeagueListService"));
+LosslessScaling.SetLogger(host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("LosslessScaling"));
+OcrPipeline.SetLogger(host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("OcrPipeline"));
+
 var debugOverlay = host.Services.GetRequiredService<DebugOverlayService>();
 dashboardService.SetReRunSetupTrigger(debugOverlay.RunInitialSetup);
 
@@ -228,24 +244,19 @@ var translator = host.Services.GetRequiredService<ItemNameTranslator>();
 translator.WatchForChanges();
 
 // Seed metrics collector with config values
-try
+var metricsCfgPath = Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json");
+if (File.Exists(metricsCfgPath))
 {
-    var cfgPath = Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json");
-    if (File.Exists(cfgPath))
+    using var cfgDoc = JsonDocument.Parse(File.ReadAllText(metricsCfgPath));
+    var root = cfgDoc.RootElement;
+    if (root.TryGetProperty("Pricing", out var pricing))
     {
-        var cfgText = File.ReadAllText(cfgPath);
-        using var cfgDoc = JsonDocument.Parse(cfgText);
-        var root = cfgDoc.RootElement;
-        if (root.TryGetProperty("Pricing", out var pricing))
-        {
-            if (pricing.TryGetProperty("PricingSource", out var ps))
-                metricsCollector.PricingSource = ps.GetString() ?? "poe2scout";
-            if (pricing.TryGetProperty("League", out var lg))
-                metricsCollector.CurrentLeague = lg.GetString() ?? "";
-        }
+        if (pricing.TryGetProperty("PricingSource", out var ps))
+            metricsCollector.PricingSource = ps.GetString() ?? "poe2scout";
+        if (pricing.TryGetProperty("League", out var lg))
+            metricsCollector.CurrentLeague = lg.GetString() ?? "";
     }
 }
-catch { }
 
 // Clean up old directory layouts from before v1.0.2
 foreach (var staleDir in new[] { "tesseract", "ocr-debug" })
@@ -271,7 +282,16 @@ dashboardService.SetOnWindowLoaded(() =>
         debugOverlay.RunInitialSetup();
 });
 
-await host.RunAsync(hostCts.Token).ConfigureAwait(false);
+try
+{
+    await host.RunAsync(hostCts.Token).ConfigureAwait(false);
+}
+catch (Exception ex) when (!hostCts.Token.IsCancellationRequested)
+{
+    CrashLogger.WriteCrash("Host.RunAsync threw an unhandled exception", ex);
+    TrySaveCrashLog();
+    throw; // Still let the process terminate — this is a crash
+}
 
 dashboardService.Stop();
 dashboardService.Dispose();
@@ -283,4 +303,20 @@ mutex?.Dispose();
 static void TryDeleteFile(string path)
 {
     try { if (File.Exists(path)) File.Delete(path); } catch { }
+}
+
+static void TrySaveCrashLog()
+{
+    try
+    {
+        // When FileLogProvider is active, flush pending entries to disk so the crash log has full context.
+        // Force a GC and wait for pending finalizers so buffered ILogger writes drain.
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        Thread.Sleep(500);
+    }
+    catch
+    {
+        // Best effort
+    }
 }

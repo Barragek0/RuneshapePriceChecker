@@ -1,9 +1,13 @@
 ﻿using System.Drawing.Imaging;
+using Microsoft.Extensions.Logging;
 
 namespace RuneshapePriceChecker.OCR;
 
 internal static class OcrPipeline
 {
+    private static ILogger? _pipelineLogger;
+    public static void SetLogger(ILogger logger) => _pipelineLogger = logger;
+
     public static Bitmap PrepareRowBitmap(Bitmap source, Rectangle? contentCrop, int rowY, int rowHeight)
     {
         var cropX = contentCrop?.X ?? 0;
@@ -32,6 +36,9 @@ internal static class OcrPipeline
         var scanW = scanRegion.Width;
         var scanY = scanRegion.Y;
         var scanH = scanRegion.Height;
+
+        _pipelineLogger?.LogTrace("DetectRowPositions: region=({L},{T} {W}x{H})",
+            scanX, scanY, scanW, scanH);
 
         const int threshold = 2;
         const int minWidthPixels = 2;
@@ -111,6 +118,7 @@ internal static class OcrPipeline
             heights[r] = end - start + 1;
         }
 
+        _pipelineLogger?.LogTrace("DetectRowPositions: found {Count} rows, scanH={ScanH}", result.Length, scanH);
         return (result, heights);
     }
 

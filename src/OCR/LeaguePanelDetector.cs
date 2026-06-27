@@ -1,5 +1,6 @@
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace RuneshapePriceChecker.OCR;
@@ -11,8 +12,17 @@ public sealed record ListDetectorDiag(
     bool PanelOpen,
     int MinSum);
 
-public sealed class LeaguePanelDetector(IOptionsMonitor<OcrOptions>? options = null)
+public sealed class LeaguePanelDetector
 {
+    private readonly IOptionsMonitor<OcrOptions>? _options;
+    private readonly ILogger<LeaguePanelDetector>? _logger;
+
+    public LeaguePanelDetector(IOptionsMonitor<OcrOptions>? options = null, ILogger<LeaguePanelDetector>? logger = null)
+    {
+        _options = options;
+        _logger = logger;
+    }
+
     public const double DefaultLeftFraction = 0.40;
     public const double DefaultRightFraction = 0.98;
     public const double DefaultTopRowFraction = 0.26;
@@ -20,7 +30,6 @@ public sealed class LeaguePanelDetector(IOptionsMonitor<OcrOptions>? options = n
     public const int DefaultBlackPixelMaxSum = 20;
     public const int DefaultMinBlackPixels = 60;
 
-    private readonly IOptionsMonitor<OcrOptions>? _options = options;
     private int _brightStreak;
     private int _darkStreak;
 
@@ -43,8 +52,18 @@ public sealed class LeaguePanelDetector(IOptionsMonitor<OcrOptions>? options = n
         if (rawBright) { _brightStreak++; _darkStreak = 0; }
         else { _darkStreak++; _brightStreak = 0; }
 
-        if (!IsOpen && _brightStreak >= 3) IsOpen = true;
-        else if (IsOpen && _darkStreak >= 3) IsOpen = false;
+        if (!IsOpen && _brightStreak >= 3)
+        {
+            IsOpen = true;
+            _logger?.LogDebug("Panel OPEN detected (brightStreak={BrightStreak} brightness={Bri} blackPixels={Black}/{Total})",
+                _brightStreak, diag.AvgBrightness, diag.BlackCount, diag.TotalCount);
+        }
+        else if (IsOpen && _darkStreak >= 3)
+        {
+            IsOpen = false;
+            _logger?.LogDebug("Panel CLOSED detected (darkStreak={DarkStreak} brightness={Bri} blackPixels={Black}/{Total})",
+                _darkStreak, diag.AvgBrightness, diag.BlackCount, diag.TotalCount);
+        }
 
         return IsOpen;
     }

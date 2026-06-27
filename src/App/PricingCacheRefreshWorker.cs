@@ -34,6 +34,8 @@ public sealed class PricingCacheRefreshWorker(
             if (!sourceChanged && !leagueChanged)
                 return;
 
+            logger.LogDebug("Pricing config changed: source={Source} (changed={SrcChg}) league={League} (changed={LgChg})",
+                updated.PricingSource, sourceChanged, updated.League, leagueChanged);
             _lastPricingSource = updated.PricingSource;
             _lastLeague = updated.League;
             try { refreshCts.Cancel(); }
@@ -46,13 +48,15 @@ public sealed class PricingCacheRefreshWorker(
 
             try
             {
+                logger.LogDebug("Pricing cache refresh starting (source={Source}, league={League})...",
+                    _options.CurrentValue.PricingSource, _options.CurrentValue.League);
                 await cache.RefreshAsync(stoppingToken).ConfigureAwait(false);
                 // Use the actual game language (from PoE2 config)
                 var gameLang = Poe2ConfigFile.Language ?? ocrOptions.CurrentValue.Language;
                 cache.SetOcrLanguage(gameLang);
                 _lastPricingSource = _options.CurrentValue.PricingSource;
                 _lastLeague = _options.CurrentValue.League;
-                logger.LogInformation("Pricing cache refreshed at {Timestamp}", DateTimeOffset.UtcNow);
+                logger.LogInformation("Pricing cache refreshed at {Timestamp} (lang={Lang})", DateTimeOffset.UtcNow, gameLang);
 
                 delay = _options.CurrentValue.RefreshInterval;
                 if (delay <= TimeSpan.Zero)

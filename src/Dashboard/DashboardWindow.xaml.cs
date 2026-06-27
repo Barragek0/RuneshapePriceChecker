@@ -13,6 +13,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
+using Microsoft.Extensions.Logging;
 using Windows.Globalization;
 using Windows.Media.Ocr;
 
@@ -105,6 +106,7 @@ public sealed partial class DashboardWindow : Window
     private const uint GwHwndfirst = 0;
     private IntPtr _windowHandle;
     private readonly DashboardLogSink _sink;
+    private readonly ILogger<DashboardWindow>? _logger;
     private readonly DashboardViewModel _vm;
     private readonly double _baseWindowWidth = 520;
     private readonly double _baseWindowHeight = 642;
@@ -136,10 +138,11 @@ public sealed partial class DashboardWindow : Window
     internal bool IsChangelogVisible { get; private set; }
     internal static volatile bool IsUpdating;
 
-    public DashboardWindow(DashboardLogSink sink, DebugMetricsCollector? metrics = null)
+    public DashboardWindow(DashboardLogSink sink, DebugMetricsCollector? metrics = null, ILogger<DashboardWindow>? logger = null)
     {
         _sink = sink;
         _metrics = metrics;
+        _logger = logger;
         var configPath = Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json");
         _vm = new DashboardViewModel(configPath);
         DataContext = this;
@@ -214,8 +217,6 @@ public sealed partial class DashboardWindow : Window
         {
             if (_vm.OpenWithPoE2 && !_loading)
             {
-                // Signal the RPC service that this was a manual close (not CloseWithPoE2).
-                // This prevents re-launching if PoE2 is still running.
                 RpcServiceRunner.SignalManualClose();
                 _ = Task.Run(() => RpcServiceRunner.Register());
             }
@@ -496,6 +497,7 @@ public sealed partial class DashboardWindow : Window
     public void LogError(string message)
     {
         _sink.Emit(message, "red");
+        _logger?.LogWarning("Dashboard: {Message}", message);
         if (!IsLogVisibleToUser)
             SetStatus(message, "red");
     }

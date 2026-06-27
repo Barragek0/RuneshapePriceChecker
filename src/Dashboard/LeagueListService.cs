@@ -1,11 +1,15 @@
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 
 namespace RuneshapePriceChecker.App.Dashboard;
 
 public sealed class LeagueListService
 {
+    private static ILogger? _leagueLogger;
+    public static void SetLogger(ILogger logger) => _leagueLogger = logger;
+
     private static readonly string[] FallbackLeagues = ["Runes of Aldur", "Standard"];
 
     public static Task<IReadOnlyList<string>> FetchLeaguesAsync(CancellationToken ct = default) =>
@@ -23,7 +27,10 @@ public sealed class LeagueListService
                 ct).ConfigureAwait(false);
 
             if (!response.IsSuccessStatusCode)
+            {
+                _leagueLogger?.LogWarning("HTTP {StatusCode} fetching leagues — using fallback.", (int)response.StatusCode);
                 return FallbackLeagues;
+            }
 
             var json = await response.Content.ReadFromJsonAsync<JsonElement>(ct).ConfigureAwait(false);
 
@@ -40,8 +47,9 @@ public sealed class LeagueListService
 
             return leagues.Count > 0 ? leagues : FallbackLeagues;
         }
-        catch
+        catch (Exception ex)
         {
+            _leagueLogger?.LogWarning(ex, "Failed to fetch leagues — using fallback.");
             return FallbackLeagues;
         }
     }

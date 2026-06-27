@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Management;
 using System.Runtime.Versioning;
+using Microsoft.Extensions.Logging;
 using Microsoft.Win32;
 
 namespace RuneshapePriceChecker.App.Dashboard;
@@ -13,6 +14,9 @@ internal static class RpcServiceRunner
     private const string ExitEventName = "Global\\RuneshapePriceChecker_ExitService";
     private const string ServiceActiveEventName = "Global\\RuneshapePriceChecker_ServiceActive";
     internal const string CloseByPoe2EventName = "Global\\RuneshapePriceChecker_CloseByPoe2"; internal const string ManualCloseEventName = "Global\\RuneshapePriceChecker_ManualClose";
+
+    private static ILogger? _rpcLogger;
+    public static void SetLogger(ILogger logger) => _rpcLogger = logger;
     public static void Register()
     {
         KillExistingService();
@@ -216,7 +220,7 @@ internal static class RpcServiceRunner
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"RpcServiceRunner.Run failed: {ex.GetType().Name}: {ex.Message}");
+            _rpcLogger?.LogError(ex, "RPC service: Run failed (process will exit)");
         }
     }
 
@@ -243,11 +247,11 @@ internal static class RpcServiceRunner
             {
                 p.Kill();
                 if (!p.WaitForExit(3000))
-                    Debug.WriteLine($"RpcServiceRunner: PID {p.Id} did not exit within 3s of Kill");
+                    _rpcLogger?.LogWarning("RPC service: PID {Pid} did not exit within 3s of Kill", p.Id);
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"RpcServiceRunner: Kill PID {p.Id} failed: {ex.Message}");
+                _rpcLogger?.LogWarning(ex, "RPC service: Kill PID {Pid} failed", p.Id);
             }
             p.Dispose();
         }

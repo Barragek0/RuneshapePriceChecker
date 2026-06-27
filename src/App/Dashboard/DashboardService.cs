@@ -1,11 +1,23 @@
-﻿using System.Windows.Threading;
+﻿using Microsoft.Extensions.Logging;
+using System.Windows.Threading;
 using RuneshapePriceChecker.Configuration;
 using RuneshapePriceChecker.Pricing;
 
 namespace RuneshapePriceChecker.App.Dashboard;
 
-public sealed class DashboardService(DashboardLogSink sink, DebugMetricsCollector? metrics = null) : IDisposable
+public sealed class DashboardService : IDisposable
 {
+    private readonly DashboardLogSink _sink;
+    private readonly ILogger<DashboardWindow>? _dashboardLogger;
+
+    public DashboardService(DashboardLogSink sink, DebugMetricsCollector? metrics = null,
+        ILogger<DashboardWindow>? dashboardLogger = null)
+    {
+        _sink = sink;
+        Metrics = metrics;
+        _dashboardLogger = dashboardLogger;
+    }
+
     public static Action<IProgress<int>>? UpdateTrigger { get; set; }
     private static volatile bool _isUpdating;
     public static bool IsUpdating { get => _isUpdating; set => _isUpdating = value; }
@@ -16,14 +28,12 @@ public sealed class DashboardService(DashboardLogSink sink, DebugMetricsCollecto
         return Task.Run(() => ChangelogDismissedEvent.Wait(ct), ct);
     }
 
-    private readonly DashboardLogSink _sink = sink;
+    public DebugMetricsCollector? Metrics { get; }
     private Thread? _wpfThread;
     public DashboardWindow? Window { get; private set; }
     private readonly ManualResetEventSlim _windowReady = new();
     private volatile Action? _onWindowClosed;
     private volatile Action? _onWindowLoaded;
-
-    public DebugMetricsCollector? Metrics { get; } = metrics;
 
     public void SetOnWindowClosed(Action callback) => _onWindowClosed = callback;
 
@@ -48,6 +58,7 @@ public sealed class DashboardService(DashboardLogSink sink, DebugMetricsCollecto
 
         app.DispatcherUnhandledException += (_, e) =>
         {
+            // Not a crash — e.Handled = true keeps the app alive.
             _sink.Emit($"Dashboard error: {e.Exception.GetType().Name}: {e.Exception.Message}", "red");
             _ = Window?.Dispatcher.InvokeAsync(() => Window.SetStatus($"Error: {e.Exception.Message}", "red"))!;
             e.Handled = true;
@@ -71,7 +82,7 @@ public sealed class DashboardService(DashboardLogSink sink, DebugMetricsCollecto
             e.SetObserved();
         };
 
-        Window = new DashboardWindow(_sink, Metrics);
+        Window = new DashboardWindow(_sink, Metrics, _dashboardLogger);
 
 
         // Auto-detect OCR language from the game's config file so the app

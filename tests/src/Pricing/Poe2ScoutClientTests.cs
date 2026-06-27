@@ -284,6 +284,26 @@ internal sealed class MockHttpHandler : HttpMessageHandler
         _handlers[StripParams(pathAndQuery)] = () => new HttpResponseMessage(statusCode);
     }
 
+    public void AddRawResponse(string pathAndQuery, string rawBody, HttpStatusCode statusCode)
+    {
+        _handlers[StripParams(pathAndQuery)] = () => new HttpResponseMessage(statusCode)
+        {
+            Content = new StringContent(rawBody, System.Text.Encoding.UTF8, "application/json")
+        };
+    }
+
+    public void AddSlowResponse(string pathAndQuery, TimeSpan delay)
+    {
+        _handlers[StripParams(pathAndQuery)] = () =>
+        {
+            Thread.Sleep(delay);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"Items":[]}""", System.Text.Encoding.UTF8, "application/json")
+            };
+        };
+    }
+
     internal static string StripParams(string pathAndQuery)
     {
         pathAndQuery = pathAndQuery.TrimEnd('?', '&');

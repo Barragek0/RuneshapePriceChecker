@@ -21,6 +21,8 @@ public sealed class PricingOverlayRenderer(
     private PriceOverlayForm? _overlayForm;
     private string _lastContentHash = string.Empty;
 
+    // PriceOverlayForm.SetLogger is called after form creation in EnsureOverlayThreadStarted.
+
     public void Render(LeagueWindowSnapshot snapshot, IReadOnlyDictionary<string, PriceQuote?> pricesByItemName)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
@@ -50,6 +52,7 @@ public sealed class PricingOverlayRenderer(
             var itemCount = snapshot.ItemNames.Count;
             if (itemCount == 0)
             {
+                logger.LogTrace("PriceOverlay: no items, hiding overlay");
                 _lastContentHash = string.Empty;
                 overlay.SafeHide();
                 return;
@@ -58,7 +61,11 @@ public sealed class PricingOverlayRenderer(
             // Skip render when content unchanged (same items + same prices)
             var hash = BuildContentHash(snapshot, pricesByItemName);
             if (hash == _lastContentHash)
+            {
+                logger.LogTrace("PriceOverlay: content unchanged (hash={Hash}), skipping render", hash[..Math.Min(24, hash.Length)]);
                 return;
+            }
+            logger.LogDebug("PriceOverlay: content changed (new hash={Hash}, {Count} items)", hash[..Math.Min(24, hash.Length)], itemCount);
             _lastContentHash = hash;
 
             List<Rectangle> rows;
@@ -110,11 +117,16 @@ public sealed class PricingOverlayRenderer(
                         PricingSource = pricing.PricingSource
                     };
                 }
+                logger.LogTrace("PriceOverlay: auto thresholds maxPrice={MaxPrice} red={Red} orange={Orange} green={Green}",
+                    maxPrice, pricing.RedThreshold, pricing.OrangeThreshold, pricing.GreenThreshold);
             }
             var entries = BuildEntries(snapshot, pricesByItemName, rows, pricing);
+            logger.LogTrace("PriceOverlay: built {EntryCount} entries from {ItemCount} items, rows={RowCount}", entries.Count, itemCount, rows.Count);
 
             // Scale font proportionally to window height (1080p = scale 1.0, 4k = scale 2.0)
             var scaleFactor = ComputeOverlayScale(windowResolutionProvider, _appOptions);
+            logger.LogTrace("PriceOverlay: SafeShow region={X},{Y} {W}x{H} scale={Scale}",
+                captureRegion.X, captureRegion.Y, captureRegion.Width, captureRegion.Height, scaleFactor);
             overlay.SafeShow(captureRegion, entries, scaleFactor);
         }
         catch (Exception ex)
@@ -358,6 +370,7 @@ public sealed class PricingOverlayRenderer(
             {
                 logger.LogDebug("PriceOverlay: thread entered, creating form");
                 using var form = new PriceOverlayForm();
+                PriceOverlayForm.SetLogger(logger);
                 var _ = form.Handle;
                 logger.LogDebug("PriceOverlay: form handle created, pulsing");
                 lock (_sync)
@@ -413,8 +426,10 @@ public sealed class PricingOverlayRenderer(
     }
 
     private sealed record OverlayTextSegment(string Text, Color Color, float GlowStrength);
-    private sealed record OverlayRowEntry(int RowY, int RowHeight, IReadOnlyList<OverlayTextSegment> Segments);
-
+    private sealed record OverlayRowEntry(int RowY, int RowHeight, IReadOnlyList<OverlayTextSegment> Segments)
+    {
+        public override string ToString() => $"Y={RowY} H={RowHeight} Segments={Segments.Count}";
+    }
     public static float ComputeOverlayScale(IPoe2WindowResolutionProvider resolutionProvider, IOptionsMonitor<AppOptions> appOptions)
     {
         ArgumentNullException.ThrowIfNull(resolutionProvider);
@@ -438,6 +453,8 @@ public sealed class PricingOverlayRenderer(
         private readonly object _stateSync = new();
         private IReadOnlyList<OverlayRowEntry> _entries = [];
         private volatile bool _isHidden = true;
+        private static ILogger? _formLogger;
+        internal static void SetLogger(ILogger logger) => _formLogger = logger;
 
         public PriceOverlayForm()
         {
@@ -485,11 +502,13 @@ public sealed class PricingOverlayRenderer(
         {
             if (IsDisposed)
             {
+                _formLogger?.LogTrace("PriceOverlayForm: SafeShow on disposed form");
                 return;
             }
 
             if (InvokeRequired)
             {
+                _formLogger?.LogTrace("PriceOverlayForm: SafeShow marshalling to UI thread ({Count} entries)", entries.Count);
                 _isHidden = false;
                 _ = BeginInvoke(new Action<OcrCaptureRegion, IReadOnlyList<OverlayRowEntry>, float>(SafeShow), captureRegion, entries, scaleFactor);
                 return;
@@ -508,6 +527,8 @@ public sealed class PricingOverlayRenderer(
             var x = captureRegion.X + captureRegion.Width + 5;
             var y = captureRegion.Y;
             Bounds = new Rectangle(x, y, width, Math.Max(1, captureRegion.Height));
+            _formLogger?.LogTrace("PriceOverlayForm: SafeShow bounds=({X},{Y} {W}x{H}) {Count} entries, scale={Scale}",
+                x, y, width, Math.Max(1, captureRegion.Height), entries.Count, scaleFactor);
             PinTopMost();
             Invalidate();
 
@@ -550,6 +571,7 @@ public sealed class PricingOverlayRenderer(
         {
             if (IsDisposed)
             {
+                _formLogger?.LogTrace("PriceOverlayForm: SafeHide on disposed form");
                 return;
             }
 
@@ -557,9 +579,12 @@ public sealed class PricingOverlayRenderer(
             {
                 if (_isHidden) return;
                 _isHidden = true;
+                _formLogger?.LogTrace("PriceOverlayForm: SafeHide queued");
                 _ = BeginInvoke(new Action(SafeHide));
                 return;
             }
+
+            _formLogger?.LogTrace("PriceOverlayForm: SafeHide executing");
 
             lock (_stateSync)
             {

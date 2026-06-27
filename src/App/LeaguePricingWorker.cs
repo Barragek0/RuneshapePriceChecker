@@ -86,7 +86,11 @@ public sealed class LeaguePricingWorker(
                 if (appOptions.CurrentValue.CloseWithPoE2)
                 {
                     if (IsPoe2ProcessRunning())
+                    {
+                        if (!_poe2WasRunning)
+                            logger.LogDebug("PoE2 process detected — CloseWithPoE2 armed.");
                         _poe2WasRunning = true;
+                    }
                     else if (_poe2WasRunning)
                     {
                         logger.LogInformation("PoE2 process not found — shutting down as requested (CloseWithPoE2 enabled).");
@@ -191,6 +195,10 @@ public sealed class LeaguePricingWorker(
                         debugOverlay.ForceHide();
                     continue;
                 }
+                logger.LogTrace("Worker: snapshot content changed (hash {OldHash} -> {NewHash}, {Count} items, interface={Detected})",
+                    _lastSnapshotHash.Length > 0 ? _lastSnapshotHash[..Math.Min(8, _lastSnapshotHash.Length)] : "(empty)",
+                    snapshotHash[..Math.Min(8, snapshotHash.Length)],
+                    snapshot.ItemNames.Count, snapshot.InterfaceDetected);
                 _lastSnapshotHash = snapshotHash;
 
                 if (ocrOptions.CurrentValue.HideDebugOverlayWhenInterfaceNotDetected && !snapshot.InterfaceDetected)
