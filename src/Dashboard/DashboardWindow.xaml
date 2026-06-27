@@ -2116,6 +2116,7 @@
                                                     <RowDefinition Height="Auto"/>
                                                     <RowDefinition Height="Auto"/>
                                                     <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
                                                 </Grid.RowDefinitions>
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="Auto"
@@ -2200,6 +2201,31 @@
                                                            Text="—"
                                                            Foreground="{StaticResource TextPrimary}"
                                                            FontSize="12"/>
+
+                                                <TextBlock Grid.Row="3"
+                                                           Grid.Column="0"
+                                                           Text="Disk Read"
+                                                           Foreground="{StaticResource TextSecondary}"
+                                                           FontSize="11"/>
+                                                <TextBlock Grid.Row="3"
+                                                           Grid.Column="1"
+                                                           x:Name="DbgDiskRead"
+                                                           Text="—"
+                                                           Foreground="{StaticResource TextPrimary}"
+                                                           FontSize="12"
+                                                           Margin="0,4,10,0"/>
+                                                <TextBlock Grid.Row="3"
+                                                           Grid.Column="2"
+                                                           Text="Disk Write"
+                                                           Foreground="{StaticResource TextSecondary}"
+                                                           FontSize="11"/>
+                                                <TextBlock Grid.Row="3"
+                                                           Grid.Column="3"
+                                                           x:Name="DbgDiskWrite"
+                                                           Text="—"
+                                                           Foreground="{StaticResource TextPrimary}"
+                                                           FontSize="12"
+                                                           Margin="0,4,0,0"/>
                                             </Grid>
                                         </Border>
 

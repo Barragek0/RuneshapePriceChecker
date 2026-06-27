@@ -1,4 +1,6 @@
-﻿namespace RuneshapePriceChecker.App.Dashboard;
+﻿using System.IO;
+
+namespace RuneshapePriceChecker.App.Dashboard;
 
 public sealed class DebugMetricsCollector
 {
@@ -29,6 +31,10 @@ public sealed class DebugMetricsCollector
     private double _accumulatedScanMs;
     private double _scansPerSec;
     private double _scanCpuPercent;
+    private long _lastReadBytes;
+    private long _lastWriteBytes;
+    private double _diskReadBytesPerSec;
+    private double _diskWriteBytesPerSec;
     private volatile bool _isPoe2Foreground;
     private volatile bool _interfaceDetected;
     private volatile int _itemsDetected;
@@ -226,9 +232,10 @@ public sealed class DebugMetricsCollector
                 ? Math.Round((double)rollingHitCount / _cacheHitCount * 100, 1)
                 : 0;
 
-            // Measure CPU usage and wall-clock scan rate
+            // Measure CPU usage, wall-clock scan rate, and disk I/O
             var now = DateTime.UtcNow;
-            var cpuTime = System.Diagnostics.Process.GetCurrentProcess().TotalProcessorTime;
+            var proc = System.Diagnostics.Process.GetCurrentProcess();
+            var cpuTime = proc.TotalProcessorTime;
             var elapsed = (now - _lastCpuCheck).TotalSeconds;
             if (elapsed >= 0.5)
             {
@@ -239,12 +246,27 @@ public sealed class DebugMetricsCollector
                 _lastCpuCheck = now;
                 _lastCpuTime = cpuTime;
 
-                // Scan CPU as a % of total CPU capacity:
-                //   Measures actual wall time spent in scan cycles vs total wall time × cores.
+                // Scan CPU as a % of total CPU capacity
                 var wallMs = elapsed * 1000;
                 _scanCpuPercent = _accumulatedScanMs / (wallMs * Environment.ProcessorCount) * 100;
                 _lastCycleCount = total;
                 _accumulatedScanMs = 0;
+
+                // Disk I/O: track write bytes via log file size growth
+                try
+                {
+                    var files = Directory.GetFiles(
+                        Path.Combine(AppContext.BaseDirectory, "logs"), "*-log.txt");
+                    if (files.Length > 0)
+                    {
+                        var latest = files.OrderByDescending(f => f).First();
+                        var len = new FileInfo(latest).Length;
+                        _diskWriteBytesPerSec = (len - _lastWriteBytes) / elapsed;
+                        _lastWriteBytes = len;
+                    }
+                }
+                catch { }
+
             }
 
             var memBytes = System.Diagnostics.Process.GetCurrentProcess().WorkingSet64;
@@ -281,6 +303,8 @@ public sealed class DebugMetricsCollector
                 CpuPercent = Math.Round(_cpuPercent, 1),
                 ScanCpuPercent = Math.Round(_scanCpuPercent, 1),
                 MemoryMb = memBytes / (1024 * 1024),
+                DiskReadBytesPerSec = Math.Round(_diskReadBytesPerSec, 0),
+                DiskWriteBytesPerSec = Math.Round(_diskWriteBytesPerSec, 0),
             };
         }
     }
@@ -316,4 +340,6 @@ public sealed class DebugMetricsSnapshot
     public double CpuPercent { get; init; }
     public double ScanCpuPercent { get; init; }
     public long MemoryMb { get; init; }
+    public double DiskReadBytesPerSec { get; init; }
+    public double DiskWriteBytesPerSec { get; init; }
 }

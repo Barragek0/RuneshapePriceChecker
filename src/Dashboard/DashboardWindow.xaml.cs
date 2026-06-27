@@ -272,13 +272,18 @@ public sealed partial class DashboardWindow : Window
         {
             _suppressActivation = true;
             ShowActivated = false;
+            WindowState = WindowState.Minimized;
         }
 
         if (!_vm.BringToForeground)
             ShowActivated = false;
 
         if (HasArg("--App:Headless=true"))
+        {
             _headless = true;
+            ShowInTaskbar = false;
+            WindowState = WindowState.Minimized;
+        }
     }
 
     private readonly bool _suppressActivation;
@@ -1366,6 +1371,23 @@ public sealed partial class DashboardWindow : Window
         DbgRecognizeCpu.Text = recognizeMs > 0
             ? $"{recognizeMs:F0}ms/scan"
             : "—";
+
+        DbgDiskRead.Text = snap.DiskReadBytesPerSec > 0
+            ? FormatDiskIo(snap.DiskReadBytesPerSec)
+            : "—";
+        DbgDiskWrite.Text = snap.DiskWriteBytesPerSec > 0
+            ? FormatDiskIo(snap.DiskWriteBytesPerSec)
+            : "—";
+
+    }
+
+    private static string FormatDiskIo(double bytesPerSec)
+    {
+        if (bytesPerSec < 1024)
+            return $"{bytesPerSec:F0} B/s";
+        if (bytesPerSec < 1024 * 1024)
+            return $"{bytesPerSec / 1024:F1} KB/s";
+        return $"{bytesPerSec / (1024 * 1024):F1} MB/s";
     }
 
     private static void SetSlotText(TextBlock block, double[] slots, int slotIndex)
@@ -1444,6 +1466,8 @@ public sealed partial class DashboardWindow : Window
         _ = sb.AppendLine(CultureInfo.InvariantCulture, $"  CPU (proc):   {snap.CpuPercent:F1}%");
         _ = sb.AppendLine(CultureInfo.InvariantCulture, $"  CPU (scan):   {snap.ScanCpuPercent:F1}%");
         _ = sb.AppendLine(CultureInfo.InvariantCulture, $"  Recognize:    {recognizeMs:F0}ms/scan");
+        _ = sb.AppendLine(CultureInfo.InvariantCulture, $"  Disk Read:    {DbgDiskRead.Text}");
+        _ = sb.AppendLine(CultureInfo.InvariantCulture, $"  Disk Write:   {DbgDiskWrite.Text}");
 
         Clipboard.SetText(sb.ToString());
     }
