@@ -72,6 +72,7 @@ public sealed class LeaguePricingWorker(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        logger.LogDebug("LeaguePricingWorker started");
         var latestSnapshot = new LeagueWindowSnapshot([], DateTimeOffset.UtcNow);
         var hasCompletedSnapshot = false;
         Task<LeagueWindowSnapshot>? inFlightSnapshotTask = null;
@@ -79,6 +80,7 @@ public sealed class LeaguePricingWorker(
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            logger.LogTrace("LeaguePricingWorker loop iteration");
             try
             {
                 // Close with PoE2: shut down when the game exits.

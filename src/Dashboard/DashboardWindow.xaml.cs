@@ -731,6 +731,18 @@ public sealed partial class DashboardWindow : Window
     {
         if (!_bugReportPending) return;
 
+        // In test mode, enable the Continue button immediately so automated tests
+        // don't need to bring PoE2 to the foreground.
+        if (HasArg("--App:TestMode=true"))
+        {
+            Dispatcher.Invoke(() =>
+            {
+                BugReportContinueButton.IsEnabled = true;
+                StopBugReportPollTimer();
+            });
+            return;
+        }
+
         _ = Task.Run(() =>
         {
             var fgHwnd = GetForegroundWindow();
@@ -1221,6 +1233,11 @@ public sealed partial class DashboardWindow : Window
     {
         switch (_previousContentState)
         {
+            case ContentState.Log:
+            default:
+                _settingsVisible = false;
+                IsChangelogVisible = false;
+                break;
             case ContentState.Settings:
                 _settingsVisible = true;
                 IsChangelogVisible = false;
@@ -1228,10 +1245,6 @@ public sealed partial class DashboardWindow : Window
             case ContentState.Changelog:
                 _settingsVisible = false;
                 IsChangelogVisible = true;
-                break;
-            default:
-                _settingsVisible = false;
-                IsChangelogVisible = false;
                 break;
         }
     }
@@ -1713,26 +1726,6 @@ public sealed partial class DashboardWindow : Window
         }
         var body = string.Join(Environment.NewLine, lines);
         Clipboard.SetText(header + body);
-    }
-
-    private static void RestartApp()
-    {
-        var exePath = Environment.ProcessPath;
-        if (exePath is null) return;
-
-        try
-        {
-            _ = Process.Start(new ProcessStartInfo
-            {
-                FileName = "cmd",
-                Arguments = $"/c \"timeout /t 1 /nobreak >nul && start \"\" \"{exePath}\" --App:SuppressAlreadyRunningWarning=true\"",
-                UseShellExecute = false,
-                CreateNoWindow = true
-            });
-        }
-        catch { }
-
-        _ = Application.Current.Dispatcher.BeginInvoke(() => Application.Current.Shutdown());
     }
 
     private async Task LoadLeaguesAsync()

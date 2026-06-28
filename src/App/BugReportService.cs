@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
@@ -13,6 +14,17 @@ namespace RuneshapePriceChecker.App;
 
 internal sealed class BugReportService
 {
+    internal static bool IsTestMode
+    {
+        get
+        {
+            foreach (var a in Environment.GetCommandLineArgs())
+                if (string.Equals(a, "--App:TestMode=true", StringComparison.OrdinalIgnoreCase))
+                    return true;
+            return false;
+        }
+    }
+
     private const string GitHubRepo = "Barragek0/RuneshapePriceChecker";
     private static readonly string BackupFileName = $"bug-report-snapshot.{DateTime.Now:yyyyMMdd-HHmmss}.json";
 
@@ -90,9 +102,11 @@ internal sealed class BugReportService
 
             File.Move(tempZip, Path.Combine(outputDir, zipName));
 
-            // Open browser + folder
-            OpenUrl(BuildGitHubIssueUrl());
-            OpenFolderInExplorer(outputDir);
+            if (!IsTestMode)
+            {
+                OpenUrl(BuildGitHubIssueUrl());
+                OpenFolderInExplorer(outputDir);
+            }
 
             _dashboard.ShowBugReportDataCollected(fileCount, zipName);
             _dashboard.SetStatus("Bug report data collected — GitHub issue opened", "green");
@@ -177,7 +191,7 @@ internal sealed class BugReportService
             try { Directory.Delete(stale, recursive: true); } catch { }
         }
 
-        var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+        var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
         var dir = Path.Combine(reportsDir, $"bug-report-{stamp}");
         Directory.CreateDirectory(dir);
 
@@ -204,7 +218,7 @@ internal sealed class BugReportService
             .FirstOrDefault();
         if (latestLog is not null)
         {
-            try { File.Copy(latestLog, Path.Combine(outputDir, Path.GetFileName(latestLog))); count++; } catch { }
+            try { File.Copy(latestLog, Path.Combine(outputDir, Path.GetFileName(latestLog))); count++; } catch { /* best effort */ }
         }
 
         // Most recent crash file
@@ -214,7 +228,7 @@ internal sealed class BugReportService
             .FirstOrDefault();
         if (latestCrash is not null)
         {
-            try { File.Copy(latestCrash, Path.Combine(outputDir, Path.GetFileName(latestCrash))); count++; } catch { }
+            try { File.Copy(latestCrash, Path.Combine(outputDir, Path.GetFileName(latestCrash))); count++; } catch { /* best effort */ }
         }
 
         // Most recent caught-exception file
@@ -224,7 +238,7 @@ internal sealed class BugReportService
             .FirstOrDefault();
         if (latestCaught is not null)
         {
-            try { File.Copy(latestCaught, Path.Combine(outputDir, Path.GetFileName(latestCaught))); count++; } catch { }
+            try { File.Copy(latestCaught, Path.Combine(outputDir, Path.GetFileName(latestCaught))); count++; } catch { /* best effort */ }
         }
 
         // Debug images — only from the actively used OCR backend.
@@ -240,7 +254,7 @@ internal sealed class BugReportService
                 .OrderByDescending(f => File.GetLastWriteTimeUtc(f))
                 .Take(10))
             {
-                try { File.Copy(img, Path.Combine(outputDir, Path.GetFileName(img))); count++; } catch { }
+                try { File.Copy(img, Path.Combine(outputDir, Path.GetFileName(img))); count++; } catch { /* best effort */ }
             }
         }
 

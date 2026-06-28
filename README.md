@@ -27,12 +27,13 @@ The latest version can be downloaded here: https://github.com/Barragek0/Runeshap
 
 ## Troubleshooting
 
+- **Bug report tool** — Click the 🐛 icon in the dashboard to automatically collect logs, crash reports, debug images, and system info into a `.zip` file.
 - **No price on known items:**
 	- Re-run the initial setup from Settings and verify the capture box matches the example.
 	- Confirm the item exists in your selected league and pricing source.
-	- Enable debug logging in Settings (gear icon) to inspect OCR output and normalized matches.
-	- Check `debug-images/` for captured images when Save Debug Images is enabled.
-	- If "n/a" appears in logs for an item that should have a price, or if text isn't matching correctly, submit an issue.
+	- Change `Log Level` to **Debug** or **Trace** in Settings — takes effect immediately without restarting the app.
+	- Enable Show Debug Overlay in Settings and verify the scan brackets cover the item rows correctly.
+	- If "n/a" appears in logs for an item that should have a price, or if text isn't matching correctly, use the 🐛 bug report tool to submit an issue.
 - **No OCR output:**
 	- Re-run the initial setup from Settings and verify the capture box matches the example.
 	- Confirm you're in borderless windowed or windowed mode (exclusive fullscreen not supported).
@@ -44,7 +45,9 @@ The latest version can be downloaded here: https://github.com/Barragek0/Runeshap
 	- Enable Show Debug Overlay in Settings to see the red capture bounds overlay.
 	- If the overlay appears misaligned, re-run the initial setup to reposition the capture region.
 - **Lossless Scaling or other overlay tools behaving oddly:**
-	- The price overlay fully destroys its window when there are no prices to show, minimizing interference with frame generation tools. If issues persist on the latest version, submit an issue.
+	- If you're using Lossless Scaling, ensure that you set the capture mode to `WGC`.
+	- There's a known issue that I cannot find a fix for, causing your mouse cursor to disappear when the app overlays initially get created. To workaround this, enable `Multi-display mode`, scale, tab into the game, tab out of the game, and tab back into the game, and your cursor should then be visible.
+	- The price overlay fully destroys its window when there are no prices to show, minimizing interference with frame generation tools. If issues persist on the latest version, use the 🐛 bug report tool to submit an issue.
 
 ## Quick Start
 
@@ -72,23 +75,32 @@ The project includes an automated test suite that runs with mock data — no gam
 powershell -ExecutionPolicy Bypass -File "./tests/run-all.ps1"
 ```
 
-The suite covers pricing accuracy, OCR parsing, and updater logic. The release build runs these tests automatically before packaging.
+The release build runs these tests automatically before packaging.
 
 Additional test tools in `tests/`:
 - `OcrPricingSimulator` — drives the automated pricing and parsing checks.
 
 ## Configuration
 
-All settings can be changed from the in-app Settings window (click the gear icon). They're stored in `config/appsettings.json` and reload automatically.
+All settings can be changed from the in-app Settings window (click the gear icon). They're stored in `config/appsettings.json` and reload automatically every 5 seconds.
 
 ```json
 {
 	"App": {
-		"LogLevel": "Information"
+		"LogLevel": "Information",
+		"BringToForeground": true,
+		"AlwaysOnTop": false,
+		"RememberDebugPanel": false,
+		"CloseWithPoE2": false,
+		"OpenWithPoE2": false,
+		"AllOverlaysDisabled": false,
+		"PricingOverlay": true,
+		"Banner": true
 	},
 	"Pricing": {
 		"PricingSource": "poe2scout",
 		"League": "Runes of Aldur",
+		"AutoPriceThresholds": true,
 		"RedThreshold": 0.5,
 		"OrangeThreshold": 1.0,
 		"GreenThreshold": 5.0,
@@ -97,44 +109,148 @@ All settings can be changed from the in-app Settings window (click the gear icon
 	"OCR": {
 		"Language": "eng",
 		"OcrBackend": "windows",
+		"CaptureMode": "printwindow",
 		"SaveDebugImages": false,
+		"DebugImageIntervalSeconds": 15,
 		"DebugOverlay": false,
-		"HideDebugOverlayWhenInterfaceNotDetected": false
+		"HideDebugOverlayWhenInterfaceNotDetected": false,
+		"ScanIntervalMs": 100
 	},
 	"Update": {
 		"AutoUpdate": true
+	},
+	"Window": {
+		"InitialSetupComplete": false
 	}
 }
 ```
 
-Settings reload automatically every 5 seconds through `SettingsController`.
+### App Settings
 
-| Pricing Key | Type | Default | Description |
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `LogLevel` | `"Trace"`, `"Debug"`, `"Information"`, `"Warning"`, `"Error"` | `"Information"` | How much detail to show in the log window. Changes take effect immediately. |
+| `BringToForeground` | bool | `true` | Bring the app window to the front when launched or on update |
+| `AlwaysOnTop` | bool | `false` | Keep the dashboard window above other windows at all times |
+| `RememberDebugPanel` | bool | `false` | Remember whether the debug panel was open across restarts |
+| `CloseWithPoE2` | bool | `false` | Automatically close the app when Path of Exile 2 is no longer running |
+| `OpenWithPoE2` | bool | `false` | Launch the app automatically when PoE2 starts (uses a background watcher service) |
+| `AllOverlaysDisabled` | bool | `false` | Disable all in-game overlays (pricing and banner) |
+| `PricingOverlay` | bool | `true` | Show the side pricing overlay in-game |
+| `Banner` | bool | `true` | Show the unpriceable-items banner (skill gems, supports) |
+| `OverlayScale` | float or null | `null` | Scale factor for overlay text (e.g. `1.5` for 150% size). Set via the slider in Settings. |
+
+### Pricing Settings
+
+| Key | Type | Default | Description |
 |---|---|---|---|
 | `PricingSource` | `"poe2scout"` or `"poe.ninja"` | `"poe2scout"` | Which pricing API to use |
 | `League` | string | `"Runes of Aldur"` | League name for your pricing source |
-| `RedThreshold` | decimal | `0.5` | Value at or below which the label shows red |
-| `OrangeThreshold` | decimal | `1.0` | Value at or below which the label shows orange (must be > RedThreshold) |
-| `GreenThreshold` | decimal | `5.0` | Value at or above which the label shows green (must be > OrangeThreshold) |
+| `AutoPriceThresholds` | bool | `true` | Automatically set color thresholds based on the highest-priced item in each scan |
+| `RedThreshold` | decimal | `0.5` | Items at or below this value appear red |
+| `OrangeThreshold` | decimal | `1.0` | Items at or below this value appear orange (must be > RedThreshold) |
+| `GreenThreshold` | decimal | `5.0` | Items at or above this value appear green (must be > OrangeThreshold) |
 | `DisplayCurrency` | `"exalt"` or `"chaos"` | `"exalt"` | Currency used for displayed values |
 
-| OCR Key | Type | Default | Description |
+### OCR Settings
+
+| Key | Type | Default | Description |
 |---|---|---|---|
-| `Language` | string | `"eng"` | OCR language (must match your game client) |
-| `OcrBackend` | `"windows"` or `"tesseract"` | `"windows"` | OCR engine — Windows is faster and uses less CPU |
-| `SaveDebugImages` | bool | `false` | Save captured/processed OCR images to `debug-images/` |
+| `Language` | string | `"eng"` | OCR language (must match your game client). Available: `eng`, `deu`, `fra`, `spa`, `por`, `rus`, `jpn`, `kor`, `chi_tra` |
+| `OcrBackend` | `"windows"` or `"tesseract"` | `"windows"` | OCR engine — Windows is faster and uses less CPU; Tesseract is a fallback for compatibility |
+| `CaptureMode` | `"printwindow"` or `"desktop"` | `"printwindow"` | Screen capture method. `printwindow` is faster. `desktop` is compatible with Lossless Scaling WGC. |
+| `SaveDebugImages` | bool | `false` | Save captured and processed OCR images to `debug-images/` |
+| `DebugImageIntervalSeconds` | number (1–30) | `15` | How often to save debug images when enabled |
 | `DebugOverlay` | bool | `false` | Show the capture-bounds overlay on screen |
 | `HideDebugOverlayWhenInterfaceNotDetected` | bool | `false` | Hide the overlay when the league panel isn't detected |
+| `ScanIntervalMs` | number (50–200) | `100` | Milliseconds between OCR scan cycles |
 
-| Update Key | Type | Default | Description |
+### Update Settings
+
+| Key | Type | Default | Description |
 |---|---|---|---|
-| `AutoUpdate` | bool | `true` | Check for and apply updates on startup |
+| `AutoUpdate` | bool | `true` | Check for updates on startup and every 5 minutes |
+
+### Window Settings
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `InitialSetupComplete` | bool | `false` | Whether the initial capture-region setup has been completed |
+
+---
+
+## Advanced Settings (manual config only)
+
+These settings are not exposed in the Settings UI but can be added to `config/appsettings.json` to fine-tune OCR behavior. The app picks up changes every 5 seconds without restarting.
+
+### OCR Color Matching
+
+The OCR preprocessing pipeline filters text pixels by RGB color to isolate in-game item text from the background. If text detection is unreliable, tweaking these values can improve accuracy.
+
+```json
+{
+	"OCR": {
+		"EnableImagePreprocessing": true,
+		"BinarizationThreshold": 145,
+		"EnableTextColorFiltering": true,
+		"TextColorTargetR": 50,
+		"TextColorTargetG": 42,
+		"TextColorTargetB": 34,
+		"TextColorTolerance": 47,
+		"TextColorMaxLuminance": 145,
+		"TextColorMaxChannelSpread": 29
+	}
+}
+```
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `EnableImagePreprocessing` | bool | `true` | Enable OCR image preprocessing pipeline (binarization + color filtering) |
+| `BinarizationThreshold` | number (0–255) | `145` | Threshold for converting grayscale pixels to black or white |
+| `EnableTextColorFiltering` | bool | `true` | Filter out pixels that don't match the in-game text color |
+| `TextColorTargetR` | number (0–255) | `50` | Target red channel for in-game text color |
+| `TextColorTargetG` | number (0–255) | `42` | Target green channel for in-game text color |
+| `TextColorTargetB` | number (0–255) | `34` | Target blue channel for in-game text color |
+| `TextColorTolerance` | number (0–255) | `47` | Max Euclidean distance from the target color for a pixel to be kept |
+| `TextColorMaxLuminance` | number (0–255) | `145` | Maximum luminance for a pixel to be considered text (filters out bright artifacts) |
+| `TextColorMaxChannelSpread` | number (0–255) | `29` | Maximum difference between the highest and lowest RGB channel (filters out colored UI elements) |
+
+### OCR Engine Tweaks
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `OcrEngineMode` | number (0–2) | `2` | Tesseract engine mode. Default (`2`) is LSTM-only. `1` is LSTM + legacy, `0` is legacy-only. |
+| `BypassOcrCache` | bool | `false` | Skip cached OCR results and re-process every frame (debugging only) |
+| `TesseractDataPath` | string | `""` (auto) | Path to Tesseract training data. Leave empty to use the bundled `ocr/tesseract/` directory. |
+
+### Performance Tuning
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `ScanIntervalMs` | number (50–200) | `100` | Milliseconds between OCR scan cycles. Lower values check more frequently but use more CPU. |
+
+### Window Capture Region
+
+If the initial setup's capture region doesn't cover the right area, you can fine-tune it manually:
+
+```json
+{
+	"Window": {
+		"CustomOffsetX": null,
+		"CustomOffsetY": null,
+		"CustomWidth": null,
+		"CustomHeight": null
+	}
+}
+```
+
+Set these to override the auto-detected capture region. `null` means auto-detect. Values are in pixels relative to the game window's top-left corner.
 
 ## What It Does
 
 - Detects the PoE2 window and captures a profile-based OCR region.
 - Reads item names using Windows OCR (or Tesseract as fallback).
-- Translates non-English item names via the official trade API.
+- Translates non-English item names using community-maintained translation data.
 - Parses quantity prefixes like `1x`, `3x`, and OCR-misread quantities like `Lx` or `ix`.
 - Fetches market prices from community pricing APIs and caches them.
 - Multiplies price by detected quantity before rendering.
@@ -147,7 +263,7 @@ Settings reload automatically every 5 seconds through `SettingsController`.
 
 1. The tool captures the OCR region and extracts text with the selected OCR engine.
 2. OCR text is normalized, cleaned of quantity prefixes and artifacts, then mapped to pricing keys.
-3. A pricing cache refreshes from the selected pricing source on a fixed interval (default: 10 minutes).
+3. A pricing cache refreshes from the selected pricing source on a fixed interval (default: 15 minutes).
 4. Lookup uses multiple candidates per item — normalized name, level-stripped, orb-suffix-stripped, and alias-expanded forms (e.g. `gcp` → `Gemcutter's Prism`).
 5. If no exact price is found, the system tries tier fallbacks, unique category min/max ranges, and uncut gem family ranges.
 6. As a last resort, fuzzy matching corrects common OCR substitution errors against known pricing keys.
