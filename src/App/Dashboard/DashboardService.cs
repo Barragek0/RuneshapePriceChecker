@@ -2,6 +2,7 @@
 using System.Windows.Threading;
 using RuneshapePriceChecker.Configuration;
 using RuneshapePriceChecker.Pricing;
+using RuneshapePriceChecker.Startup;
 
 namespace RuneshapePriceChecker.App.Dashboard;
 
@@ -58,7 +59,7 @@ public sealed class DashboardService : IDisposable
 
         app.DispatcherUnhandledException += (_, e) =>
         {
-            // Not a crash — e.Handled = true keeps the app alive.
+            CrashLogger.WriteCaught($"WPF dispatcher exception ({e.Exception.GetType().Name})", e.Exception);
             _sink.Emit($"Dashboard error: {e.Exception.GetType().Name}: {e.Exception.Message}", "red");
             _ = Window?.Dispatcher.InvokeAsync(() => Window.SetStatus($"Error: {e.Exception.Message}", "red"))!;
             e.Handled = true;
@@ -203,6 +204,41 @@ public sealed class DashboardService : IDisposable
             ResetInitialSetupComplete();
             trigger();
         })));
+    }
+
+    public void SetBugReportTrigger(Action trigger)
+    {
+        _ = (Window?.Dispatcher.InvokeAsync(() => Window.SetBugReportTrigger(trigger)));
+    }
+
+    public void SetOnBugReportContinue(Action callback)
+    {
+        _ = (Window?.Dispatcher.InvokeAsync(() => Window.SetOnBugReportContinue(callback)));
+    }
+
+    public void SetOnBugReportDone(Action callback)
+    {
+        _ = (Window?.Dispatcher.InvokeAsync(() => Window.SetOnBugReportDone(callback)));
+    }
+
+    public void SetOnBugReportCancel(Action callback)
+    {
+        _ = (Window?.Dispatcher.InvokeAsync(() => Window.SetOnBugReportCancel(callback)));
+    }
+
+    public void ShowBugReportPrompt()
+    {
+        _ = (Window?.Dispatcher.InvokeAsync(Window.ShowBugReportPrompt));
+    }
+
+    public void ShowBugReportDataCollected(int fileCount, string zipFileName)
+    {
+        _ = (Window?.Dispatcher.InvokeAsync(() => Window.ShowBugReportDataCollected(fileCount, zipFileName)));
+    }
+
+    public void HideBugReportAll()
+    {
+        _ = (Window?.Dispatcher.InvokeAsync(Window.HideBugReportAll));
     }
 
     private static void ResetInitialSetupComplete()

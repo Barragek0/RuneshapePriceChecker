@@ -112,7 +112,11 @@ public sealed partial class DashboardWindow : Window
     private readonly double _baseWindowHeight = 642;
     private const double DebugPanelWidth = 440;
     private bool _loading;
+    private enum ContentState { Log, Settings, Changelog }
+    private ContentState _previousContentState = ContentState.Log;
+
     private bool _setupPending;
+    private bool _bugReportPending;
     private bool _settingsVisible;
     private bool _debugPanelOpen;
     private DispatcherTimer? _moveResizeTimer;
@@ -122,6 +126,11 @@ public sealed partial class DashboardWindow : Window
     private DispatcherTimer? _languagePackTimer;
     private DispatcherTimer? _alwaysOnTopTimer;
     private DispatcherTimer? _setupPollTimer;
+    private DispatcherTimer? _bugReportPollTimer;
+    private Action? _onBugReportTrigger;
+    private Action? _onBugReportContinue;
+    private Action? _onBugReportDone;
+    private Action? _onBugReportCancel;
     private string? _pendingLanguageAppTag;
     private bool _saveQueued;
     private readonly Brush _greenBrush = null!;
@@ -231,6 +240,7 @@ public sealed partial class DashboardWindow : Window
         PopulateCaptureModeCombo();
         _vm.LoadSettings();
         SyncUiFromViewModel();
+        UpdatePricingSourceWarning();
         // Don't re-register the background service on startup — it's only needed
         // to launch the app when PoE2 starts. Since the app is already running,
         // re-register now would unnecessarily start a --rpcservice that does nothing
@@ -504,6 +514,7 @@ public sealed partial class DashboardWindow : Window
 
     private bool IsLogVisibleToUser =>
         SetupPromptSection.Visibility != Visibility.Visible &&
+        BugReportPromptSection.Visibility != Visibility.Visible &&
         !IsChangelogVisible &&
         !_settingsVisible;
 
@@ -518,6 +529,8 @@ public sealed partial class DashboardWindow : Window
         {
             _setupPending = true;
             SetupContinueButton.IsEnabled = false;
+            SavePreviousContentState();
+            DisableActionButtons();
             StartSetupPollTimer();
             RefreshContentArea();
         });
@@ -529,6 +542,8 @@ public sealed partial class DashboardWindow : Window
         {
             _setupPending = false;
             StopSetupPollTimer();
+            RestorePreviousContentState();
+            EnableActionButtons();
             RefreshContentArea();
         });
     }
@@ -579,6 +594,7 @@ public sealed partial class DashboardWindow : Window
     {
         ChangelogSection.Visibility = Visibility.Collapsed;
         SetupPromptSection.Visibility = Visibility.Collapsed;
+        BugReportPromptSection.Visibility = Visibility.Collapsed;
         SettingsSection.Visibility = Visibility.Collapsed;
         LogSection.Visibility = Visibility.Collapsed;
 
@@ -594,6 +610,12 @@ public sealed partial class DashboardWindow : Window
             if (_setupPending)
             {
                 SetupPromptSection.Visibility = Visibility.Visible;
+                return;
+            }
+
+            if (_bugReportPending)
+            {
+                BugReportPromptSection.Visibility = Visibility.Visible;
                 return;
             }
 
@@ -621,6 +643,12 @@ public sealed partial class DashboardWindow : Window
             return;
         }
 
+        if (_bugReportPending)
+        {
+            BugReportPromptSection.Visibility = Visibility.Visible;
+            return;
+        }
+
         if (_settingsVisible)
         {
             SettingsSection.Visibility = Visibility.Visible;
@@ -634,6 +662,136 @@ public sealed partial class DashboardWindow : Window
     private void SetupContinue_Click(object sender, RoutedEventArgs e)
     {
         _vm.OnSetupContinue?.Invoke();
+    }
+
+    public void SetBugReportTrigger(Action trigger)
+    {
+        _onBugReportTrigger = trigger;
+    }
+
+    public void SetOnBugReportContinue(Action callback)
+    {
+        _onBugReportContinue = callback;
+    }
+
+    public void SetOnBugReportDone(Action callback)
+    {
+        _onBugReportDone = callback;
+    }
+
+    public void SetOnBugReportCancel(Action callback)
+    {
+        _onBugReportCancel = callback;
+    }
+
+    public void ShowBugReportPrompt()
+    {
+        Dispatcher.Invoke(() =>
+        {
+            _bugReportPending = true;
+            BugReportContinueButton.IsEnabled = false;
+            SavePreviousContentState();
+            DisableActionButtons();
+            StartBugReportPollTimer();
+            RefreshContentArea();
+        });
+    }
+
+    public void HideBugReportAll()
+    {
+        Dispatcher.Invoke(() =>
+        {
+            _bugReportPending = false;
+            BugReportReproducePanel.Visibility = Visibility.Visible;
+            BugReportDonePanel.Visibility = Visibility.Collapsed;
+            StopBugReportPollTimer();
+            RestorePreviousContentState();
+            EnableActionButtons();
+            RefreshContentArea();
+        });
+    }
+
+    private void StartBugReportPollTimer()
+    {
+        StopBugReportPollTimer();
+        _bugReportPollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _bugReportPollTimer.Tick += OnBugReportPollTick;
+        _bugReportPollTimer.Start();
+    }
+
+    private void StopBugReportPollTimer()
+    {
+        if (_bugReportPollTimer is null) return;
+        _bugReportPollTimer.Stop();
+        _bugReportPollTimer.Tick -= OnBugReportPollTick;
+        _bugReportPollTimer = null;
+    }
+
+    private void OnBugReportPollTick(object? sender, EventArgs e)
+    {
+        if (!_bugReportPending) return;
+
+        _ = Task.Run(() =>
+        {
+            var fgHwnd = GetForegroundWindow();
+            var sb = new char[256];
+            var len = GetWindowText(fgHwnd, sb, sb.Length);
+            var isForeground = len > 0 &&
+                new string(sb, 0, len).Equals("Path of Exile 2", StringComparison.OrdinalIgnoreCase);
+
+            if (isForeground)
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    BugReportContinueButton.IsEnabled = true;
+                    StopBugReportPollTimer();
+                });
+            }
+        });
+    }
+
+    public void ShowBugReportDataCollected(int fileCount, string zipFileName)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            BugReportReproducePanel.Visibility = Visibility.Collapsed;
+            BugReportDonePanel.Visibility = Visibility.Visible;
+            BugReportFileCountText.Text = $"{fileCount} file(s) collected";
+            BugReportZipNameText.Text = zipFileName;
+            StopBugReportPollTimer();
+            RefreshContentArea();
+        });
+    }
+
+    private void BugReportContinue_Click(object sender, RoutedEventArgs e)
+    {
+        _onBugReportContinue?.Invoke();
+    }
+
+    private void BugReportDone_Click(object sender, RoutedEventArgs e)
+    {
+        _bugReportPending = false;
+        HideBugReportAll();
+        _onBugReportDone?.Invoke();
+    }
+
+    private void BugReportCancel_Click(object sender, RoutedEventArgs e)
+    {
+        _bugReportPending = false;
+        HideBugReportAll();
+        _onBugReportCancel?.Invoke();
+    }
+
+    private void BugReport_Click(object sender, RoutedEventArgs e)
+    {
+        if (_onBugReportTrigger is null)
+        {
+            _logger?.LogWarning("Bug report service not available.");
+            return;
+        }
+
+        // Starts the bug report flow: settings snapshot, diagnostic mode, prompt.
+        _onBugReportTrigger();
     }
 
     private void AlwaysOnTop_CheckedChanged(object sender, RoutedEventArgs e)
@@ -1049,6 +1207,47 @@ public sealed partial class DashboardWindow : Window
             : new SolidColorBrush(Color.FromArgb(0, 0, 0, 0));
     }
 
+    private void SavePreviousContentState()
+    {
+        if (IsChangelogVisible)
+            _previousContentState = ContentState.Changelog;
+        else if (_settingsVisible)
+            _previousContentState = ContentState.Settings;
+        else
+            _previousContentState = ContentState.Log;
+    }
+
+    private void RestorePreviousContentState()
+    {
+        switch (_previousContentState)
+        {
+            case ContentState.Settings:
+                _settingsVisible = true;
+                IsChangelogVisible = false;
+                break;
+            case ContentState.Changelog:
+                _settingsVisible = false;
+                IsChangelogVisible = true;
+                break;
+            default:
+                _settingsVisible = false;
+                IsChangelogVisible = false;
+                break;
+        }
+    }
+
+    private void DisableActionButtons()
+    {
+        SettingsBtn.IsEnabled = false;
+        LogBtn.IsEnabled = false;
+    }
+
+    private void EnableActionButtons()
+    {
+        SettingsBtn.IsEnabled = true;
+        LogBtn.IsEnabled = true;
+    }
+
     private void ToggleDebug()
     {
         if (_debugPanelOpen)
@@ -1349,7 +1548,25 @@ public sealed partial class DashboardWindow : Window
         DbgOcrBackend.Text = string.IsNullOrEmpty(backendLabel) ? "—" : backendLabel;
         DbgRegion.Text = string.IsNullOrEmpty(snap.RegionInfo) ? "—" : snap.RegionInfo;
 
-        DbgOverlayFps.Text = snap.DebugOverlayActive ? $"{snap.ScansPerSecond:F0}" : "—";
+        // Anchor check hit rate: how often the quick pre-check correctly detects
+        // the league panel.  Low hit rate = wasteful full captures.
+        if (snap.AnchorCheckPasses > 0 || snap.AnchorCheckFails > 0)
+        {
+            var total = snap.AnchorCheckPasses + snap.AnchorCheckFails;
+            var pct = (double)snap.AnchorCheckPasses / total * 100;
+            DbgAnchorHit.Text = $"{pct:F1}%";
+            DbgAnchorHit.Foreground = pct switch
+            {
+                >= 80 => _greenBrush,
+                >= 40 => _amberBrush,
+                _ => _redBrush
+            };
+        }
+        else
+        {
+            DbgAnchorHit.Text = "—";
+            DbgAnchorHit.Foreground = _textPrimaryBrush;
+        }
 
         // Periodically re-evaluate capture mode warning so it updates when LS starts/stops
         UpdateCaptureModeWarning();
@@ -1846,8 +2063,6 @@ public sealed partial class DashboardWindow : Window
                 _ = _vm.SaveSettings();
             // If thresholds are invalid, don't save — validation highlighting stays visible
 
-            if (_vm.LogLevelChanged)
-                RestartApp();
         }));
     }
 
@@ -2043,6 +2258,21 @@ public sealed partial class DashboardWindow : Window
         _ = PricingSourceCombo.Items.Add("poe2scout");
         _ = PricingSourceCombo.Items.Add("poe.ninja");
         PricingSourceCombo.SelectedIndex = 0;
+    }
+
+    private void PricingSourceCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading) return;
+        UpdatePricingSourceWarning();
+        QueueAutoSave();
+    }
+
+    private void UpdatePricingSourceWarning()
+    {
+        var isPoeNinja = string.Equals(
+            PricingSourceCombo.SelectedItem as string, "poe.ninja", StringComparison.OrdinalIgnoreCase);
+        PricingSourceWarning.Visibility = isPoeNinja ? Visibility.Visible : Visibility.Collapsed;
+        PricingSourceTooltip.Visibility = isPoeNinja ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void PopulateLogLevelCombo()

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Windows.Forms;
 using RuneshapePriceChecker.App;
 using RuneshapePriceChecker.App.Dashboard;
 using RuneshapePriceChecker.Configuration;
@@ -12,6 +13,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
 {
@@ -24,6 +26,15 @@ TaskScheduler.UnobservedTaskException += (sender, args) =>
 {
     CrashLogger.WriteCaught("Unobserved task exception", args.Exception);
     args.SetObserved();
+};
+
+// Catch WinForms UI thread exceptions (OnPaint, event handlers, etc.) that WinForms
+// swallows internally without routing to AppDomain.UnhandledException.
+Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+Application.ThreadException += (sender, args) =>
+{
+    CrashLogger.WriteCrash($"WinForms thread exception ({args.Exception.GetType().Name})", args.Exception);
+    TrySaveCrashLog();
 };
 
 if (args.Contains("--rpcservice"))
@@ -123,6 +134,10 @@ if (File.Exists(exeNewPath))
 
 var resolvedTesseractDataPath = TesseractBootstrapper.ResolveTessDataPath();
 AppSettingsBootstrapper.EnsureExists();
+
+// If the app crashed or was closed during a bug report, restore the pre-bug-report
+// settings so the app doesn't start with diagnostic mode (Trace logging, etc.).
+AppSettingsBootstrapper.TryRecoverBugReportSnapshot();
 
 var host = Host.CreateDefaultBuilder(args)
     .ConfigureHostOptions(options =>
@@ -226,7 +241,8 @@ var host = Host.CreateDefaultBuilder(args)
             options.TimestampFormat = "HH:mm:ss.fff ";
             options.SingleLine = true;
         });
-        _ = logging.SetMinimumLevel(minLevel);
+        CrashLogger.MinimumLogLevel = minLevel;
+        _ = logging.AddFilter((category, level) => level >= CrashLogger.MinimumLogLevel);
         _ = logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
         _ = logging.AddFilter("Microsoft.Extensions.Http.DefaultHttpClientFactory", LogLevel.Warning);
         _ = logging.AddFilter("Microsoft.Hosting.Lifetime", LogLevel.Error);
@@ -242,6 +258,14 @@ OcrPipeline.SetLogger(host.Services.GetRequiredService<ILoggerFactory>().CreateL
 
 var debugOverlay = host.Services.GetRequiredService<DebugOverlayService>();
 dashboardService.SetReRunSetupTrigger(debugOverlay.RunInitialSetup);
+
+var bugReportLogger = host.Services.GetRequiredService<ILoggerFactory>().CreateLogger<BugReportService>();
+var ocrOptions = host.Services.GetRequiredService<IOptionsMonitor<OcrOptions>>();
+var bugReportService = new BugReportService(dashboardService, bugReportLogger, ocrOptions);
+dashboardService.SetBugReportTrigger(bugReportService.StartBugReportFlow);
+
+_ = host.Services.GetRequiredService<IOptionsMonitor<AppOptions>>()
+    .OnChange(opts => CrashLogger.MinimumLogLevel = opts.LogLevel);
 
 // Watch for translations.json changes so user edits take effect immediately
 var translator = host.Services.GetRequiredService<ItemNameTranslator>();

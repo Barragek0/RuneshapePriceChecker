@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json.Nodes;
+using Microsoft.Extensions.Logging;
 
 namespace RuneshapePriceChecker.Startup;
 
@@ -202,5 +203,38 @@ public static class AppSettingsBootstrapper
         node[newKey] = node[oldKey]!.DeepClone();
         _ = node.AsObject().Remove(oldKey);
         return true;
+    }
+
+    // If the app crashed or was closed during a bug report, a settings snapshot
+    // file (*-report-snapshot.*.json) may still exist in the config directory.
+    // Restore it over the active appsettings.json so the app starts with the
+    // original settings, not the diagnostic-mode settings left by the bug report.
+    public static void TryRecoverBugReportSnapshot()
+    {
+        try
+        {
+            var configDir = Path.Combine(AppContext.BaseDirectory, "config");
+            var configPath = Path.Combine(configDir, "appsettings.json");
+
+            var snapshots = Directory.GetFiles(configDir, "bug-report-snapshot.*.json")
+                .OrderByDescending(f => File.GetLastWriteTimeUtc(f))
+                .ToArray();
+
+            if (snapshots.Length == 0)
+                return;
+
+            // Restore the most recent snapshot
+            var snapshot = snapshots[0];
+            File.Copy(snapshot, configPath, overwrite: true);
+            File.Delete(snapshot);
+
+            // Clean up any older stale snapshots
+            for (var i = 1; i < snapshots.Length; i++)
+                try { File.Delete(snapshots[i]); } catch { }
+        }
+        catch
+        {
+            // Non-critical — the app will start with whatever settings exist.
+        }
     }
 }

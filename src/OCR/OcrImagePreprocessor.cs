@@ -61,7 +61,29 @@ internal static class OcrImagePreprocessor
             }
         }
 
-        // Second pass: build output bitmap from masked pixels
+        // Second pass: remove bright yellow pixels (the debug overlay's scan bracket
+        // lines) that survived the neighborhood keep but aren't game content. The
+        // overlay draws in RGB(255,255,0) at alpha 220 — these high-R, high-G, low-B
+        // pixels have no equivalent in the game UI (which uses desaturated colors), so
+        // the filter should be safe.
+        for (var y = 0; y < height; y++)
+        {
+            var srcRow = y * stride;
+            for (var x = 0; x < width; x++)
+            {
+                var si = srcRow + (x * 3);
+                var b = srcBytes[si];
+                var g = srcBytes[si + 1];
+                var r = srcBytes[si + 2];
+                if (r > 200 && g > 200 && b < 100)
+                {
+                    // Bright yellow — overlay scan bracket; exclude from keep mask
+                    keep[y * width + x] = 0;
+                }
+            }
+        }
+
+        // Third pass: build output bitmap from masked pixels
         var result = new Bitmap(width, height, PixelFormat.Format24bppRgb);
         var dstData = result.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
         var dstStride = dstData.Stride;

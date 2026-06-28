@@ -678,6 +678,25 @@
                                    FontSize="9"
                                    FontWeight="Bold"/>
                     </Border>
+                    <Button x:Name="BugReportBtn"
+                            Width="24"
+                            Height="24"
+                            Style="{StaticResource IconButtonStyle}"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Top"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Margin="0,6,100,0"
+                            AutomationProperties.Name="Report Bug"
+                            Click="BugReport_Click"
+                            ToolTip="Report Bug"
+                            ToolTipService.InitialShowDelay="500">
+                        <TextBlock Text="&#x1F41B;"
+                                   Foreground="{StaticResource TextSecondary}"
+                                   FontSize="14"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"/>
+                    </Button>
                     <Button x:Name="LogBtn"
                             Width="24"
                             Height="24"
@@ -691,7 +710,7 @@
                             Click="LogBtn_Click"
                             ToolTip="View Log"
                             ToolTipService.InitialShowDelay="500">
-                        <TextBlock Text="📋"
+                        <TextBlock Text="&#x1F4CB;"
                                    Foreground="{StaticResource TextSecondary}"
                                    FontSize="14"
                                    HorizontalAlignment="Center"
@@ -957,6 +976,130 @@
                             </Grid>
                         </Border>
 
+                        <!-- Bug report prompt panel -->
+                        <Border Grid.Row="1"
+                                x:Name="BugReportPromptSection"
+                                Background="Transparent"
+                                CornerRadius="0,0,10,10"
+                                Visibility="Collapsed">
+                            <Grid Margin="16,20">
+                                <!-- Reproduce state -->
+                                <StackPanel x:Name="BugReportReproducePanel"
+                                            VerticalAlignment="Center"
+                                            HorizontalAlignment="Center"
+                                            MaxWidth="380">
+                                    <TextBlock Text="Reproduce the bug"
+                                               Foreground="{StaticResource TextPrimary}"
+                                               FontSize="16"
+                                               FontWeight="Bold"
+                                               TextAlignment="Center"
+                                               Margin="0,0,0,8"/>
+                                    <TextBlock Text="Trace logging and debug features have been enabled. Switch to Path of Exile 2 and reproduce the issue you want to report. When you're ready, press Continue to collect the data."
+                                               Foreground="{StaticResource TextSecondary}"
+                                               FontSize="13"
+                                               TextWrapping="Wrap"
+                                               TextAlignment="Center"
+                                               Margin="0,0,0,20"/>
+                                    <Button x:Name="BugReportContinueButton"
+                                            Width="160"
+                                            Height="36"
+                                            Background="{StaticResource GreenBtnBrush}"
+                                            Foreground="White"
+                                            FontSize="14"
+                                            FontWeight="Bold"
+                                            BorderThickness="0"
+                                            IsEnabled="False"
+                                            Content="Continue"
+                                            Click="BugReportContinue_Click">
+                                        <Button.Style>
+                                            <Style TargetType="Button"
+                                                   BasedOn="{StaticResource {x:Type Button}}">
+                                                <Setter Property="Opacity"
+                                                        Value="1"/>
+                                                <Style.Triggers>
+                                                    <Trigger Property="IsEnabled"
+                                                             Value="False">
+                                                        <Setter Property="Opacity"
+                                                                Value="0.35"/>
+                                                    </Trigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
+                                    <Button x:Name="BugReportCancelButton"
+                                            Width="100"
+                                            Height="28"
+                                            Background="Transparent"
+                                            Foreground="{StaticResource TextSecondary}"
+                                            FontSize="12"
+                                            BorderThickness="0"
+                                            Content="Cancel"
+                                            Margin="0,12,0,0"
+                                            Click="BugReportCancel_Click"/>
+                                </StackPanel>
+
+                                <!-- Data collected state -->
+                                <StackPanel x:Name="BugReportDonePanel"
+                                            VerticalAlignment="Center"
+                                            HorizontalAlignment="Center"
+                                            MaxWidth="380"
+                                            Visibility="Collapsed">
+                                    <TextBlock Text="Data collected"
+                                               Foreground="{StaticResource GreenBrush}"
+                                               FontSize="16"
+                                               FontWeight="Bold"
+                                               TextAlignment="Center"
+                                               Margin="0,0,0,8"/>
+                                    <TextBlock Text="A GitHub issue page has been opened in your browser. The folder containing your bug report data has also been opened."
+                                               Foreground="{StaticResource TextSecondary}"
+                                               FontSize="13"
+                                               TextWrapping="Wrap"
+                                               TextAlignment="Center"
+                                               Margin="0,0,0,8"/>
+                                    <TextBlock x:Name="BugReportFileCountText"
+                                               Text=""
+                                               Foreground="{StaticResource TextPrimary}"
+                                               FontSize="13"
+                                               FontWeight="SemiBold"
+                                               TextWrapping="Wrap"
+                                               TextAlignment="Center"
+                                               Margin="0,0,0,4"/>
+                                    <TextBlock Foreground="{StaticResource AccentBrush}"
+                                               FontSize="13"
+                                               FontWeight="Bold"
+                                               TextWrapping="Wrap"
+                                               TextAlignment="Center"
+                                               Margin="0,0,0,16">
+                                        <Run x:Name="BugReportZipNameText"
+                                             Text=""/>
+                                    </TextBlock>
+                                    <TextBlock Text="Drag this .zip file from the folder into the GitHub issue to attach it. After you've finished, click Done to restore your settings."
+                                               Foreground="{StaticResource TextSecondary}"
+                                               FontSize="12"
+                                               TextWrapping="Wrap"
+                                               TextAlignment="Center"
+                                               Margin="0,0,0,12"/>
+                                    <TextBlock Text="🔒 No personal information is collected. Only app logs, crash reports, system info, and debug images are included."
+                                               Foreground="{StaticResource TextSecondary}"
+                                               FontSize="11"
+                                               Opacity="0.7"
+                                               TextWrapping="Wrap"
+                                               TextAlignment="Center"
+                                               Margin="0,0,0,20"/>
+                                    <Button x:Name="BugReportDoneButton"
+                                            Width="160"
+                                            Height="36"
+                                            Background="{StaticResource GreenBtnBrush}"
+                                            Foreground="White"
+                                            FontSize="14"
+                                            FontWeight="Bold"
+                                            BorderThickness="0"
+                                            Content="Done"
+                                            Click="BugReportDone_Click"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
                         <!-- Settings panel -->
                         <Border Grid.Row="1"
                                 x:Name="SettingsSection"
@@ -1093,8 +1236,9 @@
                                                                Foreground="#B8BEC6"
                                                                FontSize="13"
                                                                VerticalAlignment="Center"/>
-                                                    <TextBlock Style="{StaticResource WarningIcon}"
-                                                               ToolTip="Changing the log level will restart the app."/>
+                                                    <TextBlock Text="?"
+                                                               Style="{StaticResource TooltipIcon}"
+                                                               ToolTip="How much detail to show in the log window.&#10;&#10;Information (default): shows important events.&#10;Debug: shows extra details for troubleshooting.&#10;Trace: shows everything, use for bug reports."/>
                                                 </StackPanel>
                                                 <ComboBox x:Name="LogLevelCombo"
                                                           Width="130"
@@ -1156,9 +1300,16 @@
                                                                Foreground="#B8BEC6"
                                                                FontSize="13"
                                                                VerticalAlignment="Center"/>
-                                                    <TextBlock Style="{StaticResource TooltipIcon}"
+                                                    <TextBlock x:Name="PricingSourceTooltip"
+                                                               Style="{StaticResource TooltipIcon}"
                                                                ToolTip="poe2scout sources prices from the last 24 hours for better accuracy. poe.ninja uses only the latest listed price."
-                                                               VerticalAlignment="Center"/>
+                                                               VerticalAlignment="Center"
+                                                               Visibility="Visible"/>
+                                                    <TextBlock x:Name="PricingSourceWarning"
+                                                               Style="{StaticResource WarningIcon}"
+                                                               Foreground="{StaticResource AmberBrush}"
+                                                               ToolTip="poe.ninja prices can be wildly inaccurate — it only uses the very latest listed price for each item.&#10;&#10;poe2scout is strongly recommended for more reliable pricing, as it averages prices over the last 24 hours."
+                                                               Visibility="Collapsed"/>
                                                 </StackPanel>
                                                 <ComboBox x:Name="PricingSourceCombo"
                                                           Width="130"
@@ -1166,7 +1317,7 @@
                                                           Margin="14,0,0,0"
                                                           VerticalAlignment="Top"
                                                           IsEditable="False"
-                                                          SelectionChanged="ComboSetting_Changed"/>
+                                                          SelectionChanged="PricingSourceCombo_SelectionChanged"/>
                                             </StackPanel>
                                         </Grid>
 
@@ -2180,12 +2331,12 @@
 
                                                 <TextBlock Grid.Row="2"
                                                            Grid.Column="0"
-                                                           Text="Overlay FPS"
+                                                           Text="Anchor Hit"
                                                            Foreground="{StaticResource TextSecondary}"
                                                            FontSize="11"/>
                                                 <TextBlock Grid.Row="2"
                                                            Grid.Column="1"
-                                                           x:Name="DbgOverlayFps"
+                                                           x:Name="DbgAnchorHit"
                                                            Text="—"
                                                            Foreground="{StaticResource TextPrimary}"
                                                            FontSize="12"

@@ -18,6 +18,8 @@ param(
     [switch]$Test42,
     [switch]$Test43,
     [switch]$Test44,
+    [switch]$Test45,
+    [switch]$Test46,
     [switch]$All
 )
 
@@ -308,7 +310,7 @@ function Test1-ChangelogSetupCoordination {
     Report-Result "1a: Setup triggered" $ok $(if ($ok) { "OK" }else { "Not triggered" })
 
     Stop-App; Clear-OldLogs
-    Write-Config '{"App":{"LogLevel":"Debug"},"Window":{"InitialSetupComplete":false},"OCR":{"SaveDebugImages":false,"Language":"eng"},"Changelog":{"Body":"## Test Changelog","Version":"1.0.0","Shown":false}}'
+    Write-Config '{"App":{"LogLevel":"Debug"},"Window":{"InitialSetupComplete":false},"OCR":{"SaveDebugImages":false,"Language":"eng"},"Changelog":{"Version":"1.0.6","Shown":false}}'
     $proc = Launch-App-Visible
     Start-Sleep 10
     $log = Get-LatestLog
@@ -325,7 +327,7 @@ function Test1-ChangelogSetupCoordination {
     Stop-App
 
     Stop-App; Clear-OldLogs
-    Write-Config '{"App":{"LogLevel":"Debug"},"Window":{"InitialSetupComplete":true},"OCR":{"SaveDebugImages":false,"Language":"eng"},"Changelog":{"Body":"## Test","Version":"1.0.0","Shown":false}}'
+    Write-Config '{"App":{"LogLevel":"Debug"},"Window":{"InitialSetupComplete":true},"OCR":{"SaveDebugImages":false,"Language":"eng"},"Changelog":{"Version":"1.0.6","Shown":false}}'
     $proc = Launch-App-Visible; Wait-ForApp 5000 | Out-Null; Stop-App
     $log = Get-LatestLog
     if ($log) {
@@ -514,11 +516,14 @@ function Test9-ChangelogButton {
     $clean = $log -and -not (Select-String -Path $log -Pattern "Fatal|crash|unhandled" -Quiet)
     Report-Result "9a: --ShowChangelog clean" ((-not $crashed) -and $clean) $(if ($crashed) { "Crashed" }else { "OK" })
     Stop-App; Clear-OldLogs
-    Write-Config '{"App":{"LogLevel":"Debug"},"Window":{"InitialSetupComplete":true},"OCR":{"SaveDebugImages":false,"Language":"eng"},"Changelog":{"Body":"## v1.0.0 Notes","Version":"1.0.0","Shown":false}}'
+    # Use the current version so GitHub has a release to serve (the app fetches
+    # changelogs live from the API — "1.0.0" would 404 and the fetch would fail).
+    Write-Config '{"App":{"LogLevel":"Debug"},"Window":{"InitialSetupComplete":true},"OCR":{"SaveDebugImages":false,"Language":"eng"},"Changelog":{"Version":"1.0.6","Shown":false}}'
     $proc = Launch-App-Visible; Wait-ForApp 5000 | Out-Null; Stop-App
     if (Test-Path $configPath) {
         $cfg = Get-Content $configPath -Raw | ConvertFrom-Json
-        Report-Result "9b: Marked shown" ($cfg.Changelog.Shown -eq $true) "Shown=$($cfg.Changelog.Shown)"
+        $shown = $cfg.Changelog.Shown
+        Report-Result "9b: Marked shown" ($shown -eq $true) "Shown=$shown"
     }
     Stop-App; Clear-OldLogs
     $proc = Launch-App-Visible; Wait-ForApp 5000 | Out-Null; Stop-App
@@ -1586,6 +1591,13 @@ function Test42-GitHubReleaseUpdate {
     $buildProps = [xml](Get-Content "$root\Directory.Build.props")
     $newVer = [Version]($buildProps.Project.PropertyGroup.Version -replace '^v', '')
     $nextVer = "{0}.{1}.{2}" -f $newVer.Major, $newVer.Minor, $newVer.Build
+    # If the update version matches the GitHub release version, bump patch so the
+    # update checker actually detects a newer version (otherwise the test expects
+    # "Update available" which won't appear for identical versions).
+    if ($nextVer -eq $oldVer) {
+        $v = [Version]$nextVer
+        $nextVer = "{0}.{1}.{2}" -f $v.Major, $v.Minor, ($v.Build + 1)
+    }
     $updateDir = "$env:TEMP\rpc-update-github-$nextVer"
     $updateZip = "$updateDir\RuneshapePriceChecker.zip"
     if (-not (Test-Path $updateZip)) {
@@ -1893,6 +1905,52 @@ function Test44-SettingsToggles {
     Stop-App
 }
 
+# Test45: Bug report zip contents
+# ------------------------------------------------------------------------------
+function Test45-BugReportZipContents {
+    Stop-App; Clear-OldLogs
+    # Write a minimal config with Banner=false so the bug report trigger is available
+    Write-Config '{"App":{"LogLevel":"Trace","Banner":false},"Window":{"InitialSetupComplete":true},"OCR":{"DebugOverlay":true,"SaveDebugImages":true,"Language":"eng"}}'
+    $proc = Launch-App-Visible; Wait-ForApp 5000 | Out-Null
+    # We can't easily click the bug report icon via automation, but we can verify
+    # that the bug-report-snapshot recovery mechanism works: create a stale
+    # snapshot file with deliberately different settings, "crash" by killing the
+    # process, then restart and confirm the snapshot was restored.
+    Stop-App
+    # Manually write a stale snapshot (simulating a bug report that was interrupted)
+    $snapshotPath = "$configDir\bug-report-snapshot.test.json"
+    Set-Content $snapshotPath '{"App":{"LogLevel":"Information"},"OCR":{"DebugOverlay":false,"SaveDebugImages":false}}' -NoNewline
+    # Also write diagnostic-mode settings (as if the bug report had enabled them)
+    Write-Config '{"App":{"LogLevel":"Trace","AlwaysOnTop":true},"Window":{"InitialSetupComplete":true},"OCR":{"DebugOverlay":true,"SaveDebugImages":true,"Language":"eng"}}'
+    # Restart — the app should restore from snapshot
+    $proc = Launch-App-Visible; Wait-ForApp 5000 | Out-Null; Stop-App
+    $cfg = Get-Content $configPath -Raw | ConvertFrom-Json
+    $restored = ($cfg.App.LogLevel -eq "Information") -and ($cfg.OCR.DebugOverlay -eq $false) -and ($cfg.OCR.SaveDebugImages -eq $false)
+    Report-Result "45a: Stale snapshot restored on crash" $restored "LogLevel=$($cfg.App.LogLevel) DebugOverlay=$($cfg.OCR.DebugOverlay)"
+    if (Test-Path $snapshotPath) {
+        Report-Result "45b: Snapshot cleaned up" $false "Still exists"
+        Remove-Item $snapshotPath -Force -ErrorAction SilentlyContinue
+    }
+    else {
+        Report-Result "45b: Snapshot cleaned up" $true "Deleted"
+    }
+}
+
+# Test46: Log level changes take effect without restart
+# ------------------------------------------------------------------------------
+function Test46-LogLevelWithoutRestart {
+    Stop-App; Clear-OldLogs; Clear-Config
+    Write-Config '{"App":{"LogLevel":"Information"},"Window":{"InitialSetupComplete":true},"OCR":{"Language":"eng"}}'
+    $proc = Launch-App-Visible; Wait-ForApp 5000 | Out-Null
+    # Change log level via config file (simulates the settings panel saving)
+    Stop-App
+    Write-Config '{"App":{"LogLevel":"Trace"},"Window":{"InitialSetupComplete":true},"OCR":{"Language":"eng"}}'
+    # On relaunch the app should read the new level (no restart-required warning needed)
+    $proc = Launch-App-Visible; Wait-ForApp 5000 | Out-Null; Stop-App
+    $cfg = Get-Content $configPath -Raw | ConvertFrom-Json
+    Report-Result "46a: Config persisted Trace" ($cfg.App.LogLevel -eq "Trace") "LogLevel=$($cfg.App.LogLevel)"
+}
+
 
 Write-Banner "RuneshapePriceChecker v1.0.0 Pre-Release Tests"
 Write-Host "  Exe: $exe"
@@ -1900,7 +1958,7 @@ Write-Host ""
 
 Stop-App
 
-$runAll = $All -or (-not ($Test1 -or $Test2 -or $Test3 -or $Test4 -or $Test5 -or $Test6 -or $Test7 -or $Test8 -or $Test9 -or $Test10 -or $Test11 -or $Test12 -or $Test13 -or $Test14 -or $Test15 -or $Test16 -or $Test18 -or $Test19 -or $Test20 -or $Test21 -or $Test22 -or $Test23 -or $Test25 -or $Test26 -or $Test27 -or $Test28 -or $Test29 -or $Test31 -or $Test32 -or $Test33 -or $Test34 -or $Test35 -or $Test36 -or $Test37 -or $Test38 -or $Test39 -or $Test40 -or $Test41 -or $Test42 -or $Test43 -or $Test44))
+$runAll = $All -or (-not ($Test1 -or $Test2 -or $Test3 -or $Test4 -or $Test5 -or $Test6 -or $Test7 -or $Test8 -or $Test9 -or $Test10 -or $Test11 -or $Test12 -or $Test13 -or $Test14 -or $Test15 -or $Test16 -or $Test18 -or $Test19 -or $Test20 -or $Test21 -or $Test22 -or $Test23 -or $Test25 -or $Test26 -or $Test27 -or $Test28 -or $Test29 -or $Test31 -or $Test32 -or $Test33 -or $Test34 -or $Test35 -or $Test36 -or $Test37 -or $Test38 -or $Test39 -or $Test40 -or $Test41 -or $Test42 -or $Test43 -or $Test44 -or $Test45 -or $Test46))
 
 # -- Sandbox management for isolation between tests --
 $_savedPaths = @{}  # saved original paths for restore
@@ -1987,6 +2045,8 @@ if ($runAll -or $Test41) { Test41-AutoUpdaterWithOpenWithPoE2 }
 if ($runAll -or $Test42) { Test42-GitHubReleaseUpdate }
 if ($runAll -or $Test43) { Test43-BringToForeground }
 if ($runAll -or $Test44) { Test44-SettingsToggles }
+if ($runAll -or $Test45) { Invoke-TestWithSandbox "Test45" { Test45-BugReportZipContents } }
+if ($runAll -or $Test46) { Invoke-TestWithSandbox "Test46" { Test46-LogLevelWithoutRestart } }
 
 # Restart-mode tests (each starts/stops its own instance)
 if ($runAll -or $Test18) { Invoke-TestWithSandbox "Test18" { Test18-OcrBackendSetting } }

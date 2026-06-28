@@ -42,7 +42,7 @@ public sealed class OcrOptions
 
     // League panel detection thresholds
     [Range(0.0, 1.0)]
-    public double PanelLeftFraction { get; set; } = 0.40;
+    public double PanelLeftFraction { get; set; } = 0.30;
     [Range(0.0, 1.0)]
     public double PanelRightFraction { get; set; } = 0.98;
     [Range(0.0, 1.0)]

@@ -8,6 +8,16 @@ internal sealed class BannerForm : OverlayFormBase
 
     public void SetMessage(string? message)
     {
+        // Marshal to the UI thread to avoid a race between SetMessage (called from
+        // the worker thread) and OnPaint (UI thread).  Without this, the UI thread
+        // can read _message between the null check and the .Split('\n') call, causing
+        // a crash that silently terminates the process.
+        if (InvokeRequired)
+        {
+            _ = BeginInvoke(new Action<string?>(SetMessage), message);
+            return;
+        }
+
         _message = message;
         if (!IsDisposed && Visible)
             Invalidate();

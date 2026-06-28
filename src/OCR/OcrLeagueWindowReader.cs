@@ -59,6 +59,13 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         _metrics.Language = _detectedLanguage ?? _options.CurrentValue.Language;
         _metrics.OcrEngineMode = _options.CurrentValue.OcrEngineMode.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
+        // Seed debug-image tracking fields so that the first OnChange callback
+        // can detect actual changes vs the initial values.
+        var initial = _options.CurrentValue;
+        _lastDebugSaveEnabled = initial.SaveDebugImages;
+        _lastDebugImageInterval = initial.DebugImageIntervalSeconds;
+        _lastDebugImageDirectory = initial.DebugImageDirectory;
+
         // Listen for PoE2 config file changes (language, brightness, etc.)
         Poe2ConfigFile.ConfigChanged += OnPoe2ConfigChanged;
 
@@ -81,6 +88,19 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
             _lastOcrText = "";
             _lastOcrOptions = null;
             _runContext = _runContext with { FrameHash = 0 };
+
+            // When debug-image settings change (SaveDebugImages, interval, directory),
+            // reset the debug capture gate so the change takes effect immediately.
+            if (updated.SaveDebugImages != _lastDebugSaveEnabled ||
+                updated.DebugImageIntervalSeconds != _lastDebugImageInterval ||
+                !string.Equals(updated.DebugImageDirectory, _lastDebugImageDirectory, StringComparison.Ordinal))
+            {
+                _lastDebugImageSavedAtUtc = DateTimeOffset.MinValue;
+                _lastDebugFrameHash = 0;
+                _lastDebugSaveEnabled = updated.SaveDebugImages;
+                _lastDebugImageInterval = updated.DebugImageIntervalSeconds;
+                _lastDebugImageDirectory = updated.DebugImageDirectory;
+            }
         });
     }
 
@@ -109,6 +129,9 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
     private DateTimeOffset _lastDebugImageSavedAtUtc = DateTimeOffset.MinValue;
     private DateTime _lastPerfMetricsLogAt = DateTime.MinValue;
     private long _lastDebugFrameHash;
+    private bool _lastDebugSaveEnabled;
+    private int _lastDebugImageInterval;
+    private string _lastDebugImageDirectory = string.Empty;
     private readonly LeaguePanelDetector _listDetector;
     private readonly OcrPerfTiming _perf = new();
     private readonly DebugMetricsCollector _metrics;
@@ -447,6 +470,18 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         Rectangle? crop;
         using (_perf.Measure(OcrPerfTiming.Slot.PostProcess))
             crop = OcrImagePreprocessor.FindContentBounds(preprocessed);
+
+        // Shift the left edge of the scan region from the icon column to the
+        // panel text column, so rune icons don't inflate row widths and confuse
+        // the row detection.  The left yellow dashed line in the debug overlay marks
+        // this boundary.
+        if (crop.HasValue && preprocessed.Width > 0)
+        {
+            var textColX = (int)(preprocessed.Width * options.PanelLeftFraction);
+            var newX = Math.Max(crop.Value.X, textColX);
+            crop = new Rectangle(newX, crop.Value.Y,
+                Math.Max(1, crop.Value.Right - newX), crop.Value.Height);
+        }
 
         var debugDir = debugContext?.DirectoryPath;
         if (debugDir is not null)

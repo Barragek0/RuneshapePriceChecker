@@ -482,10 +482,11 @@ public sealed class DebugOverlayService(
             var scanLeft = (int)(boxWidth * _leftFraction);
             var scanRight = (int)(boxWidth * _rightFraction);
             var scanBottom = (int)(_frame.Height * _topRowFraction);
-            // Open-bottom bracket (two verticals + top horizontal) so the bottom line
-            // doesn't paint over the debug overlay text.
+            // Top horizontal + right vertical down to scanBottom, and left vertical
+            // extending the full height of the capture box so users can see the exact
+            // text-column boundary used for row detection.
             e.Graphics.DrawLine(ScanPen, scanLeft, 0, scanRight, 0);
-            e.Graphics.DrawLine(ScanPen, scanLeft, 0, scanLeft, scanBottom);
+            e.Graphics.DrawLine(ScanPen, scanLeft, 0, scanLeft, _frame.Height);
             e.Graphics.DrawLine(ScanPen, scanRight, 0, scanRight, scanBottom);
 
             var lines = _debugLines;

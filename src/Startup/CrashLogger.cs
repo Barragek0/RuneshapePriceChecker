@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
+using Microsoft.Extensions.Logging;
 
 namespace RuneshapePriceChecker.Startup;
 
@@ -11,6 +12,8 @@ internal static class CrashLogger
     private static readonly string LogDir = Path.Combine(AppContext.BaseDirectory, "logs");
     private static readonly object SyncLock = new();
     private static volatile bool _hasCrashed;
+
+    internal static volatile LogLevel MinimumLogLevel = LogLevel.Information;
 
     public static string GenerateCrashLogPath()
     {
