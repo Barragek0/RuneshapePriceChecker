@@ -592,12 +592,13 @@
                     <Border x:Name="UpdateBadge"
                             HorizontalAlignment="Right"
                             VerticalAlignment="Top"
-                            Margin="0,6,110,0"
-                            Padding="6,3"
+                            Margin="0,6,140,0"
+                            Height="24"
+                            Padding="8,0"
                             Background="{StaticResource DarkGreenBgBrush}"
                             BorderBrush="{StaticResource GreenBrush}"
                             BorderThickness="1"
-                            CornerRadius="6"
+                            CornerRadius="3"
                             Visibility="Collapsed"
                             Cursor="Hand"
                             SnapsToDevicePixels="True"
@@ -622,7 +623,8 @@
                                 Orientation="Horizontal"
                                 HorizontalAlignment="Right"
                                 VerticalAlignment="Top"
-                                Margin="0,6,110,0"
+                                Margin="0,6,140,0"
+                                Height="24"
                                 Visibility="Collapsed">
                         <Ellipse Width="16"
                                  Height="16"
@@ -1363,6 +1365,11 @@
                                                                    Text="Trade Volume Warning"
                                                                    Margin="0,0,0,0"
                                                                    VerticalAlignment="Center"/>
+                                                        <TextBlock x:Name="TradeVolumePoeNinjaWarning"
+                                                                   Style="{StaticResource WarningIcon}"
+                                                                   Foreground="{StaticResource RedBrush}"
+                                                                   ToolTip="Trade volume warnings only work with poe2scout as the pricing source."
+                                                                   Visibility="Collapsed"/>
                                                     </StackPanel>
                                                     <StackPanel Orientation="Horizontal">
                                                         <CheckBox x:Name="TradeVolumeCheck"

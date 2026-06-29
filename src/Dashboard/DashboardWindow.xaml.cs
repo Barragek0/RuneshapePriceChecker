@@ -2287,6 +2287,16 @@ public sealed partial class DashboardWindow : Window
             PricingSourceCombo.SelectedItem as string, "poe.ninja", StringComparison.OrdinalIgnoreCase);
         PricingSourceWarning.Visibility = isPoeNinja ? Visibility.Visible : Visibility.Collapsed;
         PricingSourceTooltip.Visibility = isPoeNinja ? Visibility.Collapsed : Visibility.Visible;
+
+        // Disable and dim trade volume controls when poe.ninja is selected (not supported)
+        var tvOpacity = isPoeNinja ? 0.35 : 1.0;
+        TradeVolumeCheck.IsEnabled = !isPoeNinja;
+        TradeVolumeCheck.Opacity = tvOpacity;
+        TradeVolumeMatchColorCheck.IsEnabled = !isPoeNinja;
+        TradeVolumeMatchColorCheck.Opacity = tvOpacity;
+        TradeVolumeBannerCheck.IsEnabled = !isPoeNinja;
+        TradeVolumeBannerCheck.Opacity = tvOpacity;
+        TradeVolumePoeNinjaWarning.Visibility = isPoeNinja ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void PopulateLogLevelCombo()
