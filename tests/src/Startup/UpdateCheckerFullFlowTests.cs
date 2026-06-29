@@ -182,9 +182,7 @@ public class UpdateCheckerFullFlowTests
 
         var updateOptions = Options.Create(new UpdateOptions
         {
-            AutoUpdate = true,
-            GitHubRepoOwner = "Barragek0",
-            GitHubRepoName = "RuneshapePriceChecker"
+            AutoUpdate = true
         });
 
         var appOptions = new StaticOptionsMonitor<AppOptions>(new AppOptions());

@@ -138,9 +138,7 @@ public sealed class ErrorHandlingTests
             {
                 PricingSource = "poe.ninja",
                 League = "Settlers",
-                IncludedTypes = ["Currency"],
                 DisplayCurrency = "chaos",
-                RefreshInterval = TimeSpan.FromMinutes(10),
                 RedThreshold = 0.5m,
                 OrangeThreshold = 1m,
                 GreenThreshold = 5m
@@ -160,9 +158,7 @@ public sealed class ErrorHandlingTests
             {
                 PricingSource = "poe.ninja",
                 League = "Settlers",
-                IncludedTypes = ["Currency"],
                 DisplayCurrency = "chaos",
-                RefreshInterval = TimeSpan.FromMinutes(10),
                 RedThreshold = 0.5m,
                 OrangeThreshold = 1m,
                 GreenThreshold = 5m
@@ -251,9 +247,7 @@ public sealed class ErrorHandlingTests
             {
                 PricingSource = "poe.ninja",
                 League = "Settlers",
-                IncludedTypes = ["Currency"],
                 DisplayCurrency = "chaos",
-                RefreshInterval = TimeSpan.FromMinutes(10),
                 RedThreshold = 0.5m,
                 OrangeThreshold = 1m,
                 GreenThreshold = 5m
@@ -308,9 +302,7 @@ public sealed class ErrorHandlingTests
         {
             PricingSource = "poe.ninja",
             League = "Settlers",
-            IncludedTypes = ["Currency"],
             DisplayCurrency = "chaos",
-            RefreshInterval = TimeSpan.FromHours(1),
             RedThreshold = 0.5m,
             OrangeThreshold = 1m,
             GreenThreshold = 5m

@@ -17,15 +17,6 @@ public class ChangelogWiringTests
     }
 
     [Fact]
-    public void UpdateOptions_HasGitHubApiBaseUrl()
-    {
-        var type = Type.GetType("RuneshapePriceChecker.Startup.UpdateOptions, RuneshapePriceChecker");
-        Assert.NotNull(type);
-        var prop = type!.GetProperty("GitHubApiBaseUrl");
-        Assert.NotNull(prop);
-    }
-
-    [Fact]
     public void UpdateChecker_HasWriteChangelogMethod()
     {
         var type = Type.GetType("RuneshapePriceChecker.Startup.UpdateChecker, RuneshapePriceChecker");

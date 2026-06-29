@@ -14,7 +14,7 @@ public class PoeNinjaClientStashTests
     public async Task FetchPrices_WithStashEndpoint_DoesNotThrow()
     {
         using var handler = new MockHttpHandler();
-        handler.AddResponse("/api/poe2/economy/stash/current/item/overview?league=Standard&type=UniqueAccessories",
+        handler.AddResponse("/poe2/api/economy/stash/current/item/overview?league=Standard&type=UniqueAccessories",
             new { lines = Array.Empty<object>() });
 
 #pragma warning disable CA2000 // HttpClient ownership transfers to PoeNinjaClient
@@ -22,10 +22,7 @@ public class PoeNinjaClientStashTests
 #pragma warning restore CA2000
         var options = Options.Create(new PricingCacheOptions
         {
-            PoeNinjaBaseUrl = "https://poe.ninja",
-            League = "Standard",
-            IncludedTypes = ["UniqueAccessories"],
-            StashItemOverviewPath = "api/poe2/economy/stash/current/item/overview"
+            League = "Standard"
         });
         using var loggerFactory = new LoggerFactory();
         var logger = loggerFactory.CreateLogger<PoeNinjaClient>();
@@ -39,7 +36,7 @@ public class PoeNinjaClientStashTests
     public async Task FetchPrices_ServerError_ReturnsEmptySnapshot()
     {
         using var handler = new MockHttpHandler();
-        handler.AddErrorResponse("/api/poe2/economy/stash/current/item/overview?league=Standard&type=UniqueAccessories",
+        handler.AddErrorResponse("/poe2/api/economy/stash/current/item/overview?league=Standard&type=UniqueAccessories",
             HttpStatusCode.InternalServerError);
 
 #pragma warning disable CA2000 // HttpClient ownership transfers to PoeNinjaClient
@@ -47,10 +44,7 @@ public class PoeNinjaClientStashTests
 #pragma warning restore CA2000
         var options = Options.Create(new PricingCacheOptions
         {
-            PoeNinjaBaseUrl = "https://poe.ninja",
-            League = "Standard",
-            IncludedTypes = ["UniqueAccessories"],
-            StashItemOverviewPath = "api/poe2/economy/stash/current/item/overview"
+            League = "Standard"
         });
         using var loggerFactory = new LoggerFactory();
         var logger = loggerFactory.CreateLogger<PoeNinjaClient>();

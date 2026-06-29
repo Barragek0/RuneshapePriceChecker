@@ -426,12 +426,12 @@ public sealed class MultiLanguageWorkerTests
     }
 #pragma warning restore CA2000
 
-    private static string? InvokeBuildUnpriceableBanner(string[] names, ItemNameTranslator? translator = null)
+    private static string? InvokeBuildUnpriceableBanner(string[] names, ItemNameTranslator? translator = null, string pricingSource = "poe2scout")
     {
         var method = typeof(LeaguePricingWorker).GetMethod("BuildUnpriceableBanner",
             BindingFlags.NonPublic | BindingFlags.Static);
         if (method is null) return null;
-        return method.Invoke(null, [names, translator]) as string;
+        return method.Invoke(null, [names, pricingSource, translator]) as string;
     }
 
     [Fact]

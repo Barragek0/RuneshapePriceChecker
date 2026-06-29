@@ -6,13 +6,6 @@ namespace RuneshapePriceChecker.Tests.Configuration;
 public class PricingCacheOptionsTests
 {
     [Fact]
-    public void Default_RefreshInterval_Is15Minutes()
-    {
-        var options = new PricingCacheOptions();
-        Assert.Equal(15, options.RefreshInterval.TotalMinutes);
-    }
-
-    [Fact]
     public void Default_League_IsRunesOfAldur()
     {
         var options = new PricingCacheOptions();

@@ -40,9 +40,8 @@ public class ConsoleOverlayRendererTests
     public void ComputeOverlayScale_ScalesByWindowHeight(int clientHeight, float expectedScale)
     {
         var resolver = new FakeResolutionProvider(clientHeight);
-        var appOpts = new FakeAppOptionsMonitor(null);
 
-        var scale = PricingOverlayRenderer.ComputeOverlayScale(resolver, appOpts);
+        var scale = PricingOverlayRenderer.ComputeOverlayScale(resolver, null);
 
         Assert.Equal(expectedScale, scale, precision: 2);
     }
@@ -51,9 +50,8 @@ public class ConsoleOverlayRendererTests
     public void ComputeOverlayScale_Returns1_WhenNoWindowContext()
     {
         var resolver = new FakeResolutionProvider(null);
-        var appOpts = new FakeAppOptionsMonitor(null);
 
-        var scale = PricingOverlayRenderer.ComputeOverlayScale(resolver, appOpts);
+        var scale = PricingOverlayRenderer.ComputeOverlayScale(resolver, null);
 
         Assert.Equal(1f, scale);
     }
@@ -67,9 +65,8 @@ public class ConsoleOverlayRendererTests
     public void ComputeOverlayScale_RespectsManualOverride(float overrideValue, float expectedScale)
     {
         var resolver = new FakeResolutionProvider(1080);
-        var appOpts = new FakeAppOptionsMonitor(overrideValue);
 
-        var scale = PricingOverlayRenderer.ComputeOverlayScale(resolver, appOpts);
+        var scale = PricingOverlayRenderer.ComputeOverlayScale(resolver, overrideValue);
 
         Assert.Equal(expectedScale, scale, precision: 2);
     }
@@ -88,17 +85,4 @@ public class ConsoleOverlayRendererTests
         public bool IsPoe2WindowForeground => false;
     }
 
-    private sealed class FakeAppOptionsMonitor(float? overlayScale) : IOptionsMonitor<AppOptions>
-    {
-        public AppOptions CurrentValue => new() { OverlayScale = overlayScale };
-        public AppOptions Get(string? name)
-        {
-            return CurrentValue;
-        }
-
-        public IDisposable? OnChange(Action<AppOptions, string?> listener)
-        {
-            return null;
-        }
-    }
 }

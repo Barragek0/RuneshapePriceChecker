@@ -13,8 +13,7 @@ public class PriceRowLayoutTests
         OrangeThreshold = 20m,
         GreenThreshold = 50m,
         League = "Standard",
-        PricingSource = "test",
-        RefreshInterval = TimeSpan.Zero
+        PricingSource = "test"
     };
 
     private static readonly string[] ChaosOrbItem = ["1x Chaos Orb"];

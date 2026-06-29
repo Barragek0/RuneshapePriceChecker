@@ -13,7 +13,7 @@ public class PoeNinjaClientTests
     public async Task FetchPrices_EmptyLines_ReturnsEmptySnapshot()
     {
         using var handler = new MockHttpHandler();
-        handler.AddResponse("/api/poe2/economy/exchange/current/overview?league=Standard&type=Currency",
+        handler.AddResponse("/poe2/api/economy/exchange/current/overview?league=Standard&type=Currency",
             new { lines = Array.Empty<object>() });
 
         var client = CreateClient(handler);
@@ -27,7 +27,7 @@ public class PoeNinjaClientTests
     public async Task FetchPrices_WithCurrencyLines_ParsesChaosEquivalent()
     {
         using var handler = new MockHttpHandler();
-        handler.AddResponse("/api/poe2/economy/exchange/current/overview?league=Standard&type=Currency",
+        handler.AddResponse("/poe2/api/economy/exchange/current/overview?league=Standard&type=Currency",
             new
             {
                 lines = new[]
@@ -47,7 +47,7 @@ public class PoeNinjaClientTests
     public async Task FetchPrices_DifferentLeague_EncodedCorrectly()
     {
         using var handler = new MockHttpHandler();
-        handler.AddResponse("/api/poe2/economy/exchange/current/overview?league=Runes%20of%20Aldur&type=Currency",
+        handler.AddResponse("/poe2/api/economy/exchange/current/overview?league=Runes%20of%20Aldur&type=Currency",
             new { lines = Array.Empty<object>() });
 
 #pragma warning disable CA2000 // HttpClient ownership transfers to PoeNinjaClient
@@ -55,11 +55,7 @@ public class PoeNinjaClientTests
 #pragma warning restore CA2000
         var options = Options.Create(new PricingCacheOptions
         {
-            PoeNinjaBaseUrl = "https://poe.ninja",
-            League = "Runes of Aldur",
-            IncludedTypes = ["Currency"],
-            ExchangeOverviewPath = "api/poe2/economy/exchange/current/overview",
-            StashItemOverviewPath = "api/poe2/economy/stash/current/item/overview"
+            League = "Runes of Aldur"
         });
         using var loggerFactory = new LoggerFactory();
         var logger = loggerFactory.CreateLogger<PoeNinjaClient>();
@@ -75,11 +71,7 @@ public class PoeNinjaClientTests
         var httpClient = new HttpClient(handler);
         var options = Options.Create(new PricingCacheOptions
         {
-            PoeNinjaBaseUrl = "https://poe.ninja",
-            League = "Standard",
-            IncludedTypes = ["Currency"],
-            ExchangeOverviewPath = "api/poe2/economy/exchange/current/overview",
-            StashItemOverviewPath = "api/poe2/economy/stash/current/item/overview"
+            League = "Standard"
         });
         var logger = new LoggerFactory().CreateLogger<PoeNinjaClient>();
         return new PoeNinjaClient(httpClient, new NinjaOptionsMonitor<PricingCacheOptions>(options), logger);

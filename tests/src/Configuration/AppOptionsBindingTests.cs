@@ -58,19 +58,6 @@ public class AppOptionsBindingTests
     }
 
     [Fact]
-    public void PricingCacheOptions_BindsRefreshInterval()
-    {
-        var config = BuildConfig(new Dictionary<string, string?>
-        {
-            ["PricingCache:RefreshInterval"] = "00:30:00"
-        });
-
-        var options = config.GetSection("PricingCache").Get<PricingCacheOptions>();
-        Assert.NotNull(options);
-        Assert.Equal(30, options!.RefreshInterval.TotalMinutes);
-    }
-
-    [Fact]
     public void PricingCacheOptions_BindsThresholds()
     {
         var config = BuildConfig(new Dictionary<string, string?>
@@ -85,23 +72,6 @@ public class AppOptionsBindingTests
         Assert.Equal(0.5m, options!.RedThreshold);
         Assert.Equal(2.0m, options.OrangeThreshold);
         Assert.Equal(10.0m, options.GreenThreshold);
-    }
-
-    [Fact]
-    public void UpdateOptions_BindsGitHubRepos()
-    {
-        var config = BuildConfig(new Dictionary<string, string?>
-        {
-            ["Update:GitHubRepoOwner"] = "TestOwner",
-            ["Update:GitHubRepoName"] = "TestRepo",
-            ["Update:AutoUpdate"] = "false"
-        });
-
-        var options = config.GetSection("Update").Get<UpdateOptions>();
-        Assert.NotNull(options);
-        Assert.Equal("TestOwner", options!.GitHubRepoOwner);
-        Assert.Equal("TestRepo", options.GitHubRepoName);
-        Assert.False(options.AutoUpdate);
     }
 
     [Fact]

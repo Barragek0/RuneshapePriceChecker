@@ -140,11 +140,11 @@ public class LeaguePricingWorkerTests
         Assert.Contains("can't be priced", result!, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string? InvokeBuildUnpriceableBanner(string[] names)
+    private static string? InvokeBuildUnpriceableBanner(string[] names, string pricingSource = "poe2scout")
     {
         var method = typeof(LeaguePricingWorker).GetMethod("BuildUnpriceableBanner",
             BindingFlags.NonPublic | BindingFlags.Static);
         if (method is null) return null;
-        return method.Invoke(null, [names, null]) as string;
+        return method.Invoke(null, [names, pricingSource, null]) as string;
     }
 }
