@@ -182,7 +182,7 @@ internal sealed class BugReportService
     private static string PrepareOutputDirectory()
     {
         var reportsDir = Path.Combine(AppContext.BaseDirectory, "logs", "bug-reports");
-        Directory.CreateDirectory(reportsDir);
+        _ = Directory.CreateDirectory(reportsDir);
 
         // Keep last 5 bug-reports
         foreach (var stale in Directory.GetDirectories(reportsDir)
@@ -193,7 +193,7 @@ internal sealed class BugReportService
 
         var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
         var dir = Path.Combine(reportsDir, $"bug-report-{stamp}");
-        Directory.CreateDirectory(dir);
+        _ = Directory.CreateDirectory(dir);
 
         // If this exact path already existed (same-second collision), empty it first.
         foreach (var f in Directory.GetFiles(dir))
@@ -310,7 +310,7 @@ internal sealed class BugReportService
         body.AppendLine("Drag and drop the .zip file the app gave you here");
 
         var bodyEncoded = Uri.EscapeDataString(body.ToString());
-        return $"https://github.com/{GitHubRepo}/issues/new?title={title}&body={bodyEncoded}";
+        return $"https://github.com/{GitHubRepo}/issues/new?title={title}&body={bodyEncoded}&assignees=Barragek0&labels=bug";
     }
 
     private static void OpenFolderInExplorer(string directory)

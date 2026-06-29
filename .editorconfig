@@ -40,13 +40,12 @@ dotnet_diagnostic.IDE0041.severity = warning  # Use 'is null' check
 dotnet_diagnostic.IDE0042.severity = warning  # Deconstruct variable declaration
 dotnet_diagnostic.IDE0044.severity = warning  # Make field readonly
 dotnet_diagnostic.IDE0047.severity = warning  # Remove unnecessary parentheses
-dotnet_diagnostic.IDE0048.severity = warning  # Add accessibility modifiers
+dotnet_diagnostic.IDE0048.severity = warning  # Parentheses should be added for clarity
 dotnet_diagnostic.IDE0051.severity = warning  # Remove unused private members
 dotnet_diagnostic.IDE0052.severity = warning  # Remove unread private members
 dotnet_diagnostic.IDE0055.severity = warning  # Fix formatting
 dotnet_diagnostic.IDE0056.severity = warning  # Use index operator
 dotnet_diagnostic.IDE0057.severity = warning  # Use range operator
-dotnet_diagnostic.IDE0058.severity = warning  # Remove unused expression value
 dotnet_diagnostic.IDE0059.severity = warning  # Remove unnecessary value assignment
 dotnet_diagnostic.IDE0061.severity = warning  # Expression body for local functions
 dotnet_diagnostic.IDE0062.severity = warning  # Make local function static
@@ -67,6 +66,7 @@ dotnet_diagnostic.IDE0078.severity = warning  # Use pattern matching
 dotnet_diagnostic.IDE0079.severity = warning  # Remove unnecessary suppression
 dotnet_diagnostic.IDE0080.severity = warning  # Remove unnecessary suppression
 dotnet_diagnostic.IDE0082.severity = warning  # Convert typeof to nameof
+dotnet_diagnostic.CA1305.severity = warning  # Specify IFormatProvider
 dotnet_diagnostic.IDE0090.severity = warning  # Use 'new(...)'
 dotnet_diagnostic.IDE0091.severity = warning  # Use 'Equals' instead of 'ReferenceEquals'
 dotnet_diagnostic.IDE0100.severity = warning  # Remove unnecessary equality operator
@@ -100,6 +100,9 @@ dotnet_diagnostic.IDE0305.severity = warning  # Use collection expression
 dotnet_diagnostic.IDE1005.severity = warning  # Use conditional delegate call
 dotnet_diagnostic.IDE2000.severity = warning  # Use blank line to separate statements
 dotnet_diagnostic.IDE2001.severity = warning  # Use embedded statement
+
+dotnet_diagnostic.CS1591.severity = none      # Missing XML comment — enabled when GenerateDocumentationFile=true, codebase doesn't use XML docs
+dotnet_diagnostic.CA1848.severity = none      # Use LoggerMessage delegates
 
 # CA diagnostics
 

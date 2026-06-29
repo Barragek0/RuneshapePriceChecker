@@ -7,7 +7,6 @@ public sealed class OcrOptions
     public string TesseractDataPath { get; set; } = string.Empty;
     [Required]
     public string Language { get; set; } = "eng";
-    public bool UseWindowClientCapture { get; set; } = true;
     public bool EnableImagePreprocessing { get; set; } = true;
     [Range(0, 255)]
     public int BinarizationThreshold { get; set; } = 145;
@@ -39,6 +38,9 @@ public sealed class OcrOptions
     public int ScanIntervalMs { get; set; } = 100;
     public bool BypassOcrCache { get; set; }
     public int PerfMetricsInterval { get; set; }
+
+    // Overlay scale (auto when null, manual override when set)
+    public float? OverlayScale { get; set; }
 
     // League panel detection thresholds
     [Range(0.0, 1.0)]

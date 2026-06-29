@@ -6,7 +6,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <NoWarn>$(NoWarn);CA1707;xUnit2002;xUnit1026;xUnit1031;IDE0060;CA1873</NoWarn>
+    <NoWarn>$(NoWarn);CA1707;xUnit2002;xUnit1026;xUnit1031;IDE0060;CA1873;CA2201</NoWarn>
     <IsTestProject>true</IsTestProject>
     <AssemblyName>RuneshapePriceChecker.Tests</AssemblyName>
   </PropertyGroup>

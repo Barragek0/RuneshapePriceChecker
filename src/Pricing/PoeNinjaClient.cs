@@ -5,7 +5,6 @@ using RuneshapePriceChecker.Configuration;
 using RuneshapePriceChecker.Contracts;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using StructLinq;
 
 namespace RuneshapePriceChecker.Pricing;
 
@@ -15,6 +14,20 @@ public sealed class PoeNinjaClient(HttpClient httpClient, IOptionsMonitor<Pricin
     private static readonly Regex NonAlphaNumeric = new("[^A-Za-z0-9]+", RegexOptions.Compiled);
     private const string DivineOrbKey = "DIVINE ORB";
     private const string ExaltedOrbKey = "EXALTED ORB";
+    private const string PoeNinjaBaseUrl = "https://poe.ninja";
+    private const string ExchangeOverviewPath = "/poe2/api/economy/exchange/current/overview";
+    private const string StashItemOverviewPath = "/poe2/api/economy/stash/current/item/overview";
+    private static readonly string[] DefaultIncludedTypes =
+    [
+        "Currency",
+        "Expedition",
+        "UncutGems",
+        "Runes",
+        "Verisium",
+        "UniqueWeapons",
+        "UniqueArmours",
+        "UniqueAccessories"
+    ];
 
     public async Task<PricingSnapshot> FetchPricesAsync(string league, CancellationToken cancellationToken)
     {
@@ -25,13 +38,12 @@ public sealed class PoeNinjaClient(HttpClient httpClient, IOptionsMonitor<Pricin
         decimal currencyMaxChaos = 0m;
 
         var encodedLeague = Uri.EscapeDataString(pricingOptions.League);
-        var typesToFetch = GetDistinctTrimmed(pricingOptions.IncludedTypes);
 
-        var baseUri = new Uri(pricingOptions.PoeNinjaBaseUrl, UriKind.Absolute);
+        var baseUri = new Uri(PoeNinjaBaseUrl, UriKind.Absolute);
 
-        foreach (var type in typesToFetch)
+        foreach (var type in DefaultIncludedTypes)
         {
-            var endpoint = GetEndpointForType(type, pricingOptions);
+            var endpoint = GetEndpointForType(type);
             var encodedType = Uri.EscapeDataString(type);
             var requestPath = $"/{endpoint}?league={encodedLeague}&type={encodedType}";
             for (var attempt = 0; attempt < 3; attempt++)
@@ -136,24 +148,12 @@ public sealed class PoeNinjaClient(HttpClient httpClient, IOptionsMonitor<Pricin
         return new PricingSnapshot(exactPrices, uniqueCategoryRanges, divineOrbChaosValue, exaltedOrbChaosValue, currencyMinChaos, currencyMaxChaos);
     }
 
-    private static string[] GetDistinctTrimmed(string[] types)
-    {
-        return types
-            .ToStructEnumerable()
-            .Select(t => t?.Trim() ?? string.Empty)
-            .Where(t => t.Length > 0, _ => _)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-    }
 
-    private static string GetEndpointForType(string type, PricingCacheOptions options)
+    private static string GetEndpointForType(string type)
     {
         if (type.StartsWith("Unique", StringComparison.OrdinalIgnoreCase))
-        {
-            return options.StashItemOverviewPath.TrimStart('/');
-        }
-
-        return options.ExchangeOverviewPath.TrimStart('/');
+            return StashItemOverviewPath.TrimStart('/');
+        return ExchangeOverviewPath.TrimStart('/');
     }
 
     private static bool TryExtractPrice(JsonElement line, decimal primaryToChaosMultiplier, out decimal chaosPrice)

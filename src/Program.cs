@@ -167,8 +167,6 @@ var host = Host.CreateDefaultBuilder(args)
             .Validate(options =>
                 !string.IsNullOrWhiteSpace(options.PricingSource) &&
                 !string.IsNullOrWhiteSpace(options.League) &&
-                options.IncludedTypes is { Length: > 0 } &&
-                options.RefreshInterval > TimeSpan.Zero &&
                 options.RedThreshold >= 0m &&
                 options.OrangeThreshold > options.RedThreshold &&
                 options.GreenThreshold > options.OrangeThreshold &&
@@ -222,6 +220,7 @@ var host = Host.CreateDefaultBuilder(args)
 
         _ = services.AddHostedService(sp => sp.GetRequiredService<Poe2WindowResolutionService>());
         _ = services.AddHostedService<SettingsController>();
+        _ = services.AddSingleton<BannerService>();
         _ = services.AddSingleton<DebugOverlayService>();
         _ = services.AddHostedService(sp => sp.GetRequiredService<DebugOverlayService>());
         _ = services.AddHostedService<PricingCacheRefreshWorker>();

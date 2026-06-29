@@ -65,6 +65,7 @@
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.8" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.8" />
     <PackageReference Include="StructLinq" Version="0.19.1" />
+    <PackageReference Include="System.Management" Version="9.0.3" />
     <PackageReference Include="Tesseract" Version="5.2.0" />
   </ItemGroup>
 

@@ -21,6 +21,9 @@ internal sealed class UpdateChecker(
     DashboardService dashboard,
     IHttpClientFactory httpClientFactory) : IHostedService
 {
+    private const string GitHubApiBaseUrl = "https://api.github.com";
+    private const string GitHubRepoOwner = "Barragek0";
+    private const string GitHubRepoName = "RuneshapePriceChecker";
     private string? _downloadUrl;
     private string? _localZipPath;
     private string? _changelogVersion;
@@ -62,9 +65,8 @@ internal sealed class UpdateChecker(
         logger.LogWarning("Found broken v1.0.0 self-contained updater. Repairing...");
         try
         {
-            var opts = updateOptions.Value;
             var latest = await FetchLatestReleaseWithRetryAsync(
-                opts.GitHubRepoOwner, opts.GitHubRepoName, opts.IgnorePrereleases);
+                GitHubRepoOwner, GitHubRepoName, updateOptions.Value.IgnorePrereleases);
             if (latest is null) return;
             var zipAsset = latest.Assets?.FirstOrDefault(a =>
                 a.Name?.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) == true &&
@@ -179,7 +181,7 @@ internal sealed class UpdateChecker(
         GitHubRelease? latest;
         try
         {
-            latest = await FetchLatestReleaseWithRetryAsync(opts.GitHubRepoOwner, opts.GitHubRepoName, opts.IgnorePrereleases);
+            latest = await FetchLatestReleaseWithRetryAsync(GitHubRepoOwner, GitHubRepoName, opts.IgnorePrereleases);
         }
         catch (OperationCanceledException)
         {
@@ -472,8 +474,7 @@ internal sealed class UpdateChecker(
     {
         using var http = httpClientFactory.CreateClient("GitHub");
 
-        var baseUrl = updateOptions.Value.GitHubApiBaseUrl;
-        var url = $"{baseUrl}/repos/{owner}/{repo}/releases?per_page=10";
+        var url = $"{GitHubApiBaseUrl}/repos/{owner}/{repo}/releases?per_page=10";
 
         var response = await http.GetAsync(url);
         LogRateLimitHeaders(response);
@@ -695,10 +696,6 @@ internal sealed class UpdateOptions
 {
     public bool AutoUpdate { get; set; } = true;
     public bool IgnorePrereleases { get; set; }
-    public string GitHubApiBaseUrl { get; set; } = "https://api.github.com";
-    public string GitHubRepoOwner { get; set; } = "Barragek0";
-    public string GitHubRepoName { get; set; } = "RuneshapePriceChecker";
-
     public string? GithubToken { get; set; }
 }
 

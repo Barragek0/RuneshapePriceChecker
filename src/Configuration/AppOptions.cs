@@ -15,5 +15,4 @@ public sealed class AppOptions
     public bool AllOverlaysDisabled { get; set; }
     public bool PricingOverlay { get; set; } = true;
     public bool Banner { get; set; } = true;
-    public float? OverlayScale { get; set; }
 }

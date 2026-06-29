@@ -58,9 +58,7 @@ public sealed class PricingCacheRefreshWorker(
                 _lastLeague = _options.CurrentValue.League;
                 logger.LogInformation("Pricing cache refreshed at {Timestamp} (lang={Lang})", DateTimeOffset.UtcNow, gameLang);
 
-                delay = _options.CurrentValue.RefreshInterval;
-                if (delay <= TimeSpan.Zero)
-                    delay = TimeSpan.FromMinutes(10);
+                delay = TimeSpan.FromMinutes(15);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
