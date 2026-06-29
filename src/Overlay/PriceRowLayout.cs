@@ -32,7 +32,7 @@ internal static class PriceRowLayout
         return entries;
     }
 
-    private static IReadOnlyList<OverlayTextSegment> BuildSegments(PriceQuote quote, PricingCacheOptions pricing)
+    private static List<OverlayTextSegment> BuildSegments(PriceQuote quote, PricingCacheOptions pricing)
     {
         var fallbackColor = PriceColorCalculator.TryParseDisplayedChaosEquivalent(quote.Label, pricing, out var parsedDisplayValue)
             ? PriceColorCalculator.GetPriceColor(parsedDisplayValue, pricing)
@@ -43,6 +43,7 @@ internal static class PriceRowLayout
         {
             VolumeLevel.VeryLow => Color.FromArgb(255, 255, 72, 72),   // red
             VolumeLevel.Low => Color.FromArgb(255, 255, 196, 54),       // yellow
+            VolumeLevel.Normal => Color.Transparent,
             _ => Color.Transparent
         };
 

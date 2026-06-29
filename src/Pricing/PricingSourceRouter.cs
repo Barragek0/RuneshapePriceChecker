@@ -16,8 +16,7 @@ public sealed class PricingSourceRouter(
         get
         {
             var isPoe2Scout = string.Equals(options.CurrentValue.PricingSource, "poe2scout", StringComparison.OrdinalIgnoreCase);
-            if (logger is not null)
-                logger.LogDebug("Pricing source resolved: {Source}", isPoe2Scout ? "poe2scout" : "poe.ninja");
+            logger?.LogDebug("Pricing source resolved: {Source}", isPoe2Scout ? "poe2scout" : "poe.ninja");
             return isPoe2Scout
                 ? serviceProvider.GetRequiredService<Poe2ScoutClient>()
                 : serviceProvider.GetRequiredService<PoeNinjaClient>();

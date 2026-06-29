@@ -8,7 +8,6 @@ internal sealed class BannerBoxForm : OverlayFormBase
 
     private const float BaseFontSizePx = 21f;
     private string? _message;
-    private int _captureHeight;
     private float _scaleFactor = 1f;
 
     public bool ShowOutline { get; set; } = true;
@@ -20,16 +19,15 @@ internal sealed class BannerBoxForm : OverlayFormBase
             Invalidate();
     }
 
-    public void SetMessage(string? message, int captureRegionHeight)
+    public void SetMessage(string? message)
     {
         if (InvokeRequired)
         {
-            _ = BeginInvoke(new Action<string?, int>(SetMessage), message, captureRegionHeight);
+            _ = BeginInvoke(new Action<string?>(SetMessage), message);
             return;
         }
 
         _message = message;
-        _captureHeight = captureRegionHeight;
         if (!IsDisposed && Visible)
             Invalidate();
     }
@@ -140,7 +138,7 @@ internal sealed class BannerBoxForm : OverlayFormBase
                 var msgSize = e.Graphics.MeasureString(msgPart, baseFont, PointF.Empty, StringFormat.GenericTypographic);
 
                 // Shift icon baseline up to visually center with adjacent text
-                var icY = currentY - baseFont.Size * 0.14f;
+                var icY = currentY - (baseFont.Size * 0.14f);
 
                 // Draw icon part with thin outline
                 var iconEm = e.Graphics.DpiY * iconFont.SizeInPoints / 72f;

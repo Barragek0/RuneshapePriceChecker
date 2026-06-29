@@ -2,7 +2,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RuneshapePriceChecker.Configuration;
 using RuneshapePriceChecker.OCR;
-using System.Drawing;
 
 namespace RuneshapePriceChecker.Overlay;
 
@@ -98,7 +97,7 @@ public sealed class BannerService(
                 windowResolutionProvider, _ocrOptions.CurrentValue.OverlayScale);
             box.SetScaleFactor(scaleFactor);
             box.ShowOutline = _ocrOptions.CurrentValue.DebugOverlay;
-            box.SetMessage(message, region.Height);
+            box.SetMessage(message);
             box.SafeShow(boxX, boxY, region.Width, boxHeight);
         }
 

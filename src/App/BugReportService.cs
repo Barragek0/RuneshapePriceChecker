@@ -12,7 +12,10 @@ using RuneshapePriceChecker.Startup;
 
 namespace RuneshapePriceChecker.App;
 
-internal sealed class BugReportService
+internal sealed class BugReportService(
+    DashboardService dashboard,
+    ILogger<BugReportService> logger,
+    IOptionsMonitor<OcrOptions> ocrOptions)
 {
     internal static bool IsTestMode
     {
@@ -28,21 +31,8 @@ internal sealed class BugReportService
     private const string GitHubRepo = "Barragek0/RuneshapePriceChecker";
     private static readonly string BackupFileName = $"bug-report-snapshot.{DateTime.Now:yyyyMMdd-HHmmss}.json";
 
-    private readonly DashboardService _dashboard;
-    private readonly ILogger<BugReportService> _logger;
-    private readonly IOptionsMonitor<OcrOptions> _ocrOptions;
     private string? _settingsBackupPath;
     private LogLevel _originalLogLevel = LogLevel.Information;
-
-    public BugReportService(
-        DashboardService dashboard,
-        ILogger<BugReportService> logger,
-        IOptionsMonitor<OcrOptions> ocrOptions)
-    {
-        _dashboard = dashboard;
-        _logger = logger;
-        _ocrOptions = ocrOptions;
-    }
 
     public void StartBugReportFlow()
     {
@@ -52,8 +42,8 @@ internal sealed class BugReportService
             var configPath = Path.Combine(configDir, "appsettings.json");
             if (!File.Exists(configPath))
             {
-                _logger.LogError("Bug report: appsettings.json not found at {Path}", configPath);
-                _dashboard.LogError("Bug report: settings file not found — cannot proceed.");
+                logger.LogError("Bug report: appsettings.json not found at {Path}", configPath);
+                dashboard.LogError("Bug report: settings file not found — cannot proceed.");
                 return;
             }
 
@@ -65,15 +55,15 @@ internal sealed class BugReportService
 
             EnableDiagnosticMode(configPath);
 
-            _dashboard.SetOnBugReportContinue(OnBugReportContinue);
-            _dashboard.SetOnBugReportDone(FinishAndRestore);
-            _dashboard.SetOnBugReportCancel(FinishAndRestore);
-            _dashboard.ShowBugReportPrompt();
+            dashboard.SetOnBugReportContinue(OnBugReportContinue);
+            dashboard.SetOnBugReportDone(FinishAndRestore);
+            dashboard.SetOnBugReportCancel(FinishAndRestore);
+            dashboard.ShowBugReportPrompt();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Bug report: failed to start flow: {Context}", ErrorContext.FromException(ex));
-            _dashboard.LogError($"Bug report: {ex.Message}");
+            logger.LogError(ex, "Bug report: failed to start flow: {Context}", ErrorContext.FromException(ex));
+            dashboard.LogError($"Bug report: {ex.Message}");
         }
     }
 
@@ -81,7 +71,7 @@ internal sealed class BugReportService
     {
         try
         {
-            _dashboard.SetStatus("Collecting bug report data…", "amber");
+            dashboard.SetStatus("Collecting bug report data…", "amber");
 
             var outputDir = PrepareOutputDirectory();
             var fileCount = CollectData(outputDir);
@@ -108,13 +98,13 @@ internal sealed class BugReportService
                 OpenFolderInExplorer(outputDir);
             }
 
-            _dashboard.ShowBugReportDataCollected(fileCount, zipName);
-            _dashboard.SetStatus("Bug report data collected — GitHub issue opened", "green");
+            dashboard.ShowBugReportDataCollected(fileCount, zipName);
+            dashboard.SetStatus("Bug report data collected — GitHub issue opened", "green");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Bug report: data collection failed: {Context}", ErrorContext.FromException(ex));
-            _dashboard.LogError($"Bug report: {ex.Message}");
+            logger.LogError(ex, "Bug report: data collection failed: {Context}", ErrorContext.FromException(ex));
+            dashboard.LogError($"Bug report: {ex.Message}");
             FinishAndRestore();
         }
     }
@@ -122,7 +112,7 @@ internal sealed class BugReportService
     private void FinishAndRestore()
     {
         RestoreSettings();
-        _dashboard.HideBugReportAll();
+        dashboard.HideBugReportAll();
     }
 
     private void EnableDiagnosticMode(string configPath)
@@ -130,8 +120,7 @@ internal sealed class BugReportService
         try
         {
             var json = File.ReadAllText(configPath, Encoding.UTF8);
-            var root = JsonNode.Parse(json) as JsonObject;
-            if (root is null) return;
+            if (JsonNode.Parse(json) is not JsonObject root) return;
 
             root["App"] ??= new JsonObject();
             if (root["App"] is JsonObject app)
@@ -155,7 +144,7 @@ internal sealed class BugReportService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Bug report: failed to enable diagnostic mode: {Context}", ErrorContext.FromException(ex));
+            logger.LogError(ex, "Bug report: failed to enable diagnostic mode: {Context}", ErrorContext.FromException(ex));
         }
     }
 
@@ -175,7 +164,7 @@ internal sealed class BugReportService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Bug report: failed to restore settings: {Context}", ErrorContext.FromException(ex));
+            logger.LogError(ex, "Bug report: failed to restore settings: {Context}", ErrorContext.FromException(ex));
         }
     }
 
@@ -213,7 +202,7 @@ internal sealed class BugReportService
         // Log files are named {timestamp}-log.txt (FileLogProvider), so use -log.txt
         // not .log.
         var latestLog = Directory.GetFiles(logsDir, "*-log.txt", SearchOption.TopDirectoryOnly)
-            .OrderByDescending(f => File.GetLastWriteTimeUtc(f))
+            .OrderByDescending(File.GetLastWriteTimeUtc)
             .Take(1)
             .FirstOrDefault();
         if (latestLog is not null)
@@ -223,7 +212,7 @@ internal sealed class BugReportService
 
         // Most recent crash file
         var latestCrash = Directory.GetFiles(logsDir, "*-crash.txt", SearchOption.TopDirectoryOnly)
-            .OrderByDescending(f => File.GetLastWriteTimeUtc(f))
+            .OrderByDescending(File.GetLastWriteTimeUtc)
             .Take(1)
             .FirstOrDefault();
         if (latestCrash is not null)
@@ -233,7 +222,7 @@ internal sealed class BugReportService
 
         // Most recent caught-exception file
         var latestCaught = Directory.GetFiles(logsDir, "*-caught.txt", SearchOption.TopDirectoryOnly)
-            .OrderByDescending(f => File.GetLastWriteTimeUtc(f))
+            .OrderByDescending(File.GetLastWriteTimeUtc)
             .Take(1)
             .FirstOrDefault();
         if (latestCaught is not null)
@@ -243,7 +232,7 @@ internal sealed class BugReportService
 
         // Debug images — only from the actively used OCR backend.
         // Config always stores "windows" or "tesseract" (no "auto" in the UI).
-        var cfg = _ocrOptions.CurrentValue.OcrBackend;
+        var cfg = ocrOptions.CurrentValue.OcrBackend;
         var be = string.Equals(cfg, "tesseract", StringComparison.OrdinalIgnoreCase) ? "tesseract"
             : Environment.OSVersion.Version.Build < 17763 ? "tesseract"
             : "windows";
@@ -251,7 +240,7 @@ internal sealed class BugReportService
         if (Directory.Exists(imagesDir))
         {
             foreach (var img in Directory.GetFiles(imagesDir, "*.png")
-                .OrderByDescending(f => File.GetLastWriteTimeUtc(f))
+                .OrderByDescending(File.GetLastWriteTimeUtc)
                 .Take(10))
             {
                 try { File.Copy(img, Path.Combine(outputDir, Path.GetFileName(img))); count++; } catch { /* best effort */ }
@@ -271,17 +260,17 @@ internal sealed class BugReportService
         {
             var sb = new StringBuilder();
             sb.AppendLine("=== System Information ===");
-            sb.AppendLine($"Date: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
-            sb.AppendLine($"App Version: {GetAppVersion()}");
-            sb.AppendLine($"OS: {Environment.OSVersion}");
-            sb.AppendLine($"64-bit OS: {Environment.Is64BitOperatingSystem}");
-            sb.AppendLine($"64-bit Process: {Environment.Is64BitProcess}");
-            sb.AppendLine($"Processors: {Environment.ProcessorCount}");
-            sb.AppendLine($"Working Set: {Environment.WorkingSet / 1024 / 1024} MB");
-            sb.AppendLine($"CLR Version: {Environment.Version}");
-            sb.AppendLine($"Current Directory: {Environment.CurrentDirectory}");
-            sb.AppendLine($"Base Directory: {AppContext.BaseDirectory}");
-            sb.AppendLine($"Command Line: {Environment.CommandLine}");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"Date: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"App Version: {GetAppVersion()}");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"OS: {Environment.OSVersion}");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"64-bit OS: {Environment.Is64BitOperatingSystem}");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"64-bit Process: {Environment.Is64BitProcess}");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"Processors: {Environment.ProcessorCount}");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"Working Set: {Environment.WorkingSet / 1024 / 1024} MB");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"CLR Version: {Environment.Version}");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"Current Directory: {Environment.CurrentDirectory}");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"Base Directory: {AppContext.BaseDirectory}");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"Command Line: {Environment.CommandLine}");
             sb.AppendLine();
             sb.AppendLine("=== Installed .NET Runtimes ===");
             sb.AppendLine(GetDotnetInfo());
@@ -294,7 +283,7 @@ internal sealed class BugReportService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Bug report: failed to write system info.");
+            logger.LogWarning(ex, "Bug report: failed to write system info.");
         }
     }
 

@@ -1,5 +1,3 @@
-using Microsoft.Extensions.Options;
-using RuneshapePriceChecker.Configuration;
 using RuneshapePriceChecker.Contracts;
 using RuneshapePriceChecker.OCR;
 using RuneshapePriceChecker.Overlay;

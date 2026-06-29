@@ -12,17 +12,8 @@ public sealed record ListDetectorDiag(
     bool PanelOpen,
     int MinSum);
 
-public sealed class LeaguePanelDetector
+public sealed class LeaguePanelDetector(IOptionsMonitor<OcrOptions>? options = null, ILogger<LeaguePanelDetector>? logger = null)
 {
-    private readonly IOptionsMonitor<OcrOptions>? _options;
-    private readonly ILogger<LeaguePanelDetector>? _logger;
-
-    public LeaguePanelDetector(IOptionsMonitor<OcrOptions>? options = null, ILogger<LeaguePanelDetector>? logger = null)
-    {
-        _options = options;
-        _logger = logger;
-    }
-
     public const double DefaultLeftFraction = 0.40;
     public const double DefaultRightFraction = 0.98;
     public const double DefaultTopRowFraction = 0.26;
@@ -39,7 +30,7 @@ public sealed class LeaguePanelDetector
     {
         ArgumentNullException.ThrowIfNull(regionBitmap);
 
-        var opts = _options?.CurrentValue;
+        var opts = options?.CurrentValue;
         var brightnessThreshold = opts?.PanelBrightnessThreshold ?? DefaultBrightnessThreshold;
         var blackPixelMaxSum = opts?.PanelBlackPixelMaxSum ?? DefaultBlackPixelMaxSum;
         var minBlackPixels = opts?.PanelMinBlackPixels ?? DefaultMinBlackPixels;
@@ -55,13 +46,13 @@ public sealed class LeaguePanelDetector
         if (!IsOpen && _brightStreak >= 3)
         {
             IsOpen = true;
-            _logger?.LogDebug("Panel OPEN detected (brightStreak={BrightStreak} brightness={Bri} blackPixels={Black}/{Total})",
+            logger?.LogDebug("Panel OPEN detected (brightStreak={BrightStreak} brightness={Bri} blackPixels={Black}/{Total})",
                 _brightStreak, diag.AvgBrightness, diag.BlackCount, diag.TotalCount);
         }
         else if (IsOpen && _darkStreak >= 3)
         {
             IsOpen = false;
-            _logger?.LogDebug("Panel CLOSED detected (darkStreak={DarkStreak} brightness={Bri} blackPixels={Black}/{Total})",
+            logger?.LogDebug("Panel CLOSED detected (darkStreak={DarkStreak} brightness={Bri} blackPixels={Black}/{Total})",
                 _darkStreak, diag.AvgBrightness, diag.BlackCount, diag.TotalCount);
         }
 

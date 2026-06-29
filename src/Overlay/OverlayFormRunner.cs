@@ -33,7 +33,7 @@ internal static class OverlayFormRunner
             while (localForm is null)
                 if (!Monitor.Wait(sync, TimeSpan.FromSeconds(5)))
                 {
-                    logger?.LogWarning(timeoutWarning ?? $"{typeof(T).Name} STA form timed out");
+                    logger?.LogWarning("{FormName} STA form timed out", typeof(T).Name);
                     setForm(null);
                     return thread;
                 }

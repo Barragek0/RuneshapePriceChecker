@@ -8,7 +8,6 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Diagnostics;
-using System.Drawing;
 using System.Globalization;
 
 namespace RuneshapePriceChecker.App;
@@ -334,6 +333,7 @@ public sealed class LeaguePricingWorker(
                             {
                                 VolumeLevel.VeryLow => " [RED]",
                                 VolumeLevel.Low => " [YELLOW]",
+                                VolumeLevel.Normal => "",
                                 _ => ""
                             };
                             baseLine += $" qty={quote.CurrentQuantity.Value:N0}{volMark}";
@@ -581,6 +581,7 @@ public sealed class LeaguePricingWorker(
             {
                 VolumeLevel.VeryLow => " [RED]",
                 VolumeLevel.Low => " [YELLOW]",
+                VolumeLevel.Normal => "",
                 _ => ""
             };
 
@@ -597,6 +598,7 @@ public sealed class LeaguePricingWorker(
                     {
                         VolumeLevel.VeryLow => Color.FromArgb(255, 255, 72, 72),   // red
                         VolumeLevel.Low => Color.FromArgb(255, 255, 196, 54),       // yellow
+                        VolumeLevel.Normal => color,
                         _ => color
                     };
                 }

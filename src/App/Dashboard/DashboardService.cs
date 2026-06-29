@@ -6,19 +6,10 @@ using RuneshapePriceChecker.Startup;
 
 namespace RuneshapePriceChecker.App.Dashboard;
 
-public sealed class DashboardService : IDisposable
+public sealed class DashboardService(DashboardLogSink sink, DebugMetricsCollector? metrics = null,
+    ILogger<DashboardWindow>? dashboardLogger = null) : IDisposable
 {
-    private readonly DashboardLogSink _sink;
-    private readonly ILogger<DashboardWindow>? _dashboardLogger;
-
-    public DashboardService(DashboardLogSink sink, DebugMetricsCollector? metrics = null,
-        ILogger<DashboardWindow>? dashboardLogger = null)
-    {
-        _sink = sink;
-        Metrics = metrics;
-        _dashboardLogger = dashboardLogger;
-    }
-
+    public DebugMetricsCollector? Metrics { get; } = metrics;
     public static Action<IProgress<int>>? UpdateTrigger { get; set; }
     private static volatile bool _isUpdating;
     public static bool IsUpdating { get => _isUpdating; set => _isUpdating = value; }
@@ -29,7 +20,6 @@ public sealed class DashboardService : IDisposable
         return Task.Run(() => ChangelogDismissedEvent.Wait(ct), ct);
     }
 
-    public DebugMetricsCollector? Metrics { get; }
     private Thread? _wpfThread;
     public DashboardWindow? Window { get; private set; }
     private readonly ManualResetEventSlim _windowReady = new();
@@ -60,7 +50,7 @@ public sealed class DashboardService : IDisposable
         app.DispatcherUnhandledException += (_, e) =>
         {
             CrashLogger.WriteCaught($"WPF dispatcher exception ({e.Exception.GetType().Name})", e.Exception);
-            _sink.Emit($"Dashboard error: {e.Exception.GetType().Name}: {e.Exception.Message}", "red");
+            sink.Emit($"Dashboard error: {e.Exception.GetType().Name}: {e.Exception.Message}", "red");
             _ = Window?.Dispatcher.InvokeAsync(() => Window.SetStatus($"Error: {e.Exception.Message}", "red"))!;
             e.Handled = true;
         };
@@ -69,7 +59,7 @@ public sealed class DashboardService : IDisposable
         {
             var msg = e.ExceptionObject?.ToString() ?? "Unknown fatal error";
             var type = e.ExceptionObject?.GetType().Name ?? "Unknown";
-            _sink.Emit($"Fatal error: {type}: {msg}", "red");
+            sink.Emit($"Fatal error: {type}: {msg}", "red");
             _ = Window?.Dispatcher.InvokeAsync(() => Window.SetStatus($"Fatal: {msg}", "red"))!;
         };
 
@@ -78,12 +68,12 @@ public sealed class DashboardService : IDisposable
             var inner = e.Exception.InnerException;
             var type = inner?.GetType().Name ?? e.Exception.GetType().Name;
             var msg = inner?.Message ?? e.Exception.Message;
-            _sink.Emit($"Task error: {type}: {msg}", "red");
+            sink.Emit($"Task error: {type}: {msg}", "red");
             _ = Window?.Dispatcher.InvokeAsync(() => Window.SetStatus($"Error: {msg}", "red"))!;
             e.SetObserved();
         };
 
-        Window = new DashboardWindow(_sink, Metrics, _dashboardLogger);
+        Window = new DashboardWindow(sink, Metrics, dashboardLogger);
 
 
         // Auto-detect OCR language from the game's config file so the app
@@ -98,7 +88,7 @@ public sealed class DashboardService : IDisposable
             var current = Window.GameLanguage;
             if (!string.Equals(effective, current, StringComparison.OrdinalIgnoreCase))
             {
-                _sink.Emit("[Config] PoE2 game language changed — updating OCR language.");
+                sink.Emit("[Config] PoE2 game language changed — updating OCR language.");
                 _ = Window.Dispatcher.InvokeAsync(() => Window.SetGameLanguage(effective, ItemNameTranslator.IsLanguageSupported(effective)));
             }
         };
@@ -260,7 +250,7 @@ public sealed class DashboardService : IDisposable
 
     public void Dispose()
     {
-        _sink.Dispose();
+        sink.Dispose();
         _windowReady.Dispose();
     }
 }

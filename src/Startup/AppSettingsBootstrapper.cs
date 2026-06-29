@@ -1,6 +1,5 @@
 using System.Text;
 using System.Text.Json.Nodes;
-using Microsoft.Extensions.Logging;
 
 namespace RuneshapePriceChecker.Startup;
 
@@ -162,7 +161,7 @@ public static class AppSettingsBootstrapper
             if (RenameKey(ocr, "ShowCaptureBoundsOverlay", "DebugOverlay")) renamed = true;
 
             // Migrate OverlayScale from App section to OCR section (v1.0.8+)
-            var overlayAppNode = existing["App"] as JsonNode;
+            var overlayAppNode = existing["App"];
             if (overlayAppNode?["OverlayScale"] is not null)
             {
                 if (!ocr.AsObject().ContainsKey("OverlayScale"))
@@ -255,7 +254,7 @@ public static class AppSettingsBootstrapper
             var configPath = Path.Combine(configDir, "appsettings.json");
 
             var snapshots = Directory.GetFiles(configDir, "bug-report-snapshot.*.json")
-                .OrderByDescending(f => File.GetLastWriteTimeUtc(f))
+                .OrderByDescending(File.GetLastWriteTimeUtc)
                 .ToArray();
 
             if (snapshots.Length == 0)

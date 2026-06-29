@@ -3,8 +3,6 @@ using System.Net;
 using System.Net.Http;
 using System.Reflection;
 using System.Runtime.CompilerServices;
-using System.Text.Json;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using RuneshapePriceChecker.App;
@@ -179,8 +177,9 @@ public sealed class ErrorHandlingTests
         using var handler = new MockHttpHandler();
         handler.AddErrorResponse("/", HttpStatusCode.InternalServerError);
 
+        using var httpClient = new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") };
         var client = new Poe2ScoutClient(
-            new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") },
+            httpClient,
             new NullOptionsMonitor<AppOptions>(new AppOptions()),
             NullLogger<Poe2ScoutClient>.Instance);
 
@@ -200,8 +199,9 @@ public sealed class ErrorHandlingTests
         using var handler = new MockHttpHandler();
         handler.AddRawResponse("/", "{{{corrupt json!!!", HttpStatusCode.OK);
 
+        using var httpClient = new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") };
         var client = new Poe2ScoutClient(
-            new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") },
+            httpClient,
             new NullOptionsMonitor<AppOptions>(new AppOptions()),
             NullLogger<Poe2ScoutClient>.Instance);
 
@@ -219,12 +219,13 @@ public sealed class ErrorHandlingTests
         using var handler = new MockHttpHandler();
         handler.AddSlowResponse("/", TimeSpan.FromSeconds(30));
 
+        using var httpClient = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("http://localhost/"),
+            Timeout = TimeSpan.FromMilliseconds(10)
+        };
         var client = new Poe2ScoutClient(
-            new HttpClient(handler)
-            {
-                BaseAddress = new Uri("http://localhost/"),
-                Timeout = TimeSpan.FromMilliseconds(10)
-            },
+            httpClient,
             new NullOptionsMonitor<AppOptions>(new AppOptions()),
             NullLogger<Poe2ScoutClient>.Instance);
 
@@ -241,8 +242,9 @@ public sealed class ErrorHandlingTests
         using var handler = new MockHttpHandler();
         handler.AddErrorResponse("/", HttpStatusCode.InternalServerError);
 
+        using var httpClient = new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") };
         var client = new PoeNinjaClient(
-            new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") },
+            httpClient,
             new NullOptionsMonitor<PricingCacheOptions>(new PricingCacheOptions
             {
                 PricingSource = "poe.ninja",
@@ -320,7 +322,7 @@ public sealed class ErrorHandlingTests
             NullLogger<PricingCacheRefreshWorker>.Instance,
             dashService);
 
-        var cts = new CancellationTokenSource();
+        using var cts = new CancellationTokenSource();
         cts.CancelAfter(500);
 
         var ex = Record.Exception(() =>
@@ -370,12 +372,10 @@ file sealed class FaultyPricingSource : IPricingSource
         throw new HttpRequestException("Simulated API failure");
 }
 
-file sealed class NullOptionsMonitor<T> : IOptionsMonitor<T>
+file sealed class NullOptionsMonitor<T>(T value) : IOptionsMonitor<T>
 {
-    private readonly T _value;
-    public NullOptionsMonitor(T value) => _value = value;
-    public T CurrentValue => _value;
-    public T Get(string? name) => _value;
+    public T CurrentValue => value;
+    public T Get(string? name) => value;
     public IDisposable? OnChange(Action<T, string?> listener) => null;
 }
 

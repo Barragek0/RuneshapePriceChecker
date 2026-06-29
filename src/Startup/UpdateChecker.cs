@@ -474,7 +474,8 @@ internal sealed class UpdateChecker(
     {
         using var http = httpClientFactory.CreateClient("GitHub");
 
-        var url = $"{GitHubApiBaseUrl}/repos/{owner}/{repo}/releases?per_page=10";
+        var baseUrl = updateOptions.Value.GitHubApiBaseUrl ?? GitHubApiBaseUrl;
+        var url = $"{baseUrl}/repos/{owner}/{repo}/releases?per_page=10";
 
         var response = await http.GetAsync(url);
         LogRateLimitHeaders(response);
@@ -697,6 +698,7 @@ internal sealed class UpdateOptions
     public bool AutoUpdate { get; set; } = true;
     public bool IgnorePrereleases { get; set; }
     public string? GithubToken { get; set; }
+    public string? GitHubApiBaseUrl { get; set; }
 }
 
 internal sealed record GitHubRelease(string TagName, List<GitHubAsset>? Assets, string? Body = null);

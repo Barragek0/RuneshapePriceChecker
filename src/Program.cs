@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Text.Json;
-using System.Windows.Forms;
 using RuneshapePriceChecker.App;
 using RuneshapePriceChecker.App.Dashboard;
 using RuneshapePriceChecker.Configuration;

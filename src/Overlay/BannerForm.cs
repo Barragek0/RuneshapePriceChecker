@@ -109,7 +109,7 @@ internal sealed class BannerForm : OverlayFormBase
                     var lineY = startY + (li * lineHeight);
 
                     // Icon: slightly offset for baseline
-                    var icY = lineY - baseFont.Size * 0.14f;
+                    var icY = lineY - (baseFont.Size * 0.14f);
                     var iconEm = e.Graphics.DpiY * iconFont.SizeInPoints / 72f;
                     using var iconPath = new System.Drawing.Drawing2D.GraphicsPath();
                     iconPath.AddString(iconPart, iconFont.FontFamily, (int)iconFont.Style, iconEm,

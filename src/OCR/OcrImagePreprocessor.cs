@@ -78,7 +78,7 @@ internal static class OcrImagePreprocessor
                 if (r > 200 && g > 200 && b < 100)
                 {
                     // Bright yellow — overlay scan bracket; exclude from keep mask
-                    keep[y * width + x] = 0;
+                    keep[(y * width) + x] = 0;
                 }
             }
         }

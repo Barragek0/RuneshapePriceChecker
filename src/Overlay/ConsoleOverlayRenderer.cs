@@ -184,7 +184,7 @@ public sealed class PricingOverlayRenderer(
         return entries;
     }
 
-    private static IReadOnlyList<OverlayTextSegment> BuildTextSegments(PriceQuote quote, PricingCacheOptions pricing)
+    private static List<OverlayTextSegment> BuildTextSegments(PriceQuote quote, PricingCacheOptions pricing)
     {
         var fallbackColor = TryParseDisplayedChaosEquivalent(quote.Label, pricing, out var parsedDisplayValue)
             ? GetPriceColor(parsedDisplayValue, pricing)
@@ -195,6 +195,7 @@ public sealed class PricingOverlayRenderer(
         {
             VolumeLevel.VeryLow => Color.FromArgb(255, 255, 72, 72),   // red
             VolumeLevel.Low => Color.FromArgb(255, 255, 196, 54),       // yellow
+            VolumeLevel.Normal => Color.Transparent,
             _ => Color.Transparent
         };
 
@@ -650,16 +651,17 @@ public sealed class PricingOverlayRenderer(
             // Use a thinner outline and slightly larger font so it stands out clearly.
             var isWarningIcon = text.Length > 0 && text[0] == '\u26A0';
             var outlineWidth = isWarningIcon ? 1.0f : 2.2f;
-            var font = isWarningIcon
+            using var warningFont = isWarningIcon
                 ? new Font(baseFont.FontFamily, baseFont.Size * 1.35f, baseFont.Style, baseFont.Unit)
-                : baseFont;
+                : null;
+            var font = warningFont ?? baseFont;
 
             // The warning glyph (⚠) sits high in the font's vertical metrics, so at a
             // larger font size it appears lower than surrounding text. Shift the baseline
             // upward to visually center it with the adjacent price text.
             var iconY = y;
             if (isWarningIcon)
-                iconY = y - baseFont.Size * 0.14f;
+                iconY = y - (baseFont.Size * 0.14f);
 
             using var path = new GraphicsPath();
             path.AddString(

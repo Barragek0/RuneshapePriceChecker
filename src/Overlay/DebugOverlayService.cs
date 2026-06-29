@@ -98,7 +98,7 @@ public sealed class DebugOverlayService(
 
         var frame = new Rectangle(region.X, region.Y, region.Width, region.Height);
         var scaleFactor = PricingOverlayRenderer.ComputeOverlayScale(windowResolutionProvider, _options.CurrentValue.OverlayScale);
-        overlay.SetScanFractions(options.PanelLeftFraction, options.PanelRightFraction, options.PanelTopRowFraction);
+        overlay.SetScanFractions(options.PanelLeftFraction);
         overlay.SafeShowFrame(frame, true, scaleFactor: scaleFactor);
     }
 
@@ -338,8 +338,6 @@ public sealed class DebugOverlayService(
         private int _defaultLineHeight = BaseDefaultLineHeight;
         private float _scaleFactor = 1f;
         private double _leftFraction = LeaguePanelDetector.DefaultLeftFraction;
-        private double _rightFraction = LeaguePanelDetector.DefaultRightFraction;
-        private double _topRowFraction = LeaguePanelDetector.DefaultTopRowFraction;
         private Rectangle _frame;
         private IReadOnlyList<string> _debugLines = [];
         private IReadOnlyList<string> _debugTranslatedLines = [];
@@ -505,11 +503,9 @@ public sealed class DebugOverlayService(
                 Invalidate();
         }
 
-        public void SetScanFractions(double left, double right, double topRow)
+        public void SetScanFractions(double left)
         {
             _leftFraction = left;
-            _rightFraction = right;
-            _topRowFraction = topRow;
         }
 
         public void SafeShowFrame(Rectangle frame, bool showOverlay, int panelWidth = 400, float scaleFactor = 1f)
