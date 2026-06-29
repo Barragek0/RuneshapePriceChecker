@@ -114,13 +114,31 @@ All settings can be changed from the in-app Settings window (click the gear icon
 		"DebugImageIntervalSeconds": 15,
 		"DebugOverlay": false,
 		"HideDebugOverlayWhenInterfaceNotDetected": false,
-		"ScanIntervalMs": 100
+		"ScanIntervalMs": 100,
+		"OverlayScale": null,
+		"EnableImagePreprocessing": true,
+		"BinarizationThreshold": 145,
+		"EnableTextColorFiltering": true,
+		"TextColorTargetR": 50,
+		"TextColorTargetG": 42,
+		"TextColorTargetB": 34,
+		"TextColorTolerance": 47,
+		"TextColorMaxLuminance": 145,
+		"TextColorMaxChannelSpread": 29,
+		"OcrEngineMode": 2,
+		"BypassOcrCache": false,
+		"TesseractDataPath": ""
 	},
 	"Update": {
-		"AutoUpdate": true
+		"AutoUpdate": true,
+		"GithubToken": null
 	},
 	"Window": {
-		"InitialSetupComplete": false
+		"InitialSetupComplete": false,
+		"CustomOffsetX": null,
+		"CustomOffsetY": null,
+		"CustomWidth": null,
+		"CustomHeight": null
 	}
 }
 ```
@@ -138,7 +156,6 @@ All settings can be changed from the in-app Settings window (click the gear icon
 | `AllOverlaysDisabled` | bool | `false` | Disable all in-game overlays (pricing and banner) |
 | `PricingOverlay` | bool | `true` | Show the side pricing overlay in-game |
 | `Banner` | bool | `true` | Show the unpriceable-items banner (skill gems, supports) |
-| `OverlayScale` | float or null | `null` | Scale factor for overlay text (e.g. `1.5` for 150% size). Set via the slider in Settings. |
 
 ### Pricing Settings
 
@@ -164,6 +181,19 @@ All settings can be changed from the in-app Settings window (click the gear icon
 | `DebugOverlay` | bool | `false` | Show the capture-bounds overlay on screen |
 | `HideDebugOverlayWhenInterfaceNotDetected` | bool | `false` | Hide the overlay when the league panel isn't detected |
 | `ScanIntervalMs` | number (50–200) | `100` | Milliseconds between OCR scan cycles |
+| `OverlayScale` | float or null | `null` | Scale factor for overlay text (e.g. `1.5` for 150% size). Set via the slider in Settings. |
+| `EnableImagePreprocessing` | bool | `true` | Enable OCR image preprocessing pipeline (binarization + color filtering) |
+| `BinarizationThreshold` | number (0–255) | `145` | Threshold for converting grayscale pixels to black or white |
+| `EnableTextColorFiltering` | bool | `true` | Filter out pixels that don't match the in-game text color |
+| `TextColorTargetR` | number (0–255) | `50` | Target red channel for in-game text color |
+| `TextColorTargetG` | number (0–255) | `42` | Target green channel for in-game text color |
+| `TextColorTargetB` | number (0–255) | `34` | Target blue channel for in-game text color |
+| `TextColorTolerance` | number (0–255) | `47` | Max Euclidean distance from the target color for a pixel to be kept |
+| `TextColorMaxLuminance` | number (0–255) | `145` | Maximum luminance for a pixel to be considered text (filters out bright artifacts) |
+| `TextColorMaxChannelSpread` | number (0–255) | `29` | Maximum difference between the highest and lowest RGB channel (filters out colored UI elements) |
+| `OcrEngineMode` | number (0–2) | `2` | Tesseract engine mode. Default (`2`) is LSTM-only. `1` is LSTM + legacy, `0` is legacy-only. |
+| `BypassOcrCache` | bool | `false` | Skip cached OCR results and re-process every frame (debugging only) |
+| `TesseractDataPath` | string | `""` (auto) | Path to Tesseract training data. Leave empty to use the bundled `ocr/tesseract/` directory. |
 
 ### Update Settings
 
@@ -176,73 +206,10 @@ All settings can be changed from the in-app Settings window (click the gear icon
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `InitialSetupComplete` | bool | `false` | Whether the initial capture-region setup has been completed |
-
----
-
-## Advanced Settings (manual config only)
-
-These settings are not exposed in the Settings UI but can be added to `config/appsettings.json` to fine-tune OCR behavior. The app picks up changes every 5 seconds without restarting.
-
-### OCR Color Matching
-
-The OCR preprocessing pipeline filters text pixels by RGB color to isolate in-game item text from the background. If text detection is unreliable, tweaking these values can improve accuracy.
-
-```json
-{
-	"OCR": {
-		"EnableImagePreprocessing": true,
-		"BinarizationThreshold": 145,
-		"EnableTextColorFiltering": true,
-		"TextColorTargetR": 50,
-		"TextColorTargetG": 42,
-		"TextColorTargetB": 34,
-		"TextColorTolerance": 47,
-		"TextColorMaxLuminance": 145,
-		"TextColorMaxChannelSpread": 29
-	}
-}
-```
-
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `EnableImagePreprocessing` | bool | `true` | Enable OCR image preprocessing pipeline (binarization + color filtering) |
-| `BinarizationThreshold` | number (0–255) | `145` | Threshold for converting grayscale pixels to black or white |
-| `EnableTextColorFiltering` | bool | `true` | Filter out pixels that don't match the in-game text color |
-| `TextColorTargetR` | number (0–255) | `50` | Target red channel for in-game text color |
-| `TextColorTargetG` | number (0–255) | `42` | Target green channel for in-game text color |
-| `TextColorTargetB` | number (0–255) | `34` | Target blue channel for in-game text color |
-| `TextColorTolerance` | number (0–255) | `47` | Max Euclidean distance from the target color for a pixel to be kept |
-| `TextColorMaxLuminance` | number (0–255) | `145` | Maximum luminance for a pixel to be considered text (filters out bright artifacts) |
-| `TextColorMaxChannelSpread` | number (0–255) | `29` | Maximum difference between the highest and lowest RGB channel (filters out colored UI elements) |
-
-### OCR Engine Tweaks
-
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `OcrEngineMode` | number (0–2) | `2` | Tesseract engine mode. Default (`2`) is LSTM-only. `1` is LSTM + legacy, `0` is legacy-only. |
-| `BypassOcrCache` | bool | `false` | Skip cached OCR results and re-process every frame (debugging only) |
-| `TesseractDataPath` | string | `""` (auto) | Path to Tesseract training data. Leave empty to use the bundled `ocr/tesseract/` directory. |
-
-### Performance Tuning
-
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `ScanIntervalMs` | number (50–200) | `100` | Milliseconds between OCR scan cycles. Lower values check more frequently but use more CPU. |
-
-### Window Capture Region
-
-If the initial setup's capture region doesn't cover the right area, you can fine-tune it manually:
-
-```json
-{
-	"Window": {
-		"CustomOffsetX": null,
-		"CustomOffsetY": null,
-		"CustomWidth": null,
-		"CustomHeight": null
-	}
-}
-```
+| `CustomOffsetX` | number or null | `null` | Override the auto-detected capture region X offset (pixels from game window top-left) |
+| `CustomOffsetY` | number or null | `null` | Override the auto-detected capture region Y offset |
+| `CustomWidth` | number or null | `null` | Override the auto-detected capture region width |
+| `CustomHeight` | number or null | `null` | Override the auto-detected capture region height |
 
 Set these to override the auto-detected capture region. `null` means auto-detect. Values are in pixels relative to the game window's top-left corner.
 
