@@ -17,7 +17,7 @@ The latest version can be downloaded here: https://github.com/Barragek0/Runeshap
 
 ## How it Looks
 
-![example](https://i.vgy.me/1XkXx8.png)
+![example](https://i.vgy.me/4Huhu4.png)
 
 ## Known Issues / Limitations
 
