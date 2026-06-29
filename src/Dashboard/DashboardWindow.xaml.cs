@@ -109,7 +109,7 @@ public sealed partial class DashboardWindow : Window
     private readonly ILogger<DashboardWindow>? _logger;
     private readonly DashboardViewModel _vm;
     private readonly double _baseWindowWidth = 520;
-    private readonly double _baseWindowHeight = 642;
+    private readonly double _baseWindowHeight = 702;
     private const double DebugPanelWidth = 440;
     private bool _loading;
     private enum ContentState { Log, Settings, Changelog }
@@ -400,6 +400,9 @@ public sealed partial class DashboardWindow : Window
         CurrencyChaosCheck.IsChecked = !isExalt;
         CurrencyExaltCheck.IsChecked = isExalt;
         AutoThresholdsCheck.IsChecked = _vm.AutoPriceThresholds;
+        TradeVolumeCheck.IsChecked = _vm.TradeVolumeWarning;
+        TradeVolumeMatchColorCheck.IsChecked = _vm.TradeVolumeMatchColor;
+        TradeVolumeBannerCheck.IsChecked = _vm.TradeVolumeBanner;
         UpdateThresholdVisibility();
         RedThresholdBox.Text = _vm.RedThreshold.ToString(CultureInfo.InvariantCulture);
         OrangeThresholdBox.Text = _vm.OrangeThreshold.ToString(CultureInfo.InvariantCulture);
@@ -592,21 +595,18 @@ public sealed partial class DashboardWindow : Window
 
     private void RefreshContentArea()
     {
-        ChangelogSection.Visibility = Visibility.Collapsed;
         SetupPromptSection.Visibility = Visibility.Collapsed;
         BugReportPromptSection.Visibility = Visibility.Collapsed;
         SettingsSection.Visibility = Visibility.Collapsed;
         LogSection.Visibility = Visibility.Collapsed;
 
+        // Keep changelog visible independently — it's controlled by ShowChangelog/ChangelogClose_Click
+        // and should not be hidden by other panels.
+        ChangelogSection.Visibility = IsChangelogVisible ? Visibility.Visible : Visibility.Collapsed;
+
         if (_debugPanelOpen)
         {
             // Debug panel stays visible; only toggle left side content
-            if (IsChangelogVisible)
-            {
-                ChangelogSection.Visibility = Visibility.Visible;
-                return;
-            }
-
             if (_setupPending)
             {
                 SetupPromptSection.Visibility = Visibility.Visible;
@@ -630,12 +630,6 @@ public sealed partial class DashboardWindow : Window
         }
 
         StopDebugTimer();
-
-        if (IsChangelogVisible)
-        {
-            ChangelogSection.Visibility = Visibility.Visible;
-            return;
-        }
 
         if (_setupPending)
         {
@@ -691,9 +685,11 @@ public sealed partial class DashboardWindow : Window
             _bugReportPending = true;
             BugReportContinueButton.IsEnabled = false;
             SavePreviousContentState();
+            _settingsVisible = false;
             DisableActionButtons();
             StartBugReportPollTimer();
             RefreshContentArea();
+            UpdateButtonHighlights();
         });
     }
 
@@ -708,6 +704,7 @@ public sealed partial class DashboardWindow : Window
             RestorePreviousContentState();
             EnableActionButtons();
             RefreshContentArea();
+            UpdateButtonHighlights();
         });
     }
 
@@ -1215,6 +1212,9 @@ public sealed partial class DashboardWindow : Window
             ? new SolidColorBrush(Color.FromArgb(0x33, 0x58, 0xD9, 0xFF))
             : new SolidColorBrush(Color.FromArgb(0, 0, 0, 0));
         DebugBtn.Background = _debugPanelOpen
+            ? new SolidColorBrush(Color.FromArgb(0x33, 0x58, 0xD9, 0xFF))
+            : new SolidColorBrush(Color.FromArgb(0, 0, 0, 0));
+        BugReportBtn.Background = _bugReportPending
             ? new SolidColorBrush(Color.FromArgb(0x33, 0x58, 0xD9, 0xFF))
             : new SolidColorBrush(Color.FromArgb(0, 0, 0, 0));
     }
@@ -1863,6 +1863,27 @@ public sealed partial class DashboardWindow : Window
         UpdateThresholdVisibility();
         SyncViewModelFromUi();
         _vm.AutoPriceThresholds = AutoThresholdsCheck.IsChecked == true;
+        QueueAutoSave();
+    }
+
+    private void TradeVolume_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        _vm.TradeVolumeWarning = TradeVolumeCheck.IsChecked == true;
+        QueueAutoSave();
+    }
+
+    private void TradeVolumeMatchColor_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        _vm.TradeVolumeMatchColor = TradeVolumeMatchColorCheck.IsChecked == true;
+        QueueAutoSave();
+    }
+
+    private void TradeVolumeBanner_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        _vm.TradeVolumeBanner = TradeVolumeBannerCheck.IsChecked == true;
         QueueAutoSave();
     }
 

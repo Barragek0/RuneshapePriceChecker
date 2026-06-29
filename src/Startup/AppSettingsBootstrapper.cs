@@ -17,7 +17,10 @@ public static class AppSettingsBootstrapper
         "OpenWithPoE2": false,
         "AllOverlaysDisabled": false,
         "PricingOverlay": true,
-        "Banner": true
+        "Banner": true,
+        "ForceUpdateAvailable": false,
+        "AutoApplyUpdate": false,
+        "TestMode": false
     },
     "Pricing": {
         "PricingSource": "poe2scout",
@@ -26,7 +29,10 @@ public static class AppSettingsBootstrapper
         "RedThreshold": 0.5,
         "OrangeThreshold": 1.0,
         "GreenThreshold": 5.0,
-        "DisplayCurrency": "exalt"
+        "DisplayCurrency": "exalt",
+        "TradeVolumeWarning": true,
+        "TradeVolumeMatchColor": true,
+        "TradeVolumeBanner": true
     },
     "OCR": {
         "Language": "eng",
@@ -34,13 +40,36 @@ public static class AppSettingsBootstrapper
         "DebugOverlay": false,
         "HideDebugOverlayWhenInterfaceNotDetected": false,
         "OcrBackend": "windows",
-        "CaptureMode": "printwindow"
+        "CaptureMode": "printwindow",
+        "TesseractDataPath": "",
+        "EnableImagePreprocessing": true,
+        "BinarizationThreshold": 145,
+        "EnableTextColorFiltering": true,
+        "TextColorTargetR": 50,
+        "TextColorTargetG": 42,
+        "TextColorTargetB": 34,
+        "TextColorTolerance": 47,
+        "TextColorMaxLuminance": 145,
+        "TextColorMaxChannelSpread": 29,
+        "DebugImageIntervalSeconds": 15,
+        "DebugImageDirectory": "",
+        "OcrEngineMode": 2,
+        "ScanIntervalMs": 100,
+        "BypassOcrCache": false,
+        "PerfMetricsInterval": 0,
+        "OverlayScale": null
     },
     "Update": {
-        "AutoUpdate": true
+        "AutoUpdate": true,
+        "IgnorePrereleases": false,
+        "GithubToken": null
     },
     "Window": {
-        "InitialSetupComplete": false
+        "InitialSetupComplete": false,
+        "CustomOffsetX": null,
+        "CustomOffsetY": null,
+        "CustomWidth": null,
+        "CustomHeight": null
     }
 }
 """;
@@ -131,7 +160,16 @@ public static class AppSettingsBootstrapper
         if (existing["OCR"] is JsonNode ocr)
         {
             if (RenameKey(ocr, "ShowCaptureBoundsOverlay", "DebugOverlay")) renamed = true;
-            _ = ocr.AsObject().Remove("BinarizationThreshold");
+
+            // Migrate OverlayScale from App section to OCR section (v1.0.8+)
+            var overlayAppNode = existing["App"] as JsonNode;
+            if (overlayAppNode?["OverlayScale"] is not null)
+            {
+                if (!ocr.AsObject().ContainsKey("OverlayScale"))
+                    ocr["OverlayScale"] = overlayAppNode["OverlayScale"]!.DeepClone();
+                _ = overlayAppNode.AsObject().Remove("OverlayScale");
+                renamed = true;
+            }
 
             // Migrate UseWindowClientCapture (bool, pre-1.0.2) to CaptureMode (string)
             if (ocr["UseWindowClientCapture"] is JsonValue oldCapture)

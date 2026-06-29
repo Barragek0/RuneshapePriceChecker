@@ -18,6 +18,7 @@ public sealed class InMemoryPricingCache(
     private readonly ConcurrentDictionary<string, (decimal MinChaos, decimal MaxChaos)> _uniqueCategoryRanges = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, (decimal MinChaos, decimal MaxChaos)> _uncutGemRanges = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, string> _uniqueItemBaseTypes = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, int> _itemQuantities = new(StringComparer.OrdinalIgnoreCase);
     private decimal _divineOrbChaosValue = 150m;
     private decimal _exaltedOrbChaosValue;
     private decimal _currencyMinChaos;
@@ -100,14 +101,25 @@ public sealed class InMemoryPricingCache(
         return null;
     }
 
+    private static VolumeLevel GetVolumeLevel(int qty) => qty switch
+    {
+        < 25 => VolumeLevel.VeryLow,
+        < 100 => VolumeLevel.Low,
+        _ => VolumeLevel.Normal
+    };
+
     private PriceQuote? TryGetPriceQuoteForKey(string key, int quantity)
     {
         if (_exactPrices.TryGetValue(key, out var exactChaosValue))
         {
             var totalChaosValue = exactChaosValue * quantity;
+            var hasQty = _itemQuantities.TryGetValue(key, out var qty);
+            var volume = hasQty ? GetVolumeLevel(qty) : VolumeLevel.Normal;
             return new PriceQuote(FormatAmount(totalChaosValue), totalChaosValue, false)
             {
-                MatchDetail = $"exact: {key}={FormatAmount(exactChaosValue)}"
+                MatchDetail = $"exact: {key}={FormatAmount(exactChaosValue)}",
+                VolumeLevel = volume,
+                CurrentQuantity = hasQty ? qty : null
             };
         }
 
@@ -122,9 +134,13 @@ public sealed class InMemoryPricingCache(
         if (_fallbackPrices.TryGetValue(key, out var fallbackChaosValue))
         {
             var totalChaosValue = fallbackChaosValue * quantity;
+            var hasQty = _itemQuantities.TryGetValue(key, out var qty);
+            var volume = hasQty ? GetVolumeLevel(qty) : VolumeLevel.Normal;
             return new PriceQuote(FormatAmount(totalChaosValue), totalChaosValue, false)
             {
-                MatchDetail = $"fallback: {key}={FormatAmount(fallbackChaosValue)}"
+                MatchDetail = $"fallback: {key}={FormatAmount(fallbackChaosValue)}",
+                VolumeLevel = volume,
+                CurrentQuantity = hasQty ? qty : null
             };
         }
 
@@ -133,9 +149,13 @@ public sealed class InMemoryPricingCache(
             var minTotal = range.MinChaos * quantity;
             var maxTotal = range.MaxChaos * quantity;
             var label = $"{FormatAmount(minTotal)} - {FormatAmount(maxTotal)}";
+            var hasQty = _itemQuantities.TryGetValue(key, out var qty);
+            var volume = hasQty ? GetVolumeLevel(qty) : VolumeLevel.Normal;
             return new PriceQuote(label, maxTotal, true)
             {
-                MatchDetail = $"unique range: {key}={FormatAmount(range.MinChaos)}-{FormatAmount(range.MaxChaos)}"
+                MatchDetail = $"unique range: {key}={FormatAmount(range.MinChaos)}-{FormatAmount(range.MaxChaos)}",
+                VolumeLevel = volume,
+                CurrentQuantity = hasQty ? qty : null
             };
         }
 
@@ -144,9 +164,13 @@ public sealed class InMemoryPricingCache(
             var minTotal = gemRange.MinChaos * quantity;
             var maxTotal = gemRange.MaxChaos * quantity;
             var label = $"{FormatAmount(minTotal)} - {FormatAmount(maxTotal)}";
+            var hasQty = _itemQuantities.TryGetValue(key, out var qty);
+            var volume = hasQty ? GetVolumeLevel(qty) : VolumeLevel.Normal;
             return new PriceQuote(label, maxTotal, true)
             {
-                MatchDetail = $"gem range: {key}={FormatAmount(gemRange.MinChaos)}-{FormatAmount(gemRange.MaxChaos)}"
+                MatchDetail = $"gem range: {key}={FormatAmount(gemRange.MinChaos)}-{FormatAmount(gemRange.MaxChaos)}",
+                VolumeLevel = volume,
+                CurrentQuantity = hasQty ? qty : null
             };
         }
 
@@ -234,6 +258,7 @@ public sealed class InMemoryPricingCache(
 
         _exactPrices.Clear();
         _fallbackPrices.Clear();
+        _itemQuantities.Clear();
         foreach (var pair in latest.ExactPrices)
         {
             var normalized = Normalize(pair.Key);
@@ -249,6 +274,9 @@ public sealed class InMemoryPricingCache(
             {
                 logger.LogTrace("PriceKey: raw='{Raw}' normalized='{Norm}' value={Val}", pair.Key, normalized, pair.Value);
             }
+
+            if (latest.ItemQuantities is not null && latest.ItemQuantities.TryGetValue(pair.Key, out var qty))
+                _itemQuantities[normalized] = qty;
 
             if (ItemNameParser.TryGetTierFallbackKey(normalized, out var fallbackKey))
             {

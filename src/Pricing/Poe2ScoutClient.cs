@@ -65,6 +65,7 @@ public sealed class Poe2ScoutClient(HttpClient httpClient, IOptionsMonitor<AppOp
     {
         var exactPrices = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
         var uniqueCategoryRanges = new Dictionary<string, (decimal, decimal)>(StringComparer.OrdinalIgnoreCase);
+        var itemQuantities = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         decimal divineValue = 0m, exaltValue = 0m;
         decimal currencyMinChaos = 0m, currencyMaxChaos = 0m;
 
@@ -84,6 +85,8 @@ public sealed class Poe2ScoutClient(HttpClient httpClient, IOptionsMonitor<AppOp
                     if (string.IsNullOrWhiteSpace(name) || chaos <= 0) continue;
 
                     exactPrices[name] = chaos;
+                    if (item.TryGetProperty("CurrentQuantity", out var qtyProp) && qtyProp.ValueKind == System.Text.Json.JsonValueKind.Number && qtyProp.TryGetInt32(out var qty) && qty >= 0)
+                        itemQuantities[name] = qty;
 
                     if (string.Equals(cat, "currency", StringComparison.OrdinalIgnoreCase))
                     {
@@ -173,7 +176,7 @@ public sealed class Poe2ScoutClient(HttpClient httpClient, IOptionsMonitor<AppOp
             }
         }
 
-        return new PricingSnapshot(exactPrices, uniqueCategoryRanges, divineValue, exaltValue, currencyMinChaos, currencyMaxChaos, uniqueItemBaseTypes);
+        return new PricingSnapshot(exactPrices, uniqueCategoryRanges, divineValue, exaltValue, currencyMinChaos, currencyMaxChaos, uniqueItemBaseTypes, itemQuantities);
     }
 
     private static string NormalizeLeagueName(string fullName)

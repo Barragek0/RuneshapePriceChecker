@@ -10,8 +10,8 @@
         SourceInitialized="Window_SourceInitialized"
         MinWidth="500"
         MaxWidth="960"
-        MinHeight="652"
-        MaxHeight="652"
+        MinHeight="712"
+        MaxHeight="712"
         Height="652"
         WindowStartupLocation="Manual"
         UseLayoutRounding="True"
@@ -655,6 +655,7 @@
                             Margin="0,6,36,0"
                             AutomationProperties.Name="Settings"
                             Click="Settings_Click"
+                            ToolTip="Settings"
                             ToolTipService.InitialShowDelay="500">
                         <TextBlock Text="&#x2699;"
                                    Foreground="{StaticResource TextSecondary}"
@@ -893,10 +894,11 @@
                             </Grid>
                         </Border>
 
-                        <!-- Changelog panel -->
+                        <!-- Changelog panel — always renders above other content -->
                         <Border Grid.Row="1"
                                 x:Name="ChangelogSection"
-                                Background="Transparent"
+                                Panel.ZIndex="10"
+                                Background="{StaticResource SurfaceAltBrush}"
                                 CornerRadius="0,0,10,10"
                                 ClipToBounds="True"
                                 Visibility="Collapsed">
@@ -1340,19 +1342,62 @@
                                                                ToolTip="Choose which currency to display prices in"
                                                                VerticalAlignment="Center"/>
                                                 </StackPanel>
-                                                <StackPanel Orientation="Horizontal"
-                                                            Margin="10,8,0,0">
+                                                <StackPanel Orientation="Horizontal">
                                                     <CheckBox x:Name="CurrencyExaltCheck"
                                                               Content="Exalt"
+                                                              Margin="14,0,0,0"
                                                               VerticalAlignment="Top"
                                                               Checked="CurrencyExalt_Checked"
                                                               Unchecked="CurrencyExalt_Unchecked"/>
                                                     <CheckBox x:Name="CurrencyChaosCheck"
                                                               Content="Chaos"
                                                               VerticalAlignment="Top"
-                                                              Margin="30,0,0,0"
+                                                              Margin="15,0,0,0"
                                                               Checked="CurrencyChaos_Checked"
                                                               Unchecked="CurrencyChaos_Unchecked"/>
+                                                </StackPanel>
+                                                <StackPanel>
+                                                    <StackPanel Orientation="Horizontal"
+                                                                Margin="14,8,0,4">
+                                                        <TextBlock Style="{StaticResource FieldLabel}"
+                                                                   Text="Trade Volume Warning"
+                                                                   Margin="0,0,0,0"
+                                                                   VerticalAlignment="Center"/>
+                                                    </StackPanel>
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <CheckBox x:Name="TradeVolumeCheck"
+                                                                  Margin="14,0,0,0"
+                                                                  Padding="0,0,0,0"
+                                                                  VerticalAlignment="Top"
+                                                                  Checked="TradeVolume_Changed"
+                                                                  Unchecked="TradeVolume_Changed">
+                                                            <StackPanel Orientation="Horizontal">
+                                                                <TextBlock Text="Enabled"
+                                                                           VerticalAlignment="Center"/>
+                                                                <TextBlock Style="{StaticResource TooltipIcon}"
+                                                                           ToolTip="Show warnings for items with low or very low trade volume"/>
+                                                            </StackPanel>
+                                                        </CheckBox>
+                                                        <CheckBox x:Name="TradeVolumeMatchColorCheck"
+                                                                  Content="Match color"
+                                                                  VerticalAlignment="Top"
+                                                                  Margin="15,0,0,0"
+                                                                  Checked="TradeVolumeMatchColor_Changed"
+                                                                  Unchecked="TradeVolumeMatchColor_Changed"/>
+                                                        <TextBlock Style="{StaticResource TooltipIcon}"
+                                                                   ToolTip="When checked, the price text color changes to match the volume warning color (orange for low volume, red for very low volume). When unchecked, the price keeps its normal threshold-based color."/>
+                                                    </StackPanel>
+                                                    <StackPanel Orientation="Horizontal"
+                                                                Margin="97,6,0,0">
+                                                        <CheckBox x:Name="TradeVolumeBannerCheck"
+                                                                  Content="Map"
+                                                                  VerticalAlignment="Top"
+                                                                  Checked="TradeVolumeBanner_Changed"
+                                                                  Unchecked="TradeVolumeBanner_Changed"/>
+                                                        <TextBlock Style="{StaticResource TooltipIcon}"
+                                                                   Margin="5,-5,0,0"
+                                                                   ToolTip="Shows a banner message when items have unusually low trade volume, indicating the price may be unreliable."/>
+                                                    </StackPanel>
                                                 </StackPanel>
                                             </StackPanel>
                                             <StackPanel Grid.Column="1">

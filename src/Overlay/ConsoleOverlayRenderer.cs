@@ -12,11 +12,13 @@ namespace RuneshapePriceChecker.Overlay;
 public sealed class PricingOverlayRenderer(
     IPoe2WindowResolutionProvider windowResolutionProvider,
     IOptionsMonitor<PricingCacheOptions> pricingOptions,
+    IOptionsMonitor<OcrOptions> ocrOptions,
     IOptionsMonitor<AppOptions> appOptions,
     ILogger<PricingOverlayRenderer> logger) : IOverlayRenderer, IDisposable
 {
     private readonly object _sync = new();
     private readonly IOptionsMonitor<AppOptions> _appOptions = appOptions;
+    private readonly IOptionsMonitor<OcrOptions> _ocrOptions = ocrOptions;
     private Thread? _overlayThread;
     private PriceOverlayForm? _overlayForm;
     private string _lastContentHash = string.Empty;
@@ -94,6 +96,8 @@ public sealed class PricingOverlayRenderer(
                 foreach (var kvp in pricesByItemName)
                 {
                     if (kvp.Value is null || kvp.Value.IsRange) continue;
+                    // Exclude low-volume items from threshold calculation — their prices are unreliable
+                    if (kvp.Value.VolumeLevel != VolumeLevel.Normal) continue;
                     if (TryParseDisplayedChaosEquivalent(kvp.Value.Label, pricing, out var displayValue))
                     {
                         if (displayValue > maxPrice)
@@ -114,7 +118,9 @@ public sealed class PricingOverlayRenderer(
                         GreenThreshold = maxPrice * 0.7m,
                         DisplayCurrency = pricing.DisplayCurrency,
                         League = pricing.League,
-                        PricingSource = pricing.PricingSource
+                        PricingSource = pricing.PricingSource,
+                        TradeVolumeMatchColor = pricing.TradeVolumeMatchColor,
+                        TradeVolumeBanner = pricing.TradeVolumeBanner
                     };
                 }
                 logger.LogTrace("PriceOverlay: auto thresholds maxPrice={MaxPrice} red={Red} orange={Orange} green={Green}",
@@ -124,7 +130,7 @@ public sealed class PricingOverlayRenderer(
             logger.LogTrace("PriceOverlay: built {EntryCount} entries from {ItemCount} items, rows={RowCount}", entries.Count, itemCount, rows.Count);
 
             // Scale font proportionally to window height (1080p = scale 1.0, 4k = scale 2.0)
-            var scaleFactor = ComputeOverlayScale(windowResolutionProvider, _appOptions);
+            var scaleFactor = ComputeOverlayScale(windowResolutionProvider, _ocrOptions.CurrentValue.OverlayScale);
             logger.LogTrace("PriceOverlay: SafeShow region={X},{Y} {W}x{H} scale={Scale}",
                 captureRegion.X, captureRegion.Y, captureRegion.Width, captureRegion.Height, scaleFactor);
             overlay.SafeShow(captureRegion, entries, scaleFactor);
@@ -184,8 +190,21 @@ public sealed class PricingOverlayRenderer(
             ? GetPriceColor(parsedDisplayValue, pricing)
             : GetPriceColor(quote.RepresentativeChaosValue, pricing);
 
+        // Override color for low-volume items when match-color is enabled
+        var iconColor = quote.VolumeLevel switch
+        {
+            VolumeLevel.VeryLow => Color.FromArgb(255, 255, 72, 72),   // red
+            VolumeLevel.Low => Color.FromArgb(255, 255, 196, 54),       // yellow
+            _ => Color.Transparent
+        };
+
+        if (quote.VolumeLevel != VolumeLevel.Normal && pricing.TradeVolumeMatchColor)
+            fallbackColor = iconColor;
+
         if (!quote.IsRange)
         {
+            if (quote.VolumeLevel != VolumeLevel.Normal)
+                return [new OverlayTextSegment("\u26A0  ", iconColor, 0f), new OverlayTextSegment(quote.Label, fallbackColor, GetDivineGlowStrength(quote.Label))];
             return [new OverlayTextSegment(quote.Label, fallbackColor, GetDivineGlowStrength(quote.Label))];
         }
 
@@ -208,12 +227,13 @@ public sealed class PricingOverlayRenderer(
             ? GetPriceColor(rightChaos, pricing)
             : fallbackColor;
 
-        return
-        [
-            new OverlayTextSegment(leftText, leftColor, GetDivineGlowStrength(leftText)),
-            new OverlayTextSegment(separator, Color.White, 0f),
-            new OverlayTextSegment(rightText, rightColor, GetDivineGlowStrength(rightText))
-        ];
+        var segments = new List<OverlayTextSegment>(4);
+        if (quote.VolumeLevel != VolumeLevel.Normal)
+            segments.Add(new OverlayTextSegment("\u26A0  ", iconColor, 0f));
+        segments.Add(new OverlayTextSegment(leftText, leftColor, GetDivineGlowStrength(leftText)));
+        segments.Add(new OverlayTextSegment(separator, Color.White, 0f));
+        segments.Add(new OverlayTextSegment(rightText, rightColor, GetDivineGlowStrength(rightText)));
+        return segments;
     }
 
     private static float GetDivineGlowStrength(string text)
@@ -430,12 +450,10 @@ public sealed class PricingOverlayRenderer(
     {
         public override string ToString() => $"Y={RowY} H={RowHeight} Segments={Segments.Count}";
     }
-    public static float ComputeOverlayScale(IPoe2WindowResolutionProvider resolutionProvider, IOptionsMonitor<AppOptions> appOptions)
+    public static float ComputeOverlayScale(IPoe2WindowResolutionProvider resolutionProvider, float? overrideScale)
     {
         ArgumentNullException.ThrowIfNull(resolutionProvider);
-        ArgumentNullException.ThrowIfNull(appOptions);
 
-        var overrideScale = appOptions.CurrentValue.OverlayScale;
         if (overrideScale.HasValue)
             return Math.Max(0.25f, Math.Min(4f, overrideScale.Value));
 
@@ -621,12 +639,27 @@ public sealed class PricingOverlayRenderer(
             }
         }
 
-        private static float DrawOutlinedText(Graphics graphics, string text, Font font, Color fillColor, float glowStrength, float x, float y)
+        private static float DrawOutlinedText(Graphics graphics, string text, Font baseFont, Color fillColor, float glowStrength, float x, float y)
         {
             if (string.IsNullOrEmpty(text))
             {
                 return 0f;
             }
+
+            // Warning icon (\u26A0) has thin strokes that get overwhelmed by the standard thick outline.
+            // Use a thinner outline and slightly larger font so it stands out clearly.
+            var isWarningIcon = text.Length > 0 && text[0] == '\u26A0';
+            var outlineWidth = isWarningIcon ? 1.0f : 2.2f;
+            var font = isWarningIcon
+                ? new Font(baseFont.FontFamily, baseFont.Size * 1.35f, baseFont.Style, baseFont.Unit)
+                : baseFont;
+
+            // The warning glyph (⚠) sits high in the font's vertical metrics, so at a
+            // larger font size it appears lower than surrounding text. Shift the baseline
+            // upward to visually center it with the adjacent price text.
+            var iconY = y;
+            if (isWarningIcon)
+                iconY = y - baseFont.Size * 0.14f;
 
             using var path = new GraphicsPath();
             path.AddString(
@@ -634,10 +667,10 @@ public sealed class PricingOverlayRenderer(
                 font.FontFamily,
                 (int)font.Style,
                 graphics.DpiY * font.SizeInPoints / 72f,
-                new PointF(x, y),
+                new PointF(x, iconY),
                 StringFormat.GenericTypographic);
 
-            using var outlinePen = new Pen(Color.FromArgb(255, 0, 0, 0), 2.2f)
+            using var outlinePen = new Pen(Color.FromArgb(255, 0, 0, 0), outlineWidth)
             {
                 LineJoin = LineJoin.Round,
                 StartCap = LineCap.Round,
@@ -686,7 +719,10 @@ public sealed class PricingOverlayRenderer(
             graphics.DrawPath(outlinePen, path);
             graphics.FillPath(fillBrush, path);
 
-            return graphics.MeasureString(text, font, PointF.Empty, StringFormat.GenericTypographic).Width;
+            var width = graphics.MeasureString(text, font, PointF.Empty, StringFormat.GenericTypographic).Width;
+            if (isWarningIcon)
+                font.Dispose();
+            return width;
         }
 
         protected override void OnDeactivate(EventArgs e)

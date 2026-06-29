@@ -25,6 +25,9 @@ public sealed class DashboardViewModel(string configPath)
     public decimal GreenThreshold { get; set; } = 5.0m;
     public string LogLevel { get; set; } = "Information";
     public bool AutoPriceThresholds { get; set; } = true;
+    public bool TradeVolumeWarning { get; set; } = true;
+    public bool TradeVolumeMatchColor { get; set; } = true;
+    public bool TradeVolumeBanner { get; set; } = true;
     public bool DebugOverlay { get; set; }
     public bool HideDebugOverlayWhenInterfaceNotDetected { get; set; }
     public bool SaveDebugImages { get; set; }
@@ -111,6 +114,9 @@ public sealed class DashboardViewModel(string configPath)
             if (root["Pricing"] is JsonNode pricing)
             {
                 AutoPriceThresholds = pricing.Val("AutoPriceThresholds", true);
+                TradeVolumeWarning = pricing.Val("TradeVolumeWarning", true);
+                TradeVolumeMatchColor = pricing.Val("TradeVolumeMatchColor", true);
+                TradeVolumeBanner = pricing.Val("TradeVolumeBanner", true);
                 CurrentLeague = pricing.Str("League", "Runes of Aldur");
                 PricingSource = pricing.Str("PricingSource", "poe2scout");
                 DisplayCurrency = pricing.Str("DisplayCurrency", "exalt");
@@ -134,7 +140,11 @@ public sealed class DashboardViewModel(string configPath)
             {
                 PricingOverlay = appSettings.Val("PricingOverlay", true);
                 Banner = appSettings.Val("Banner", true);
-                var scaleOverride = appSettings["OverlayScale"];
+            }
+
+            if (root["OCR"] is JsonNode ocrSettings)
+            {
+                var scaleOverride = ocrSettings["OverlayScale"];
                 if (scaleOverride is not null)
                 {
                     OverlayScaleAuto = false;
@@ -193,10 +203,15 @@ public sealed class DashboardViewModel(string configPath)
                 app["OpenWithPoE2"] = OpenWithPoE2;
                 app["PricingOverlay"] = PricingOverlay;
                 app["Banner"] = Banner;
+            }
+
+            JsonObject? ocrOverlay = rootObj["OCR"] as JsonObject;
+            if (ocrOverlay is not null)
+            {
                 if (OverlayScaleAuto)
-                    _ = app.Remove("OverlayScale");
+                    _ = ocrOverlay.Remove("OverlayScale");
                 else
-                    app["OverlayScale"] = (decimal)OverlayScaleValue;
+                    ocrOverlay["OverlayScale"] = (decimal)OverlayScaleValue;
             }
 
             // Migrate: remove old OCR keys if they exist
@@ -209,6 +224,9 @@ public sealed class DashboardViewModel(string configPath)
             if (rootObj["Pricing"] is JsonObject pricing)
             {
                 pricing["AutoPriceThresholds"] = AutoPriceThresholds;
+                pricing["TradeVolumeWarning"] = TradeVolumeWarning;
+                pricing["TradeVolumeMatchColor"] = TradeVolumeMatchColor;
+                pricing["TradeVolumeBanner"] = TradeVolumeBanner;
                 pricing["PricingSource"] = PricingSource;
                 pricing["League"] = CurrentLeague;
                 pricing["DisplayCurrency"] = DisplayCurrency;

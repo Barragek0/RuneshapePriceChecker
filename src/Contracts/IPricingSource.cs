@@ -14,4 +14,5 @@ public sealed record PricingSnapshot(
     decimal ExaltedOrbChaosValue,
     decimal CurrencyMinChaos = 0m,
     decimal CurrencyMaxChaos = 0m,
-    IReadOnlyDictionary<string, string>? UniqueItemBaseTypes = null);
+    IReadOnlyDictionary<string, string>? UniqueItemBaseTypes = null,
+    IReadOnlyDictionary<string, int>? ItemQuantities = null);

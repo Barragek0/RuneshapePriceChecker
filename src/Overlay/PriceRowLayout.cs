@@ -38,13 +38,32 @@ internal static class PriceRowLayout
             ? PriceColorCalculator.GetPriceColor(parsedDisplayValue, pricing)
             : PriceColorCalculator.GetPriceColor(quote.RepresentativeChaosValue, pricing);
 
+        // Override color for low-volume items when match-color is enabled
+        var iconColor = quote.VolumeLevel switch
+        {
+            VolumeLevel.VeryLow => Color.FromArgb(255, 255, 72, 72),   // red
+            VolumeLevel.Low => Color.FromArgb(255, 255, 196, 54),       // yellow
+            _ => Color.Transparent
+        };
+
+        if (quote.VolumeLevel != VolumeLevel.Normal && pricing.TradeVolumeMatchColor)
+            fallbackColor = iconColor;
+
         if (!quote.IsRange)
+        {
+            if (quote.VolumeLevel != VolumeLevel.Normal)
+                return [new OverlayTextSegment("\u26A0  ", iconColor, 0f), new OverlayTextSegment(quote.Label, fallbackColor, PriceColorCalculator.GetDivineGlowStrength(quote.Label))];
             return [new OverlayTextSegment(quote.Label, fallbackColor, PriceColorCalculator.GetDivineGlowStrength(quote.Label))];
+        }
 
         const string separator = " -";
         var splitIndex = quote.Label.IndexOf(separator, StringComparison.Ordinal);
         if (splitIndex < 0)
+        {
+            if (quote.VolumeLevel != VolumeLevel.Normal)
+                return [new OverlayTextSegment("\u26A0  ", iconColor, 0f), new OverlayTextSegment(quote.Label, fallbackColor, PriceColorCalculator.GetDivineGlowStrength(quote.Label))];
             return [new OverlayTextSegment(quote.Label, fallbackColor, PriceColorCalculator.GetDivineGlowStrength(quote.Label))];
+        }
 
         var leftText = quote.Label[..splitIndex];
         var rightText = quote.Label[(splitIndex + separator.Length)..];
@@ -57,11 +76,12 @@ internal static class PriceRowLayout
             ? PriceColorCalculator.GetPriceColor(rightChaos, pricing)
             : fallbackColor;
 
-        return
-        [
-            new OverlayTextSegment(leftText, leftColor, PriceColorCalculator.GetDivineGlowStrength(leftText)),
-            new OverlayTextSegment(separator, Color.White, 0f),
-            new OverlayTextSegment(rightText, rightColor, PriceColorCalculator.GetDivineGlowStrength(rightText))
-        ];
+        var segments = new List<OverlayTextSegment>(4);
+        if (quote.VolumeLevel != VolumeLevel.Normal)
+            segments.Add(new OverlayTextSegment("\u26A0  ", iconColor, 0f));
+        segments.Add(new OverlayTextSegment(leftText, leftColor, PriceColorCalculator.GetDivineGlowStrength(leftText)));
+        segments.Add(new OverlayTextSegment(separator, Color.White, 0f));
+        segments.Add(new OverlayTextSegment(rightText, rightColor, PriceColorCalculator.GetDivineGlowStrength(rightText)));
+        return segments;
     }
 }

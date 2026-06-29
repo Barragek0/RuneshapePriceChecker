@@ -8,8 +8,8 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Diagnostics;
+using System.Drawing;
 using System.Globalization;
-using StructLinq;
 
 namespace RuneshapePriceChecker.App;
 
@@ -18,6 +18,7 @@ public sealed class LeaguePricingWorker(
     InMemoryPricingCache pricingCache,
     PricingOverlayRenderer overlayRenderer,
     DebugOverlayService debugOverlay,
+    BannerService bannerService,
     DashboardService dashboard,
     IOptionsMonitor<PricingCacheOptions> pricingOptions,
     IOptionsMonitor<AppOptions> appOptions,
@@ -245,13 +246,53 @@ public sealed class LeaguePricingWorker(
                     }
                 }
 
-                var unpricedBanner = BuildUnpriceableBanner(snapshot.ItemNames, translator);
+                var unpricedBanner = BuildUnpriceableBanner(snapshot.ItemNames, pricingOptions.CurrentValue.PricingSource, translator);
+
+                // Check for low-volume items to build volume warning banner
+                var volumeLines = new List<string>();
+                if (pricingOptions.CurrentValue.TradeVolumeWarning)
+                {
+                    var hasLowVolume = false;
+                    var hasVeryLowVolume = false;
+                    foreach (var kvp in prices)
+                    {
+                        if (kvp.Value?.VolumeLevel == VolumeLevel.Low) hasLowVolume = true;
+                        if (kvp.Value?.VolumeLevel == VolumeLevel.VeryLow) hasVeryLowVolume = true;
+                        if (hasLowVolume && hasVeryLowVolume) break;
+                    }
+
+                    if (hasLowVolume && pricingOptions.CurrentValue.TradeVolumeBanner)
+                    {
+                        // \0RRGGBB prefix for orange text
+                        volumeLines.Add("\0FF8C00\u26A0 = Low trade volume");
+                    }
+
+                    if (hasVeryLowVolume && pricingOptions.CurrentValue.TradeVolumeBanner)
+                    {
+                        // Red is the default color, no prefix needed
+                        volumeLines.Add("\u26A0 = Very low trade volume");
+                    }
+                }
+
+                string? combinedBanner;
+                if (unpricedBanner is not null && volumeLines.Count > 0)
+                {
+                    combinedBanner = $"{unpricedBanner}\n---\n{string.Join("\n", volumeLines)}";
+                }
+                else if (volumeLines.Count > 0)
+                {
+                    combinedBanner = string.Join("\n", volumeLines);
+                }
+                else
+                {
+                    combinedBanner = unpricedBanner;
+                }
 
                 if (appOptions.CurrentValue.LogLevel <= LogLevel.Debug)
-                    LogVerboseSnapshot(snapshot, prices, logger);
+                    LogVerboseSnapshot(snapshot, prices, pricingOptions.CurrentValue, logger);
 
                 logger.LogTrace("Worker: calling SetBannerMessage");
-                debugOverlay.SetBannerMessage(unpricedBanner);
+                bannerService.SetBannerMessage(combinedBanner);
                 logger.LogTrace("Worker: calling SetDebugText");
 
                 // Build translated lines for debug overlay (purple text below each OCR line)
@@ -284,11 +325,24 @@ public sealed class LeaguePricingWorker(
                                 }
                             }
                         }
-                        translatedLines[i] = $"{quantity}x {translated}";
+
+                        var baseLine = $"{quantity}x {translated}";
+                        var quote = prices.TryGetValue(snapshot.ItemNames[i], out var q) ? q : null;
+                        if (quote?.CurrentQuantity is not null)
+                        {
+                            var volMark = quote.VolumeLevel switch
+                            {
+                                VolumeLevel.VeryLow => " [RED]",
+                                VolumeLevel.Low => " [YELLOW]",
+                                _ => ""
+                            };
+                            baseLine += $" qty={quote.CurrentQuantity.Value:N0}{volMark}";
+                        }
+                        translatedLines[i] = baseLine;
                     }
                 }
 
-                debugOverlay.SetDebugText(snapshot.ItemNames, snapshot.RowYPositions, snapshot.InterfaceDetected, statusLine: snapshot.CaptureMethod, cropBounds: snapshot.CropBounds, retryRegions: snapshot.RetryRegions, translatedLines: translatedLines);
+                debugOverlay.SetDebugText(snapshot.ItemNames, snapshot.RowYPositions, snapshot.InterfaceDetected, statusLine: snapshot.CaptureMethod, cropBounds: snapshot.CropBounds, retryRegions: snapshot.RetryRegions, translatedLines: translatedLines, rejectedRegions: snapshot.RejectedRegions);
                 if (dashboard.Metrics is { } m)
                     m.DebugOverlayActive = ocrOptions.CurrentValue.DebugOverlay;
                 logger.LogTrace("Worker: calling Render");
@@ -382,8 +436,13 @@ public sealed class LeaguePricingWorker(
         "Uncut Spirit Gem"
     ];
 
-    private static string? BuildUnpriceableBanner(IReadOnlyList<string> itemNames, ItemNameTranslator? translator = null)
+    private static string? BuildUnpriceableBanner(IReadOnlyList<string> itemNames, string pricingSource, ItemNameTranslator? translator = null)
     {
+        // Format the source name for display
+        var sourceDisplay = string.Equals(pricingSource, "poe.ninja", StringComparison.OrdinalIgnoreCase)
+            ? "poe.ninja"
+            : "poe2scout";
+
         foreach (var name in itemNames)
         {
             var parsed = ItemNameParser.ParseDetectedItem(name);
@@ -396,10 +455,10 @@ public sealed class LeaguePricingWorker(
                 continue;
 
             if (IsUnpriceableExact(normalized))
-                return "Some items can't be priced, new Skills\nand Supports aren't on poe.ninja";
+                return $"Some items can't be priced\nNew Skills and Supports aren't on {sourceDisplay}";
 
             if (IsUnpriceablePrefix(normalized))
-                return "Some items can't be priced, new Skills\nand Supports aren't on poe.ninja";
+                return $"Some items can't be priced\nNew Skills and Supports aren't on {sourceDisplay}";
 
             // Also check the translated name for non-English skill/support gems
             if (translator is not null)
@@ -408,9 +467,9 @@ public sealed class LeaguePricingWorker(
                 if (!string.Equals(english, normalized, StringComparison.OrdinalIgnoreCase))
                 {
                     if (IsUnpriceableExact(english))
-                        return "Some items can't be priced, new Skills\nand Supports aren't on poe.ninja";
+                        return $"Some items can't be priced\nNew Skills and Supports aren't on {sourceDisplay}";
                     if (IsUnpriceablePrefix(english))
-                        return "Some items can't be priced, new Skills\nand Supports aren't on poe.ninja";
+                        return $"Some items can't be priced\nNew Skills and Supports aren't on {sourceDisplay}";
                 }
             }
         }
@@ -463,23 +522,90 @@ public sealed class LeaguePricingWorker(
     private static void LogVerboseSnapshot(
         LeagueWindowSnapshot snapshot,
         Dictionary<string, PriceQuote?> prices,
+        PricingCacheOptions pricing,
         ILogger<LeaguePricingWorker> logger)
     {
         if (snapshot.ItemNames.Count == 0)
             return;
 
-        var entries = snapshot.ItemNames
-            .ToStructEnumerable()
-            .Select(itemName =>
+        // Replicate auto threshold computation so the log shows the same colors the overlay renders.
+        var colorOpts = pricing;
+        if (pricing.AutoPriceThresholds)
+        {
+            var maxPrice = 0m;
+            foreach (var kvp in prices)
             {
-                var quote = prices.TryGetValue(itemName, out var currentQuote) ? currentQuote : null;
-                var display = quote is null ? "n/a" : quote.Label;
-                var matchDetail = string.IsNullOrWhiteSpace(quote?.MatchDetail)
-                    ? string.Empty
-                    : $" ({quote.MatchDetail})";
-                return $"{itemName}={display}{matchDetail}";
-            })
-            .ToArray();
+                if (kvp.Value is null || kvp.Value.IsRange) continue;
+                if (kvp.Value.VolumeLevel != VolumeLevel.Normal) continue;
+                if (PriceColorCalculator.TryParseDisplayedChaosEquivalent(kvp.Value.Label, pricing, out var displayValue))
+                {
+                    if (displayValue > maxPrice)
+                        maxPrice = displayValue;
+                }
+                else if (kvp.Value.RepresentativeChaosValue > maxPrice)
+                {
+                    maxPrice = kvp.Value.RepresentativeChaosValue;
+                }
+            }
+
+            if (maxPrice > 0m)
+            {
+                colorOpts = new PricingCacheOptions
+                {
+                    AutoPriceThresholds = true,
+                    RedThreshold = maxPrice * 0.1m,
+                    OrangeThreshold = maxPrice * 0.3m,
+                    GreenThreshold = maxPrice * 0.7m,
+                    DisplayCurrency = pricing.DisplayCurrency,
+                    League = pricing.League,
+                    PricingSource = pricing.PricingSource,
+                    TradeVolumeMatchColor = pricing.TradeVolumeMatchColor,
+                    TradeVolumeBanner = pricing.TradeVolumeBanner
+                };
+            }
+        }
+
+        var entries = new string[snapshot.ItemNames.Count];
+        for (var i = 0; i < snapshot.ItemNames.Count; i++)
+        {
+            var itemName = snapshot.ItemNames[i];
+            var quote = prices.TryGetValue(itemName, out var currentQuote) ? currentQuote : null;
+            var display = quote is null ? "n/a" : quote.Label;
+            var matchDetail = string.IsNullOrWhiteSpace(quote?.MatchDetail)
+                ? string.Empty
+                : $" ({quote.MatchDetail})";
+            var volume = quote?.CurrentQuantity is not null
+                ? $" qty={quote.CurrentQuantity.Value:N0}"
+                : "";
+            var volLevel = quote?.VolumeLevel switch
+            {
+                VolumeLevel.VeryLow => " [RED]",
+                VolumeLevel.Low => " [YELLOW]",
+                _ => ""
+            };
+
+            // Compute the actual rendered color (respecting auto thresholds and MatchColor)
+            var colorInfo = "";
+            if (quote is not null && !quote.IsRange && PriceColorCalculator.TryParseDisplayedChaosEquivalent(quote.Label, colorOpts, out var parsedValue))
+            {
+                var color = PriceColorCalculator.GetPriceColor(parsedValue, colorOpts);
+
+                // Apply MatchColor override (same logic as BuildTextSegments in the renderers)
+                if (quote.VolumeLevel != VolumeLevel.Normal && colorOpts.TradeVolumeMatchColor)
+                {
+                    color = quote.VolumeLevel switch
+                    {
+                        VolumeLevel.VeryLow => Color.FromArgb(255, 255, 72, 72),   // red
+                        VolumeLevel.Low => Color.FromArgb(255, 255, 196, 54),       // yellow
+                        _ => color
+                    };
+                }
+
+                colorInfo = $" RGB({color.R},{color.G},{color.B})";
+            }
+
+            entries[i] = $"{itemName}={display}{volume}{volLevel}{colorInfo}{matchDetail}";
+        }
 
         if (logger.IsEnabled(LogLevel.Debug))
             logger.LogDebug("Detected {Count} items with prices: {Entries}", snapshot.ItemNames.Count, string.Join(" | ", entries));
