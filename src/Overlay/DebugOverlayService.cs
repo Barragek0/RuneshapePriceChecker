@@ -41,7 +41,6 @@ public sealed class DebugOverlayService(
                     }
                 }
                 else CloseOverlay();
-                if (_appOptions.CurrentValue.Banner && !_appOptions.CurrentValue.AllOverlaysDisabled) EnsureBannerThreadStarted();
             }
             catch (Exception ex)
             {
@@ -98,7 +97,7 @@ public sealed class DebugOverlayService(
         }
 
         var frame = new Rectangle(region.X, region.Y, region.Width, region.Height);
-        var scaleFactor = PricingOverlayRenderer.ComputeOverlayScale(windowResolutionProvider, _appOptions);
+        var scaleFactor = PricingOverlayRenderer.ComputeOverlayScale(windowResolutionProvider, _options.CurrentValue.OverlayScale);
         overlay.SetScanFractions(options.PanelLeftFraction, options.PanelRightFraction, options.PanelTopRowFraction);
         overlay.SafeShowFrame(frame, true, scaleFactor: scaleFactor);
     }
@@ -143,9 +142,6 @@ public sealed class DebugOverlayService(
     private volatile bool _frameDirty;
     private volatile bool _setupComplete; // in-memory guard until IOptionsMonitor picks up the file change
     public bool IsSetupInProgress => _setupInProgress;
-    private Thread? _bannerThread;
-    private BannerForm? _bannerForm;
-    private readonly object _bannerSync = new();
 
     public void ForceHide()
     {
@@ -286,97 +282,7 @@ public sealed class DebugOverlayService(
         }
     }
 
-    private string _lastBannerMessage = string.Empty;
-    private int _lastBannerX;
-    private int _lastBannerY;
-
-    public void SetBannerMessage(string? message)
-    {
-        if (_appOptions.CurrentValue.AllOverlaysDisabled)
-        {
-            var form = GetBannerForm();
-            form?.SafeHide();
-            return;
-        }
-
-        if (!_appOptions.CurrentValue.Banner)
-            return;
-
-        if (string.IsNullOrWhiteSpace(message))
-        {
-            var form = GetBannerForm();
-            if (form is { IsDisposed: false, IsHidden: false })
-            {
-                logger.LogDebug("Banner hidden (no unpriceable items).");
-                form.SafeHide();
-            }
-            _lastBannerMessage = string.Empty;
-            return;
-        }
-
-        var region = windowResolutionProvider.CurrentCaptureRegion;
-        if (region is null)
-        {
-            var form = GetBannerForm();
-            if (form is { IsDisposed: false, IsHidden: false })
-                form.SafeHide();
-            _lastBannerMessage = string.Empty;
-            return;
-        }
-
-        var x = region.X - 55;
-        var y = region.Y - 60;
-
-        // Skip if banner already visible with same message at same position
-        if (string.Equals(message, _lastBannerMessage, StringComparison.Ordinal) && x == _lastBannerX && y == _lastBannerY)
-        {
-            var banner = GetBannerForm();
-            if (banner is { IsDisposed: false, IsHidden: false })
-                return;
-        }
-
-        _lastBannerMessage = message;
-        _lastBannerX = x;
-        _lastBannerY = y;
-
-        EnsureBannerThreadStarted();
-        var b = GetBannerForm();
-        if (b is null)
-        {
-            logger.LogWarning("Banner form is null after thread start.");
-            return;
-        }
-
-        b.SetMessage(message);
-        b.SafeShow(x, y);
-
-        if (!b.Visible)
-        {
-            logger.LogDebug("Banner shown at ({X},{Y}): {Message}", x, y, message);
-        }
-    }
-
-    private void EnsureBannerThreadStarted()
-    {
-        lock (_bannerSync)
-        {
-            if (_bannerThread is { IsAlive: true }) return;
-
-            _bannerThread = OverlayFormRunner.Start<BannerForm>(
-                "RuneshapePriceChecker-Banner",
-                _bannerSync,
-                f => _bannerForm = f,
-                logger,
-                "Banner form creation timed out; banner will be unavailable.");
-        }
-    }
-
-    private BannerForm? GetBannerForm()
-    {
-        lock (_bannerSync) return _bannerForm;
-    }
-
-    public void SetDebugText(IReadOnlyList<string> lines, IReadOnlyList<int>? rowYPositions = null, bool interfaceDetected = true, string? statusLine = null, Rectangle? cropBounds = null, IReadOnlyList<Rectangle>? retryRegions = null, IReadOnlyList<string>? translatedLines = null)
+    public void SetDebugText(IReadOnlyList<string> lines, IReadOnlyList<int>? rowYPositions = null, bool interfaceDetected = true, string? statusLine = null, Rectangle? cropBounds = null, IReadOnlyList<Rectangle>? retryRegions = null, IReadOnlyList<string>? translatedLines = null, IReadOnlyList<Rectangle>? rejectedRegions = null)
     {
         if (_setupInProgress) return;
 
@@ -412,8 +318,8 @@ public sealed class DebugOverlayService(
         if (translatedLines is not null)
             overlay.SetTranslatedLines(translatedLines);
         overlay.SetCropBounds(cropBounds);
-        if (retryRegions is not null)
-            overlay.SetRetryRegions(retryRegions);
+        overlay.SetRetryRegions(retryRegions ?? []);
+        overlay.SetRejectedRegions(rejectedRegions ?? []);
 
     }
 
@@ -439,6 +345,7 @@ public sealed class DebugOverlayService(
         private IReadOnlyList<string> _debugTranslatedLines = [];
         private IReadOnlyList<int> _debugRowY = [];
         private IReadOnlyList<Rectangle> _retryRegions = [];
+        private IReadOnlyList<Rectangle> _rejectedRegions = [];
         private bool _showDebugOverlay;
         private string? _statusLine;
         private Rectangle? _cropBounds;
@@ -447,6 +354,7 @@ public sealed class DebugOverlayService(
         private static readonly Pen BoxPen = new(Color.Red, 3);
         private static readonly Pen CropPen = new(Color.FromArgb(200, 0, 255, 0), 2f) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash };
         private static readonly Pen RetryPen = new(Color.FromArgb(220, 200, 50, 220), 2f);
+        private static readonly Pen RejectedPen = new(Color.FromArgb(200, 220, 120, 30), 2f);
         private static readonly Pen ScanPen = new(Color.FromArgb(220, 255, 255, 0), 2f) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash };
 
         protected override void OnPaint(PaintEventArgs e)
@@ -478,16 +386,17 @@ public sealed class DebugOverlayService(
                 if (retry.Width > 0 && retry.Height > 0)
                     e.Graphics.DrawRectangle(RetryPen, retry.X, retry.Y, retry.Width - 1, retry.Height - 1);
             }
+            // Rejected rune-icon rows (black dashed boxes)
+            foreach (var rejected in _rejectedRegions)
+            {
+                if (rejected.Width > 0 && rejected.Height > 0)
+                    e.Graphics.DrawRectangle(RejectedPen, rejected.X, rejected.Y, rejected.Width - 1, rejected.Height - 1);
+            }
 
             var scanLeft = (int)(boxWidth * _leftFraction);
-            var scanRight = (int)(boxWidth * _rightFraction);
-            var scanBottom = (int)(_frame.Height * _topRowFraction);
-            // Top horizontal + right vertical down to scanBottom, and left vertical
-            // extending the full height of the capture box so users can see the exact
-            // text-column boundary used for row detection.
-            e.Graphics.DrawLine(ScanPen, scanLeft, 0, scanRight, 0);
+            // Left vertical yellow dashed line — marks the text-column boundary
+            // used for row detection. Full height so the cutoff is always visible.
             e.Graphics.DrawLine(ScanPen, scanLeft, 0, scanLeft, _frame.Height);
-            e.Graphics.DrawLine(ScanPen, scanRight, 0, scanRight, scanBottom);
 
             var lines = _debugLines;
             var rowY = _debugRowY;
@@ -578,6 +487,13 @@ public sealed class DebugOverlayService(
         public void SetRetryRegions(IReadOnlyList<Rectangle> regions)
         {
             _retryRegions = regions;
+            if (!IsDisposed && Visible)
+                Invalidate();
+        }
+
+        public void SetRejectedRegions(IReadOnlyList<Rectangle> regions)
+        {
+            _rejectedRegions = regions;
             if (!IsDisposed && Visible)
                 Invalidate();
         }

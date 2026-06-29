@@ -7,4 +7,5 @@ public sealed record LeagueWindowSnapshot(
     bool InterfaceDetected = true,
     string? CaptureMethod = null,
     Rectangle? CropBounds = null,
-    IReadOnlyList<Rectangle>? RetryRegions = null);
+    IReadOnlyList<Rectangle>? RetryRegions = null,
+    IReadOnlyList<Rectangle>? RejectedRegions = null);

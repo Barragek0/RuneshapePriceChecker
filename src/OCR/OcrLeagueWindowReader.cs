@@ -52,9 +52,10 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
                 _options.CurrentValue.OcrBackend, effectiveBackend);
         else
             _logger.LogInformation("OCR backend: {Backend}", effectiveBackend);
-        _detectedLanguage = Poe2ConfigFile.Language;
+        var poe2Lang = Poe2ConfigFile.Language;
+        _detectedLanguage = poe2Lang is not null && ItemNameTranslator.IsLanguageSupported(poe2Lang) ? poe2Lang : null;
         _logger.LogDebug("PoE2 game language detected: {Detected} (configured default: {Configured})",
-            _detectedLanguage ?? "(none)", _options.CurrentValue.Language);
+            poe2Lang ?? "(none)", _options.CurrentValue.Language);
         _metrics.OcrBackend = effectiveBackend;
         _metrics.Language = _detectedLanguage ?? _options.CurrentValue.Language;
         _metrics.OcrEngineMode = _options.CurrentValue.OcrEngineMode.ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -140,6 +141,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
     private Bitmap? _lastCaptureBitmap;
     private Bitmap? _lastPreprocessedBitmap;
     private readonly List<Rectangle> _retryRegions = [];
+    private readonly List<Rectangle> _rejectedRegions = [];
     private int[] _lastOcrRowHeights = [];
 
     public void Warmup()
@@ -206,10 +208,16 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
             // Clear stale regions from previous cycles first so old positions don't
             // accumulate (they were never cleared, causing duplicate offset boxes).
             _retryRegions.Clear();
+            _rejectedRegions.Clear();
+            var validRowMask = new bool[_lastOcrRowYPositions.Length > 0 ? _lastOcrRowYPositions.Length : 0];
             if (_lastOcrRowYPositions.Length > 0 && _lastPreprocessedBitmap is not null)
             {
                 var pbmp = _lastPreprocessedBitmap;
                 var rect = new Rectangle(0, 0, pbmp.Width, pbmp.Height);
+                // Only keep rows whose content extends to the rightmost 15% of
+                // the capture region — narrow clusters near the left are rune
+                // icons, not real text.
+                var rightEdgeThreshold = (int)(pbmp.Width * 0.85);
                 var data = pbmp.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
                 try
                 {
@@ -217,19 +225,23 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
                     var bytes = new byte[Math.Abs(stride) * pbmp.Height];
                     Marshal.Copy(data.Scan0, bytes, 0, bytes.Length);
 
+                    // Text column starts at PanelLeftFraction — don't scan left of it
+                    var textColStart = (int)(pbmp.Width * _options.CurrentValue.PanelLeftFraction);
+
                     for (var i = 0; i < _lastOcrRowYPositions.Length; i++)
                     {
                         var y = _lastOcrRowYPositions[i];
                         var h = i < _lastOcrRowHeights.Length ? _lastOcrRowHeights[i] : 16;
                         var yEnd = Math.Min(y + h, pbmp.Height);
 
-                        // Find leftmost and rightmost dark pixel within this row band
+                        // Find leftmost and rightmost dark pixel within this row band,
+                        // but only within the text column (right of the yellow dashed line)
                         var minX = pbmp.Width;
                         var maxX = 0;
                         for (var ry = y; ry < yEnd; ry++)
                         {
                             var rowOffset = ry * stride;
-                            for (var rx = 0; rx < pbmp.Width; rx++)
+                            for (var rx = textColStart; rx < pbmp.Width; rx++)
                             {
                                 if (bytes[rowOffset + (rx * 3)] < 128)
                                 {
@@ -244,11 +256,30 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
                             const int margin = 4;
                             var boxX = Math.Max(0, minX - margin);
                             var boxW = Math.Min(pbmp.Width - boxX, maxX - minX + (margin * 2));
-                            _retryRegions.Add(new Rectangle(boxX, y, boxW, h));
+                            var right = boxX + boxW;
+                            var box = new Rectangle(boxX, y, boxW, h);
+
+                            // Only keep rows whose content reaches the rightmost
+                            // portion of the capture region — real text spans most
+                            // of the width, rune icons don't.
+                            if (right >= rightEdgeThreshold)
+                            {
+                                validRowMask[i] = true;
+                                _retryRegions.Add(box);
+                            }
+                            else
+                            {
+                                _rejectedRegions.Add(box);
+                                if (_logger.IsEnabled(LogLevel.Trace))
+                                    _logger.LogTrace(
+                                        "Row {Row} @Y={Y} rejected: right edge {Right} < threshold {Threshold} (cluster too narrow for text)",
+                                        i, y, right, rightEdgeThreshold);
+                            }
                         }
                         else
                         {
-                            // Fallback: use full width
+                            // Fallback: use full width (always valid)
+                            validRowMask[i] = true;
                             _retryRegions.Add(new Rectangle(0, y, pbmp.Width, h));
                         }
                     }
@@ -256,6 +287,32 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
                 finally
                 {
                     pbmp.UnlockBits(data);
+                }
+
+                if (_logger.IsEnabled(LogLevel.Debug) && _rejectedRegions.Count > 0)
+                {
+                    _logger.LogDebug(
+                        "Row filtering: {Kept} kept, {Rejected} rejected (right edge < {Threshold}px)",
+                        _retryRegions.Count, _rejectedRegions.Count, rightEdgeThreshold);
+                }
+
+                // Filter lines/matchedYPositions to match the kept rows.
+                // Lines and Y positions are paired by index and correspond to
+                // the first N detected rows.
+                if (validRowMask.Length > 0)
+                {
+                    var keptLines = new List<string>(lines.Length);
+                    var keptY = new List<int>(matchedYPositions.Length);
+                    for (var i = 0; i < lines.Length && i < validRowMask.Length; i++)
+                    {
+                        if (validRowMask[i])
+                        {
+                            keptLines.Add(lines[i]);
+                            keptY.Add(matchedYPositions[i]);
+                        }
+                    }
+                    lines = [.. keptLines];
+                    matchedYPositions = [.. keptY];
                 }
 
                 _lastCropBounds = null; // hide green content-bounds box
@@ -271,7 +328,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
 
             _dashboard.SetStatus("Scanning league panel", "green");
 
-            _lastSnapshot = new LeagueWindowSnapshot(lines, capturedAt, matchedYPositions, InterfaceDetected: true, CaptureMethod: ResolveStatusLine(), CropBounds: _lastCropBounds, RetryRegions: _retryRegions.Count > 0 ? [.. _retryRegions] : null);
+            _lastSnapshot = new LeagueWindowSnapshot(lines, capturedAt, matchedYPositions, InterfaceDetected: true, CaptureMethod: ResolveStatusLine(), CropBounds: _lastCropBounds, RetryRegions: _retryRegions.Count > 0 ? [.. _retryRegions] : null, RejectedRegions: _rejectedRegions.Count > 0 ? [.. _rejectedRegions] : null);
             _metrics.ItemsDetected = lines.Length;
             _metrics.InterfaceDetected = true;
             return _lastSnapshot;
@@ -309,13 +366,22 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         var options = _options.CurrentValue;
         if (_detectedLanguage is not null)
         {
-            if (!string.Equals(options.Language, _detectedLanguage, StringComparison.OrdinalIgnoreCase))
+            if (ItemNameTranslator.IsLanguageSupported(_detectedLanguage))
             {
-                _logger.LogInformation(
-                    "OCR language mismatch: configured={Configured}, detected={Detected}. Using detected language.",
-                    options.Language, _detectedLanguage);
+                if (!string.Equals(options.Language, _detectedLanguage, StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogInformation(
+                        "OCR language mismatch: configured={Configured}, detected={Detected}. Using detected language.",
+                        options.Language, _detectedLanguage);
+                }
+                options.Language = _detectedLanguage;
             }
-            options.Language = _detectedLanguage;
+            else
+            {
+                _logger.LogDebug(
+                    "OCR language: detected='{Detected}' is not supported — keeping configured default '{Lang}'.",
+                    _detectedLanguage, options.Language);
+            }
         }
         else
         {
@@ -347,7 +413,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
             _logger.LogDebug("PoE2 foreground confirmed; OCR scanning is active.");
         }
 
-        if (options.UseWindowClientCapture && _windowResolutionProvider.CurrentWindowCaptureContext is null)
+        if (_windowResolutionProvider.CurrentWindowCaptureContext is null)
         {
             if (_appOptions.CurrentValue.LogLevel <= LogLevel.Debug && !_logState.HasFlag(OcrLogState.WindowContextLogged))
             {
@@ -602,6 +668,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         TryLogPerfMetrics(options);
 
         _retryRegions.Clear();
+        _rejectedRegions.Clear();
         masked.Dispose();
         preprocessed.Dispose();
         return _lastOcrText;
@@ -625,8 +692,9 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
 
     private void OnPoe2ConfigChanged()
     {
-        var detectedLang = Poe2ConfigFile.Language;
-        if (detectedLang is null) return;
+        var rawLang = Poe2ConfigFile.Language;
+        var detectedLang = rawLang is not null && ItemNameTranslator.IsLanguageSupported(rawLang) ? rawLang : null;
+        if (detectedLang is null && _detectedLanguage is null) return; // still unsupported
         var effective = _detectedLanguage ?? _options.CurrentValue.Language;
         if (string.Equals(detectedLang, effective, StringComparison.OrdinalIgnoreCase))
             return; // no change
