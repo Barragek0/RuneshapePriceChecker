@@ -143,6 +143,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
     private readonly List<Rectangle> _retryRegions = [];
     private readonly List<Rectangle> _rejectedRegions = [];
     private int[] _lastOcrRowHeights = [];
+    private string[]? _lastRowTexts;
 
     public void Warmup()
     {
@@ -201,8 +202,11 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
                 _logger.LogDebug("OCR engine confirmed: tesseract executed successfully.");
             }
 
-            var (lines, matchedYPositions) = OcrTextPostProcessor.ExtractWithYPositions(
-                rawText, _runContext.RowYPositions, _detectedLanguage);
+            var (lines, matchedYPositions) = _lastRowTexts is not null
+                ? OcrTextPostProcessor.ExtractFromRowTexts(
+                    _lastRowTexts, _runContext.RowYPositions, _detectedLanguage)
+                : OcrTextPostProcessor.ExtractWithYPositions(
+                    rawText, _runContext.RowYPositions, _detectedLanguage);
 
             // Draw purple boxes matching each row's individual content bounds.
             // Clear stale regions from previous cycles first so old positions don't
@@ -217,7 +221,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
                 // Only keep rows whose content extends to the rightmost 15% of
                 // the capture region — narrow clusters near the left are rune
                 // icons, not real text.
-                var rightEdgeThreshold = (int)(pbmp.Width * 0.85);
+                var rightEdgeThreshold = (int)(pbmp.Width * 0.50); // TEMP: lowered from 0.85 for orange-box testing
                 var data = pbmp.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
                 try
                 {
@@ -272,7 +276,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
                                 _rejectedRegions.Add(box);
                                 if (_logger.IsEnabled(LogLevel.Trace))
                                     _logger.LogTrace(
-                                        "Row {Row} @Y={Y} rejected: right edge {Right} < threshold {Threshold} (cluster too narrow for text)",
+                                        "Row {Row} @Y={Y} rejected: right edge {Right} < threshold {Threshold} (TEMP 50%)",
                                         i, y, right, rightEdgeThreshold);
                             }
                         }
@@ -297,15 +301,19 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
                 }
 
                 // Filter lines/matchedYPositions to match the kept rows.
-                // Lines and Y positions are paired by index and correspond to
-                // the first N detected rows.
+                // Since ExtractFromRowTexts now returns correctly-paired data
+                // (each line keeps its original Y position), we map each line
+                // back to its original row index so the right-edge rejection
+                // mask (indexed by original row index) is applied correctly.
                 if (validRowMask.Length > 0)
                 {
                     var keptLines = new List<string>(lines.Length);
                     var keptY = new List<int>(matchedYPositions.Length);
-                    for (var i = 0; i < lines.Length && i < validRowMask.Length; i++)
+                    for (var i = 0; i < lines.Length; i++)
                     {
-                        if (validRowMask[i])
+                        var y = matchedYPositions[i];
+                        var origIndex = Array.IndexOf(_lastOcrRowYPositions, y);
+                        if (origIndex >= 0 && origIndex < validRowMask.Length && validRowMask[origIndex])
                         {
                             keptLines.Add(lines[i]);
                             keptY.Add(matchedYPositions[i]);
@@ -574,6 +582,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         {
             _lastOcrText = string.Empty;
             _lastOcrOptions = options;
+            _lastRowTexts = [];
         }
         else
         {
@@ -654,6 +663,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
                 joined = string.Join(Environment.NewLine, rowTexts);
             _lastOcrText = joined;
             _lastOcrOptions = options;
+            _lastRowTexts = rowTexts;
         }
 
         _perf.RecordEnd(OcrPerfTiming.Slot.Total, t0);

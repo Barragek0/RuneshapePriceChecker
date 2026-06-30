@@ -43,6 +43,28 @@ internal static class OcrTextPostProcessor
         return (names, yPositions);
     }
 
+    /// Pairs pre-split row texts with their original Y positions, filtering out
+    /// empty/short lines without consuming Y positions from subsequent rows.
+    /// Used by OcrLeagueWindowReader to avoid index misalignment that occurs
+    /// when joining row texts and re-splitting (empty rows cause the Y-position
+    /// index to drift).
+    public static (string[] Names, int[] MatchedYPositions) ExtractFromRowTexts(
+        string[] rowTexts, int[] rowYPositions, string? language = null)
+    {
+        var names = new List<string>();
+        var yPositions = new List<int>();
+        for (var i = 0; i < Math.Min(rowTexts.Length, rowYPositions.Length); i++)
+        {
+            var trimmed = NormalizeOcrLine(rowTexts[i]);
+            if (trimmed.Length >= 3 && ContainsLetter(trimmed))
+            {
+                names.Add(trimmed);
+                yPositions.Add(rowYPositions[i]);
+            }
+        }
+        return (names.ToArray(), yPositions.ToArray());
+    }
+
     public static IReadOnlyList<string> ExtractLikelyItemNames(string rawText, string? language = null)
     {
         var raw = rawText
