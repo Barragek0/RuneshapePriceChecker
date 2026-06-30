@@ -39,13 +39,16 @@ internal static class OcrImagePreprocessor
         var keep = new byte[width * height];
 
         // First pass: for each sufficiently dark pixel, mark a neighborhood as kept.
+        // At 1440p+ the game renders more detail, so use a stricter threshold (13)
+        // to avoid picking up rune/UI noise as text rows. on 1080p and lower, 15 is fine.
+        var blackThreshold = width >= 600 ? 13 : 15;
         for (var y = 0; y < height; y++)
         {
             var rowOffset = y * stride;
             for (var x = 0; x < width; x++)
             {
                 var idx = rowOffset + (x * 3);
-                if (srcBytes[idx] > 15 || srcBytes[idx + 1] > 15 || srcBytes[idx + 2] > 15)
+                if (srcBytes[idx] > blackThreshold || srcBytes[idx + 1] > blackThreshold || srcBytes[idx + 2] > blackThreshold)
                     continue;
 
                 var y0 = Math.Max(0, y - 6);

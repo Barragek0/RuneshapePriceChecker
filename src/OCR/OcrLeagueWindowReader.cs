@@ -221,7 +221,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
                 // Only keep rows whose content extends to the rightmost 15% of
                 // the capture region — narrow clusters near the left are rune
                 // icons, not real text.
-                var rightEdgeThreshold = (int)(pbmp.Width * 0.50); // TEMP: lowered from 0.85 for orange-box testing
+                var rightEdgeThreshold = (int)(pbmp.Width * 0.85);
                 var data = pbmp.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
                 try
                 {
@@ -276,7 +276,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
                                 _rejectedRegions.Add(box);
                                 if (_logger.IsEnabled(LogLevel.Trace))
                                     _logger.LogTrace(
-                                        "Row {Row} @Y={Y} rejected: right edge {Right} < threshold {Threshold} (TEMP 50%)",
+                                        "Row {Row} @Y={Y} rejected: right edge {Right} < threshold {Threshold} (cluster too narrow for text)",
                                         i, y, right, rightEdgeThreshold);
                             }
                         }
