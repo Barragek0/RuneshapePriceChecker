@@ -9,6 +9,35 @@ public static class Poe2ConfigFile
     private const string RelativeConfigPath = @"Documents\My Games\Path of Exile 2\poe2_production_Config.ini";
 
     private static ILogger? _logger;
+
+    private static string SanitizePath(string path)
+    {
+        // Current user's LocalAppData — %LOCALAPPDATA% is always accurate
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        if (!string.IsNullOrEmpty(localAppData) && path.StartsWith(localAppData, StringComparison.OrdinalIgnoreCase))
+            return "%LOCALAPPDATA%" + path[localAppData.Length..];
+
+        // Current user's profile — %USERPROFILE% is accurate here
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrEmpty(userProfile) && path.StartsWith(userProfile, StringComparison.OrdinalIgnoreCase))
+            return "%USERPROFILE%" + path[userProfile.Length..];
+
+        // Path under a different user's profile (e.g. PoE2 limited user).
+        // Strip the drive+Users\{name} prefix, show just the relative portion.
+        var systemDrive = Path.GetPathRoot(Environment.SystemDirectory);
+        var profilesDir = systemDrive is not null
+            ? Path.Combine(systemDrive, "Users")
+            : @"C:\Users";
+        if (path.StartsWith(profilesDir, StringComparison.OrdinalIgnoreCase))
+        {
+            var afterProfiles = path[(profilesDir.Length + 1)..]; // skip "C:\Users\"
+            var firstSep = afterProfiles.IndexOf('\\');
+            if (firstSep > 0)
+                return afterProfiles[(firstSep + 1)..]; // everything after the username
+        }
+
+        return path;
+    }
     public static void SetLogger(ILogger logger) => _logger = logger;
 
     private static string? _fileText;
@@ -42,7 +71,7 @@ public static class Poe2ConfigFile
             var poe2UserPath = Path.Combine(profilesDir, poe2Owner, RelativeConfigPath);
             if (File.Exists(poe2UserPath))
             {
-                _logger?.LogDebug("PoE2 config resolved to '{Path}' (PoE2 process owner: {Owner})", poe2UserPath, poe2Owner);
+                _logger?.LogDebug("PoE2 config resolved to '{Path}' (PoE2 process owner: {Owner})", SanitizePath(poe2UserPath), poe2Owner);
                 return poe2UserPath;
             }
         }
@@ -55,7 +84,7 @@ public static class Poe2ConfigFile
             var currentUserPath = Path.Combine(profilesDir, currentUser, RelativeConfigPath);
             if (File.Exists(currentUserPath))
             {
-                _logger?.LogDebug("PoE2 config resolved to '{Path}' (current user: {User})", currentUserPath, currentUser);
+                _logger?.LogDebug("PoE2 config resolved to '{Path}' (current user: {User})", SanitizePath(currentUserPath), currentUser);
                 return currentUserPath;
             }
         }
@@ -88,8 +117,8 @@ public static class Poe2ConfigFile
                     var username = ownerParams?["User"] as string;
                     if (domain is not null && username is not null)
                     {
-                        _logger?.LogDebug("PoE2 process owner resolved via WMI: {Domain}\\{User} (PID: {Pid})",
-                            domain, username, process["ProcessId"]);
+                        _logger?.LogDebug("PoE2 process owner resolved via WMI: {User} (PID: {Pid})",
+                            username, process["ProcessId"]);
                         return _cachedPoe2Owner = username;
                     }
                 }
@@ -134,11 +163,11 @@ public static class Poe2ConfigFile
             var dir = Path.GetDirectoryName(configPath);
             if (dir is null || !Directory.Exists(dir))
             {
-                _logger?.LogDebug("PoE2 config directory not found at '{Dir}' — config change watching disabled.", dir);
+                _logger?.LogDebug("PoE2 config directory not found at '{Dir}' — config change watching disabled.", SanitizePath(dir!));
                 return;
             }
 
-            _logger?.LogDebug("Watching PoE2 config file: {Path}", configPath);
+            _logger?.LogDebug("Watching PoE2 config file: {Path}", SanitizePath(configPath));
             _watcher = new FileSystemWatcher(dir, "poe2_production_Config.ini")
             {
                 NotifyFilter = NotifyFilters.LastWrite,
@@ -184,12 +213,12 @@ public static class Poe2ConfigFile
         try
         {
             _fileText = File.ReadAllText(configPath);
-            _logger?.LogTrace("PoE2 config read from '{Path}' ({Length} bytes).", configPath, _fileText.Length);
+            _logger?.LogTrace("PoE2 config read from '{Path}' ({Length} bytes).", SanitizePath(configPath), _fileText.Length);
             return _fileText;
         }
         catch (Exception ex)
         {
-            _logger?.LogWarning(ex, "Failed to read PoE2 config file '{Path}': {Context}", configPath, ex.Message);
+            _logger?.LogWarning(ex, "Failed to read PoE2 config file '{Path}': {Context}", SanitizePath(configPath), ex.Message);
             InvalidateCache();
             return null;
         }

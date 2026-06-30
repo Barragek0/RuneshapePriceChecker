@@ -907,7 +907,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
             if (!_logState.HasFlag(OcrLogState.DebugDirectoryLogged))
             {
                 _logState |= OcrLogState.DebugDirectoryLogged;
-                _logger.LogInformation("OCR debug image output enabled. Directory: {Path}", Path.GetFullPath(directory));
+                _logger.LogInformation("OCR debug image output enabled. Directory: {Path}", SanitizePathForLog(Path.GetFullPath(directory)));
             }
 
             var rawPath = Path.Combine(directory, "raw.png");
@@ -937,6 +937,34 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         return isWindows ? Path.Combine("windows", "images") : Path.Combine("tesseract", "images");
     }
 
+    private static string SanitizePathForLog(string path)
+    {
+        // Current user's LocalAppData — %LOCALAPPDATA% is always accurate
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        if (!string.IsNullOrEmpty(localAppData) && path.StartsWith(localAppData, StringComparison.OrdinalIgnoreCase))
+            return "%LOCALAPPDATA%" + path[localAppData.Length..];
+
+        // Current user's profile — %USERPROFILE% is accurate here
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrEmpty(userProfile) && path.StartsWith(userProfile, StringComparison.OrdinalIgnoreCase))
+            return "%USERPROFILE%" + path[userProfile.Length..];
+
+        // Path under a different user's profile — show relative portion only
+        var systemDrive = Path.GetPathRoot(Environment.SystemDirectory);
+        var profilesDir = systemDrive is not null
+            ? Path.Combine(systemDrive, "Users")
+            : @"C:\Users";
+        if (path.StartsWith(profilesDir, StringComparison.OrdinalIgnoreCase))
+        {
+            var afterProfiles = path[(profilesDir.Length + 1)..];
+            var firstSep = afterProfiles.IndexOf('\\');
+            if (firstSep > 0)
+                return afterProfiles[(firstSep + 1)..];
+        }
+
+        return path;
+    }
+
     private static string ResolveDebugImageDirectory(OcrOptions options)
     {
         if (string.IsNullOrWhiteSpace(options.DebugImageDirectory))
@@ -958,12 +986,12 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
             if (!_logState.HasFlag(OcrLogState.DebugDirectoryLogged))
             {
                 _logState |= OcrLogState.DebugDirectoryLogged;
-                _logger.LogInformation("OCR debug image output enabled. Directory: {Path}", Path.GetFullPath(directory));
+                _logger.LogInformation("OCR debug image output enabled. Directory: {Path}", SanitizePathForLog(Path.GetFullPath(directory)));
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to create OCR debug image directory {Path}: {Context}", directory, ErrorContext.FromException(ex));
+            _logger.LogError(ex, "Failed to create OCR debug image directory {Path}: {Context}", SanitizePathForLog(directory), ErrorContext.FromException(ex));
         }
     }
 

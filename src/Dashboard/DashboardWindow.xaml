@@ -1083,13 +1083,18 @@
                                                TextWrapping="Wrap"
                                                TextAlignment="Center"
                                                Margin="0,0,0,12"/>
-                                    <TextBlock Text="🔒 No personal information is collected. Only app logs, crash reports, system info, and debug images are included."
-                                               Foreground="{StaticResource TextSecondary}"
+                                    <TextBlock Foreground="{StaticResource TextSecondary}"
                                                FontSize="11"
                                                Opacity="0.7"
                                                TextWrapping="Wrap"
                                                TextAlignment="Center"
-                                               Margin="0,0,0,20"/>
+                                               Margin="0,0,0,20">
+                                        <Run Text="🔒 "/>
+                                        <Run Text="No personal information is collected. Only app logs, crash reports, system info, and debug images are included. "/>
+                                        <Run FontWeight="Bold"
+                                                Text="Note:"/>
+                                        <Run Text=" Your Windows profile username may appear in some debug log entries where it's needed to identify which user profile is being used."/>
+                                    </TextBlock>
                                     <Button x:Name="BugReportDoneButton"
                                             Width="160"
                                             Height="36"
