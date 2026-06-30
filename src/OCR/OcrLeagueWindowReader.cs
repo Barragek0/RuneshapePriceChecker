@@ -297,15 +297,18 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
                 }
 
                 // Filter lines/matchedYPositions to match the kept rows.
-                // Lines and Y positions are paired by index and correspond to
-                // the first N detected rows.
+                // Map each filtered line back to its original row index via
+                // Y position, so the right-edge rejection mask (indexed by
+                // original row index) is applied to the correct line.
                 if (validRowMask.Length > 0)
                 {
                     var keptLines = new List<string>(lines.Length);
                     var keptY = new List<int>(matchedYPositions.Length);
-                    for (var i = 0; i < lines.Length && i < validRowMask.Length; i++)
+                    for (var i = 0; i < lines.Length; i++)
                     {
-                        if (validRowMask[i])
+                        var y = matchedYPositions[i];
+                        var origIndex = Array.IndexOf(_lastOcrRowYPositions, y);
+                        if (origIndex >= 0 && origIndex < validRowMask.Length && validRowMask[origIndex])
                         {
                             keptLines.Add(lines[i]);
                             keptY.Add(matchedYPositions[i]);
