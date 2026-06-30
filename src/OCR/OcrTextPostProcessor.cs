@@ -28,19 +28,19 @@ internal static class OcrTextPostProcessor
     public static (string[] Names, int[] MatchedYPositions) ExtractWithYPositions(
         string rawText, int[] rowYPositions, string? language = null)
     {
-        var raw = rawText
-            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
-            .ToStructEnumerable()
-            .Select(NormalizeOcrLine)
-            .Where(line => line.Length >= 3 && ContainsLetter(line))
-            .ToArray();
-
-        var count = Math.Min(raw.Length, rowYPositions.Length);
-        var names = new string[count];
-        var yPositions = new int[count];
-        Array.Copy(raw, names, count);
-        Array.Copy(rowYPositions, yPositions, count);
-        return (names, yPositions);
+        var lines = rawText.Split(['\r', '\n'], StringSplitOptions.None);
+        var names = new List<string>();
+        var yPositions = new List<int>();
+        for (var i = 0; i < Math.Min(lines.Length, rowYPositions.Length); i++)
+        {
+            var trimmed = NormalizeOcrLine(lines[i]);
+            if (trimmed.Length >= 3 && ContainsLetter(trimmed))
+            {
+                names.Add(trimmed);
+                yPositions.Add(rowYPositions[i]);
+            }
+        }
+        return (names.ToArray(), yPositions.ToArray());
     }
 
     /// Pairs pre-split row texts with their original Y positions, filtering out
