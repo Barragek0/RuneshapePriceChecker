@@ -262,8 +262,8 @@ public sealed class LeaguePricingWorker(
 
                     if (hasLowVolume && pricingOptions.CurrentValue.TradeVolumeBanner)
                     {
-                        // \0RRGGBB prefix for orange text
-                        volumeLines.Add("\0FF8C00\u26A0 = Low trade volume");
+                        // \0RRGGBB prefix for yellow text (matches pricing overlay yellow)
+                        volumeLines.Add("\0FFC436\u26A0 = Low trade volume");
                     }
 
                     if (hasVeryLowVolume && pricingOptions.CurrentValue.TradeVolumeBanner)
@@ -276,7 +276,7 @@ public sealed class LeaguePricingWorker(
                 string? combinedBanner;
                 if (unpricedBanner is not null && volumeLines.Count > 0)
                 {
-                    combinedBanner = $"{unpricedBanner}\n---\n{string.Join("\n", volumeLines)}";
+                    combinedBanner = $"{unpricedBanner}\n{string.Join("\n", volumeLines)}";
                 }
                 else if (volumeLines.Count > 0)
                 {
@@ -455,10 +455,10 @@ public sealed class LeaguePricingWorker(
                 continue;
 
             if (IsUnpriceableExact(normalized))
-                return $"Some items can't be priced\nNew Skills and Supports aren't on {sourceDisplay}";
+                return $"Some items can't be priced, New Skills / Supports aren't on {sourceDisplay}";
 
             if (IsUnpriceablePrefix(normalized))
-                return $"Some items can't be priced\nNew Skills and Supports aren't on {sourceDisplay}";
+                return $"Some items can't be priced, New Skills / Supports aren't on {sourceDisplay}";
 
             // Also check the translated name for non-English skill/support gems
             if (translator is not null)
@@ -467,9 +467,9 @@ public sealed class LeaguePricingWorker(
                 if (!string.Equals(english, normalized, StringComparison.OrdinalIgnoreCase))
                 {
                     if (IsUnpriceableExact(english))
-                        return $"Some items can't be priced\nNew Skills and Supports aren't on {sourceDisplay}";
+                        return $"Some items can't be priced, New Skills / Supports aren't on {sourceDisplay}";
                     if (IsUnpriceablePrefix(english))
-                        return $"Some items can't be priced\nNew Skills and Supports aren't on {sourceDisplay}";
+                        return $"Some items can't be priced, New Skills / Supports aren't on {sourceDisplay}";
                 }
             }
         }

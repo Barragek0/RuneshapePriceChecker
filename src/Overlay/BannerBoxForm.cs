@@ -65,6 +65,7 @@ internal sealed class BannerBoxForm : OverlayFormBase
         var rawLines = _message.Split('\n');
         var scaledFontSize = (float)Math.Round(BaseFontSizePx * _scaleFactor);
         using var baseFont = new Font("Segoe UI", scaledFontSize, FontStyle.Bold, GraphicsUnit.Pixel);
+        using var smallFont = new Font("Segoe UI", Math.Max(8f, scaledFontSize * 0.7f), FontStyle.Bold, GraphicsUnit.Pixel);
         var lineH = baseFont.GetHeight(e.Graphics);
 
         // Same outline style as pricing overlay's DrawOutlinedText
@@ -160,10 +161,11 @@ internal sealed class BannerBoxForm : OverlayFormBase
             }
             else
             {
-                // Plain text line (unpriceable message, separator, etc.) — 2.2f outline matches pricing overlay
-                var emSize = e.Graphics.DpiY * baseFont.SizeInPoints / 72f;
+                // Plain text line (unpriceable message) — rendered at smaller font size
+                // to visually distinguish it from volume warnings.
+                var emSize = e.Graphics.DpiY * smallFont.SizeInPoints / 72f;
                 using var path = new GraphicsPath();
-                path.AddString(displayLine, baseFont.FontFamily, (int)baseFont.Style, emSize,
+                path.AddString(displayLine, smallFont.FontFamily, (int)smallFont.Style, emSize,
                     new PointF(textX, currentY), StringFormat.GenericTypographic);
                 e.Graphics.DrawPath(textOutlinePen, path);
                 using var fillBrush = new SolidBrush(lineColor);
