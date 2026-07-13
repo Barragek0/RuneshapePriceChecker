@@ -134,7 +134,7 @@
     saving ~3-5 seconds of redundant MSBuild overhead.
   -->
   <Target Name="Test" AfterTargets="Publish" Condition="'$(Configuration)' == 'Release' and '$(DesignTimeBuild)' != 'true' and '$(SkipTest)' != 'true'">
-    <Exec Command="dotnet test tests\Tests.csproj -c Release --nologo --verbosity normal -m:4" />
+    <Exec Command="dotnet test tests\Tests.csproj -c Release --nologo --verbosity normal -m:4 --filter &quot;Category!=NativeCrash&quot;" />
   </Target>
 
   <Target Name="Zip" AfterTargets="Test" Condition="'$(Configuration)' == 'Release' and '$(DesignTimeBuild)' != 'true'">

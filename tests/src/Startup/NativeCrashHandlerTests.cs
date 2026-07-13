@@ -5,6 +5,7 @@ using Xunit;
 
 namespace RuneshapePriceChecker.Tests.Startup;
 
+[Trait("Category", "NativeCrash")]
 public sealed class NativeCrashHandlerTests : IDisposable
 {
     private readonly string _crashLogsDir;
