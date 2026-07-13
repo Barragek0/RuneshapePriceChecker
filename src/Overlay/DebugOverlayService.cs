@@ -34,6 +34,15 @@ public sealed class DebugOverlayService(
                 if (options.DebugOverlay)
                 {
                     EnsureOverlayThreadStarted();
+
+                    // Hide when PoE2 isn't foreground — independent of the dirty
+                    // flag so the overlay clears promptly when the user alt-tabs
+                    // away, even when the OCR loop is paused.
+                    if (!windowResolutionProvider.IsPoe2WindowForeground)
+                    {
+                        GetOverlayForm()?.SafeHide();
+                    }
+
                     if (_frameDirty)
                     {
                         _frameDirty = false;
@@ -73,6 +82,14 @@ public sealed class DebugOverlayService(
         }
 
         if (region.Width <= 0 || region.Height <= 0)
+        {
+            overlay.SafeHide();
+            return;
+        }
+
+        // Hide when PoE2 isn't the foreground window — no point showing a scan
+        // frame for a game you can't see, and this avoids unnecessary DWM work.
+        if (!windowResolutionProvider.IsPoe2WindowForeground)
         {
             overlay.SafeHide();
             return;

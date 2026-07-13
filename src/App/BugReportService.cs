@@ -230,6 +230,16 @@ internal sealed class BugReportService(
             try { File.Copy(latestCaught, Path.Combine(outputDir, Path.GetFileName(latestCaught))); count++; } catch { /* best effort */ }
         }
 
+        // Most recent native crash file (VEH — catches crashes managed handlers can't reach)
+        var latestNative = Directory.GetFiles(logsDir, "*-native-crash.txt", SearchOption.TopDirectoryOnly)
+            .OrderByDescending(File.GetLastWriteTimeUtc)
+            .Take(1)
+            .FirstOrDefault();
+        if (latestNative is not null)
+        {
+            try { File.Copy(latestNative, Path.Combine(outputDir, Path.GetFileName(latestNative))); count++; } catch { /* best effort */ }
+        }
+
         // Debug images — only from the actively used OCR backend.
         // Config always stores "windows" or "tesseract" (no "auto" in the UI).
         var cfg = ocrOptions.CurrentValue.OcrBackend;
