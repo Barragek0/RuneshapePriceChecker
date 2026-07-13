@@ -62,17 +62,17 @@ public sealed class LeaguePanelDetector(IOptionsMonitor<OcrOptions>? options = n
     private static (int avgBrightness, int blackCount, int totalCount, int minSum) ScanTopRow(Bitmap bmp, int blackPixelMaxSum)
     {
         var rect = new Rectangle(0, 0, bmp.Width, bmp.Height);
+        // Force Format24bppRgb so stride is always positive and bpp is known (3).
+        // Using bmp.PixelFormat is fragile — non-24bpp bitmaps produce wrong bpp
+        // or negative stride, causing out-of-bounds array access.
         BitmapData data;
-        try { data = bmp.LockBits(rect, ImageLockMode.ReadOnly, bmp.PixelFormat); }
+        try { data = bmp.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb); }
         catch { return (0, 0, 0, 0); }
 
         try
         {
-            int bpp = Image.GetPixelFormatSize(bmp.PixelFormat) / 8;
-            if (bpp < 3) { bmp.UnlockBits(data); return (0, 0, 0, 0); }
-
-            int stride = data.Stride;
-            int len = Math.Abs(stride) * data.Height;
+            int stride = Math.Abs(data.Stride);
+            int len = stride * data.Height;
             var bytes = System.Buffers.ArrayPool<byte>.Shared.Rent(len);
             try
             {
@@ -88,7 +88,7 @@ public sealed class LeaguePanelDetector(IOptionsMonitor<OcrOptions>? options = n
                     int rowOff = y * stride;
                     for (int cx = 0; cx < bmp.Width; cx++)
                     {
-                        int idx = rowOff + (cx * bpp);
+                        int idx = rowOff + (cx * 3);
                         int r = bytes[idx + 2];
                         int g = bytes[idx + 1];
                         int b = bytes[idx];

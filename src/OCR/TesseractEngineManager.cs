@@ -9,8 +9,10 @@ internal sealed class TesseractEngineManager(ILogger<TesseractEngineManager> log
     private NativeTesseractEngine? _engine;
     private string? _engineLanguage;
 
-    public NativeTesseractEngine GetEngine(OcrOptions options)
+    public NativeTesseractEngine? GetEngine(OcrOptions options, bool required = true)
     {
+        if (!required) return null;
+
         var language = !string.IsNullOrWhiteSpace(options.Language)
             ? options.Language
             : "eng";
@@ -66,7 +68,7 @@ internal sealed class TesseractEngineManager(ILogger<TesseractEngineManager> log
             logger.LogInformation("Tesseract: creating engine for {Lang}...", language);
             try
             {
-                _engine = new NativeTesseractEngine(tessDataPath, language, options.OcrEngineMode);
+                _engine = new NativeTesseractEngine(tessDataPath, language, options.OcrEngineMode, logger);
             }
             catch (InvalidOperationException ex) when (ex.Message.Contains("Tesseract init failed"))
             {
@@ -81,7 +83,7 @@ internal sealed class TesseractEngineManager(ILogger<TesseractEngineManager> log
                         throw new InvalidOperationException(
                             $"Tesseract {language} language data repair failed.", ex);
 
-                    _engine = new NativeTesseractEngine(tessDataPath, language, options.OcrEngineMode);
+                    _engine = new NativeTesseractEngine(tessDataPath, language, options.OcrEngineMode, logger);
                 }
             }
 
@@ -91,13 +93,23 @@ internal sealed class TesseractEngineManager(ILogger<TesseractEngineManager> log
         }
     }
 
-    public void Dispose()
+    public void DisposeEngine()
     {
         lock (_engineLock)
         {
-            _engine?.Dispose();
-            _engine = null;
+            if (_engine is not null)
+            {
+                logger.LogTrace("Tesseract: disposing engine for '{Lang}'", _engineLanguage);
+                _engine.Dispose();
+                _engine = null;
+                _engineLanguage = null;
+            }
         }
+    }
+
+    public void Dispose()
+    {
+        DisposeEngine();
     }
 
 }

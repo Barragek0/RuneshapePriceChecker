@@ -15,8 +15,14 @@ internal sealed partial class OcrCaptureStrategy(ILogger<OcrCaptureStrategy> log
 
     public CaptureResult Capture(OcrCaptureRegion region, WindowCaptureContext? context, OcrOptions options)
     {
+        _logger.LogTrace("Capture: region=({X},{Y} {W}x{H}) mode={Mode}",
+            region.X, region.Y, region.Width, region.Height, options.CaptureMode);
+
         if (LosslessScaling.IsRunning)
+        {
+            _logger.LogTrace("Capture: LosslessScaling active, using desktop capture");
             return TryDesktopOnly(region);
+        }
 
         var mode = options.CaptureMode?.ToLowerInvariant() ?? "printwindow";
 
@@ -28,6 +34,7 @@ internal sealed partial class OcrCaptureStrategy(ILogger<OcrCaptureStrategy> log
             if (TryPrintWindow(context, region, out var pwBmp))
             {
                 _ = FailedModes.TryRemove("printwindow", out _);
+                _logger.LogTrace("Capture: PrintWindow succeeded ({W}x{H})", pwBmp.Width, pwBmp.Height);
                 return new CaptureResult(pwBmp, "window-printwindow");
             }
             _ = FailedModes.TryAdd("printwindow", 0);
@@ -40,8 +47,15 @@ internal sealed partial class OcrCaptureStrategy(ILogger<OcrCaptureStrategy> log
 
     private bool TryPrintWindow(WindowCaptureContext context, OcrCaptureRegion region, out Bitmap bitmap)
     {
+        _logger.LogTrace("TryPrintWindow: source=({SX},{SY}) region=({RW}x{RH})",
+            region.X - context.ClientX, region.Y - context.ClientY,
+            region.Width, region.Height);
+
         if (TryCaptureWithPrintWindow(context, region, out bitmap))
         {
+            _logger.LogTrace("TryPrintWindow: captured {W}x{H}",
+                bitmap.Width, bitmap.Height);
+
             if (!IsLikelyInvalidCapture(bitmap))
                 return true;
             _logger.LogWarning("PrintWindow: captured bitmap is invalid (all same color or near-black).");
@@ -77,7 +91,8 @@ internal sealed partial class OcrCaptureStrategy(ILogger<OcrCaptureStrategy> log
         var data = bitmap.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
         try
         {
-            var length = Math.Abs(data.Stride) * data.Height;
+            var absStride = Math.Abs(data.Stride);
+            var length = absStride * data.Height;
             var bytes = new byte[length];
             Marshal.Copy(data.Scan0, bytes, 0, length);
 
@@ -88,7 +103,7 @@ internal sealed partial class OcrCaptureStrategy(ILogger<OcrCaptureStrategy> log
 
             for (var y = 0; y < data.Height; y++)
             {
-                var row = y * data.Stride;
+                var row = y * absStride;
                 for (var x = 0; x < data.Width; x++)
                 {
                     var index = row + (x * 3);

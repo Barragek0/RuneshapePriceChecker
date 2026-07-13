@@ -72,8 +72,13 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
 
         _ = _options.OnChange((updated, __) =>
         {
-            _ = _engineManager.GetEngine(updated);
             var effective = ResolveEffectiveOcrBackend(updated.OcrBackend);
+            // Only keep Tesseract engine loaded when Tesseract is the selected backend
+            if (!string.Equals(effective, "windows", StringComparison.OrdinalIgnoreCase))
+                _engineManager.GetEngine(updated);
+            else
+                _engineManager.DisposeEngine();
+
             if (!string.Equals(_activeOcrBackend, effective, StringComparison.OrdinalIgnoreCase))
             {
                 var previous = _activeOcrBackend;
@@ -147,7 +152,21 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
 
     public void Warmup()
     {
-        _ = _engineManager.GetEngine(_options.CurrentValue);
+        var rawBackend = _options.CurrentValue.OcrBackend;
+        var backend = ResolveEffectiveOcrBackend(rawBackend);
+        _logger.LogInformation("Warmup: configured='{Raw}' effective='{Eff}' windowsOcrSupported={Sup}",
+            rawBackend, backend, _windowsOcrSupported);
+
+        if (string.Equals(backend, "windows", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogDebug("Warmup: initializing Windows OCR engine");
+            EnsureWindowsOcrEngine();
+        }
+        else
+        {
+            _logger.LogDebug("Warmup: initializing Tesseract engine");
+            _ = _engineManager.GetEngine(_options.CurrentValue);
+        }
     }
 
     private string ResolveStatusLine()
@@ -534,10 +553,10 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
 #pragma warning disable CA2000 // Ownership transferred; disposed at method exit via explicit Dispose calls
         Bitmap masked;
         using (_perf.Measure(OcrPerfTiming.Slot.KeepBlack))
-            masked = OcrImagePreprocessor.KeepBlackAndNeighbors(capturedBitmap);
+            masked = OcrImagePreprocessor.KeepBlackAndNeighbors(capturedBitmap, _logger);
         Bitmap preprocessed;
         using (_perf.Measure(OcrPerfTiming.Slot.Preprocess))
-            preprocessed = OcrImagePreprocessor.PreprocessForOcr(masked, options);
+            preprocessed = OcrImagePreprocessor.PreprocessForOcr(masked, options, _logger);
 #pragma warning restore CA2000
         _lastPreprocessedBitmap?.Dispose();
         _lastPreprocessedBitmap = new Bitmap(preprocessed);
@@ -620,7 +639,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
             {
                 _activeOcrBackend = "tesseract";
                 _metrics.OcrBackend = "tesseract";
-                var engine = _engineManager.GetEngine(options);
+                var engine = _engineManager.GetEngine(options)!;
                 engine.SetPageSegMode(7); // PSM_SINGLE_LINE
 
                 using (_perf.Measure(OcrPerfTiming.Slot.Recognize))

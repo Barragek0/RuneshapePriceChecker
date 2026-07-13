@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Drawing.Drawing2D;
 
 namespace RuneshapePriceChecker.Overlay;
@@ -10,6 +11,7 @@ internal sealed class BannerBoxForm : OverlayFormBase
     private string? _message;
     private float _scaleFactor = 1f;
 
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public bool ShowOutline { get; set; } = true;
 
     public void SetScaleFactor(float scaleFactor)

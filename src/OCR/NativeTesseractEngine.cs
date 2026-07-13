@@ -1,15 +1,29 @@
 using System.Drawing.Imaging;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using Microsoft.Extensions.Logging;
 
 namespace RuneshapePriceChecker.OCR;
 
 internal sealed partial class NativeTesseractEngine : IDisposable
 {
     private IntPtr _handle;
+    private readonly ILogger? _logger;
 
-    public NativeTesseractEngine(string tesseractDataPath, string language, int engineMode = 2)
+    public NativeTesseractEngine(string tesseractDataPath, string language, int engineMode = 2, ILogger? logger = null) : this(logger)
     {
+        Init(tesseractDataPath, language, engineMode);
+    }
+
+    // Separate init from ctor so the logger field is set first
+    private NativeTesseractEngine(ILogger? logger)
+    {
+        _logger = logger;
+    }
+
+    private void Init(string tesseractDataPath, string language, int engineMode)
+    {
+        _logger?.LogTrace("TessBaseAPICreate()");
         _handle = NativeMethods.TessBaseAPICreate();
         if (_handle == IntPtr.Zero)
             throw new InvalidOperationException("Failed to create Tesseract engine handle.");
@@ -21,9 +35,11 @@ internal sealed partial class NativeTesseractEngine : IDisposable
         _ = NativeMethods.TessBaseAPISetVariable(_handle, "load_freq_dawg", "false");
         _ = NativeMethods.TessBaseAPISetVariable(_handle, "classify_enable_learning", "0");
 
+        _logger?.LogTrace("TessBaseAPIInit3(datapath='{Path}', lang='{Lang}')", tesseractDataPath, language);
         var result = NativeMethods.TessBaseAPIInit3(_handle, tesseractDataPath, language);
         if (result != 0)
             throw new InvalidOperationException($"Tesseract init failed (code {result}). datapath='{tesseractDataPath}' language='{language}'");
+        _logger?.LogTrace("Tesseract engine initialized successfully");
     }
 
     public void SetPageSegMode(int mode)
@@ -38,7 +54,9 @@ internal sealed partial class NativeTesseractEngine : IDisposable
         {
             pix = CreatePixFromBitmap(rowBitmap);
             NativeMethods.TessBaseAPISetPageSegMode(_handle, 7); // PSM_SINGLE_LINE
+            _logger?.LogTrace("TessBaseAPISetImage2 (single-line)");
             NativeMethods.TessBaseAPISetImage2(_handle, pix);
+            _logger?.LogTrace("TessBaseAPIRecognize (single-line)");
             _ = NativeMethods.TessBaseAPIRecognize(_handle, IntPtr.Zero);
 
             var textPtr = NativeMethods.TessBaseAPIGetUTF8Text(_handle);
@@ -147,7 +165,7 @@ internal sealed partial class NativeTesseractEngine : IDisposable
         return positions.AsSpan(0, count).ToArray();
     }
 
-    private static IntPtr CreatePixFromBitmap(Bitmap bitmap)
+    private IntPtr CreatePixFromBitmap(Bitmap bitmap)
     {
         // Write BMP bytes directly from LockBits data, bypassing GDI+ encoding.
         // BMP format: 14-byte file header + 40-byte DIB header + packed pixel rows.
@@ -157,9 +175,22 @@ internal sealed partial class NativeTesseractEngine : IDisposable
         var data = bitmap.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
         try
         {
-            var stride = data.Stride;
+            // Always use Math.Abs(stride) — LockBits can return negative stride
+            // for bottom-up bitmaps.  Format24bppRgb always produces positive stride,
+            // but being defensive prevents native heap corruption in Leptonica.
+            var stride = Math.Abs(data.Stride);
             var rowBytes = width * 3;
             var padBytes = stride - rowBytes; // DWORD padding
+            if (padBytes is < 0 or > 3)
+            {
+                // Stride implies invalid row padding — clamp to DWORD alignment
+                _logger?.LogWarning(
+                    "CreatePixFromBitmap: unexpected padBytes={Pad} (w={W} h={H} stride={S}) — clamping stride",
+                    padBytes, width, height, data.Stride);
+                stride = (rowBytes + 3) & ~3;
+                padBytes = stride - rowBytes;
+            }
+
             var pixelDataSize = stride * height;
             var fileSize = 54 + pixelDataSize;
 
@@ -180,6 +211,8 @@ internal sealed partial class NativeTesseractEngine : IDisposable
             _ = BitConverter.TryWriteBytes(bmpBytes.AsSpan(34), pixelDataSize);
 
             // Copy rows from bottom to top (BMP order)
+            // With positive stride: row 0 in memory = top of image.
+            // BMP stores rows bottom-up, so we iterate y from height-1 down to 0.
             var srcPtr = data.Scan0;
             for (var y = height - 1; y >= 0; y--)
             {
@@ -187,6 +220,10 @@ internal sealed partial class NativeTesseractEngine : IDisposable
                 var dstOffset = 54 + ((height - 1 - y) * stride);
                 Marshal.Copy(srcRow, bmpBytes, dstOffset, stride);
             }
+
+            _logger?.LogTrace(
+                "CreatePixFromBitmap: {W}x{H} stride={S} pad={P} fileSize={F}",
+                width, height, stride, padBytes, fileSize);
 
             return NativeMethods.pixReadMem(bmpBytes, bmpBytes.Length);
         }

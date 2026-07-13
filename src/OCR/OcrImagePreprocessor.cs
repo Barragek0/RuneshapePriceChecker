@@ -1,5 +1,6 @@
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
+using Microsoft.Extensions.Logging;
 using StructLinq;
 
 namespace RuneshapePriceChecker.OCR;
@@ -23,10 +24,11 @@ internal static class OcrImagePreprocessor
         bitmap.Save(path, ImageFormat.Png);
     }
 
-    public static Bitmap KeepBlackAndNeighbors(Bitmap source)
+    public static Bitmap KeepBlackAndNeighbors(Bitmap source, ILogger? logger = null)
     {
         var width = source.Width;
         var height = source.Height;
+        logger?.LogTrace("KeepBlackAndNeighbors: {W}x{H}", width, height);
         var rect = new Rectangle(0, 0, width, height);
         var srcData = source.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
         var stride = srcData.Stride;
@@ -121,15 +123,16 @@ internal static class OcrImagePreprocessor
         return result;
     }
 
-    public static Bitmap PreprocessForOcr(Bitmap source, OcrOptions options)
+    public static Bitmap PreprocessForOcr(Bitmap source, OcrOptions options, ILogger? logger = null)
     {
         var threshold = Math.Clamp(options.BinarizationThreshold, 0, 255);
         var width = source.Width;
         var height = source.Height;
+        logger?.LogTrace("PreprocessForOcr: {W}x{H} threshold={T}", width, height, threshold);
 
         // Fast grayscale via LockBits (avoids GDI ColorMatrix rendering overhead)
         Bitmap? grayscale = new(width, height, PixelFormat.Format24bppRgb);
-        FastGrayscale(source, grayscale);
+        FastGrayscale(source, grayscale, logger);
 
         using var grayscaleSnapshot = (Bitmap)grayscale.Clone();
 
@@ -145,15 +148,17 @@ internal static class OcrImagePreprocessor
             Marshal.Copy(data.Scan0, bytes, 0, length);
             var grayscalePixels = new byte[width * height];
 
+            var absStride = Math.Abs(data.Stride);
             for (var y = 0; y < height; y++)
             {
-                var rowOffset = y * data.Stride;
+                var rowOffset = y * absStride;
                 var grayOffset = y * width;
                 for (var x = 0; x < width; x++)
                 {
                     grayscalePixels[grayOffset + x] = bytes[rowOffset + (x * 3)];
                 }
             }
+            logger?.LogTrace("PreprocessForOcr: stride={S} absStride={AS}", data.Stride, absStride);
 
             var integral = BuildIntegralImage(grayscalePixels, width, height);
             var binarizedPixels = new byte[width * height];
@@ -390,21 +395,27 @@ internal static class OcrImagePreprocessor
         return result;
     }
 
-    private static void FastGrayscale(Bitmap source, Bitmap dest)
+    private static void FastGrayscale(Bitmap source, Bitmap dest, ILogger? logger = null)
     {
         var w = source.Width;
         var h = source.Height;
         var srcRect = new Rectangle(0, 0, w, h);
-        var srcData = source.LockBits(srcRect, ImageLockMode.ReadOnly, source.PixelFormat);
-        var dstData = dest.LockBits(srcRect, ImageLockMode.WriteOnly, dest.PixelFormat);
+        // Force Format24bppRgb so stride is always positive and bpp is always 3.
+        // Using source.PixelFormat is fragile — if a non-24bpp bitmap arrives,
+        // srcBpp and stride would be wrong, causing out-of-bounds reads.
+        var srcData = source.LockBits(srcRect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+        var dstData = dest.LockBits(srcRect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
         try
         {
-            var srcBpp = Image.GetPixelFormatSize(source.PixelFormat) / 8;
-            var srcStride = srcData.Stride;
-            var dstStride = dstData.Stride;
-            var srcBytes = new byte[Math.Abs(srcStride) * h];
-            var dstBytes = new byte[Math.Abs(dstStride) * h];
+            var srcStride = Math.Abs(srcData.Stride);
+            var dstStride = Math.Abs(dstData.Stride);
+            var srcBytes = new byte[srcStride * h];
+            var dstBytes = new byte[dstStride * h];
             Marshal.Copy(srcData.Scan0, srcBytes, 0, srcBytes.Length);
+
+            logger?.LogTrace(
+                "FastGrayscale: {W}x{H} srcStride={S} dstStride={DS}",
+                w, h, srcData.Stride, dstData.Stride);
 
             for (var y = 0; y < h; y++)
             {
@@ -412,7 +423,7 @@ internal static class OcrImagePreprocessor
                 var dstRow = y * dstStride;
                 for (var x = 0; x < w; x++)
                 {
-                    var si = srcRow + (x * srcBpp);
+                    var si = srcRow + (x * 3);
                     // ITU-R BT.601 luminance: integer approx of 0.299R + 0.587G + 0.114B
                     byte r = srcBytes[si + 2]; // BGR in memory
                     byte g = srcBytes[si + 1];
