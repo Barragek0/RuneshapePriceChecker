@@ -1,5 +1,4 @@
-﻿using System.Diagnostics;
-using Microsoft.Extensions.Hosting;
+﻿using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RuneshapePriceChecker.Configuration;
@@ -240,18 +239,11 @@ public sealed class Poe2WindowResolutionService(
     private static List<Poe2WindowCandidate> FindPoe2WindowCandidates()
     {
         var candidates = new List<Poe2WindowCandidate>();
-        foreach (var p in Process.GetProcesses())
+        var hwnd = NativeMethods.FindWindow(null, "Path of Exile 2");
+        if (hwnd != IntPtr.Zero)
         {
-            try
-            {
-                if (p.MainWindowHandle != IntPtr.Zero &&
-                    !string.IsNullOrWhiteSpace(p.MainWindowTitle) &&
-                    p.MainWindowTitle.Equals("Path of Exile 2", StringComparison.OrdinalIgnoreCase))
-                {
-                    candidates.Add(new Poe2WindowCandidate(p.MainWindowHandle, (uint)p.Id));
-                }
-            }
-            finally { p.Dispose(); }
+            _ = NativeMethods.GetWindowThreadProcessId(hwnd, out var pid);
+            candidates.Add(new Poe2WindowCandidate(hwnd, pid));
         }
         return candidates;
     }

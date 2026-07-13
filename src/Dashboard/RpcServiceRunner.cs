@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Management;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using Microsoft.Extensions.Logging;
 using Microsoft.Win32;
@@ -110,10 +111,9 @@ internal static class RpcServiceRunner
                     if (_appLaunched)
                     {
                         var appRunning = false;
-                        foreach (var p in Process.GetProcessesByName("RuneshapePriceChecker"))
+                        foreach (var pid in FindProcessIdsByName("RuneshapePriceChecker"))
                         {
-                            try { if (p.Id != selfId) { appRunning = true; break; } }
-                            finally { p.Dispose(); }
+                            if (pid != selfId) { appRunning = true; break; }
                         }
 
                         if (!appRunning)
@@ -136,19 +136,11 @@ internal static class RpcServiceRunner
 
                             // Manual close (or crash). Check if PoE2 PID changed (new session) or exited.
                             var currentPid = 0;
-                            foreach (var p in Process.GetProcesses())
+                            var poe2Hwnd = FindWindow(null, "Path of Exile 2");
+                            if (poe2Hwnd != IntPtr.Zero)
                             {
-                                try
-                                {
-                                    if (p.MainWindowHandle != IntPtr.Zero &&
-                                        !string.IsNullOrWhiteSpace(p.MainWindowTitle) &&
-                                        p.MainWindowTitle.Equals("Path of Exile 2", StringComparison.OrdinalIgnoreCase))
-                                    {
-                                        currentPid = p.Id;
-                                        break;
-                                    }
-                                }
-                                finally { p.Dispose(); }
+                                _ = GetWindowThreadProcessId(poe2Hwnd, out var poe2Pid);
+                                currentPid = (int)poe2Pid;
                             }
 
                             if (currentPid == 0)
@@ -180,33 +172,25 @@ internal static class RpcServiceRunner
                     if (_appLaunched) return;
 
                     // Don't launch if main app is already running
-                    foreach (var p in Process.GetProcessesByName("RuneshapePriceChecker"))
+                    foreach (var pid in FindProcessIdsByName("RuneshapePriceChecker"))
                     {
-                        try { if (p.Id != selfId) return; }
-                        finally { p.Dispose(); }
+                        if (pid != selfId) return;
                     }
 
                     // Retry a few times with short delays so PoE2 has time to set its window title
                     for (var retry = 0; retry < 6; retry++)
                     {
-                        foreach (var p in Process.GetProcesses())
+                        var poe2Hwnd = FindWindow(null, "Path of Exile 2");
+                        if (poe2Hwnd != IntPtr.Zero)
                         {
-                            try
-                            {
-                                if (p.MainWindowHandle != IntPtr.Zero &&
-                                    !string.IsNullOrWhiteSpace(p.MainWindowTitle) &&
-                                    p.MainWindowTitle.Equals("Path of Exile 2", StringComparison.OrdinalIgnoreCase))
-                                {
-                                    var exePath = Environment.ProcessPath;
-                                    if (exePath is null) return;
-                                    _appLaunched = true;
-                                    _lastPoe2Pid = p.Id;
-                                    _hasPoe2Pid = true;
-                                    _ = Process.Start(new ProcessStartInfo(exePath) { UseShellExecute = true });
-                                    return;
-                                }
-                            }
-                            finally { p.Dispose(); }
+                            _ = GetWindowThreadProcessId(poe2Hwnd, out var poe2Pid);
+                            var exePath = Environment.ProcessPath;
+                            if (exePath is null) return;
+                            _appLaunched = true;
+                            _lastPoe2Pid = (int)poe2Pid;
+                            _hasPoe2Pid = true;
+                            _ = Process.Start(new ProcessStartInfo(exePath) { UseShellExecute = true });
+                            return;
                         }
                         Thread.Sleep(500);
                     }
@@ -240,20 +224,89 @@ internal static class RpcServiceRunner
     internal static void KillExistingService()
     {
         var selfId = Environment.ProcessId;
-        foreach (var p in Process.GetProcessesByName("RuneshapePriceChecker"))
+        foreach (var pid in FindProcessIdsByName("RuneshapePriceChecker"))
         {
-            if (p.Id == selfId) { p.Dispose(); continue; }
+            if (pid == selfId) continue;
             try
             {
+                using var p = Process.GetProcessById(pid);
                 p.Kill();
                 if (!p.WaitForExit(3000))
                     _rpcLogger?.LogWarning("RPC service: PID {Pid} did not exit within 3s of Kill", p.Id);
             }
             catch (Exception ex)
             {
-                _rpcLogger?.LogWarning(ex, "RPC service: Kill PID {Pid} failed", p.Id);
+                _rpcLogger?.LogWarning(ex, "RPC service: Kill PID {Pid} failed", pid);
             }
-            p.Dispose();
         }
+    }
+
+    // ── Lightweight Win32 process/ window helpers (no CLR metadata overhead) ──
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr CreateToolhelp32Snapshot(uint dwFlags, uint th32ProcessID);
+
+    [DllImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool Process32First(IntPtr hSnapshot, ref PROCESSENTRY32 lppe);
+
+    [DllImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool Process32Next(IntPtr hSnapshot, ref PROCESSENTRY32 lppe);
+
+    [DllImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CloseHandle(IntPtr hObject);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr FindWindow(string? lpClassName, string? lpWindowName);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    private const uint TH32CS_SNAPPROCESS = 0x00000002;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct PROCESSENTRY32
+    {
+        public uint dwSize;
+        public uint cntUsage;
+        public uint th32ProcessID;
+        public IntPtr th32DefaultHeapID;
+        public uint th32ModuleID;
+        public uint cntThreads;
+        public uint th32ParentProcessID;
+        public int pcPriClassBase;
+        public uint dwFlags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+        public string szExeFile;
+    }
+
+    private static int[] FindProcessIdsByName(string processName)
+    {
+        var results = new List<int>();
+        var snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if (snapshot == IntPtr.Zero || snapshot == new IntPtr(-1))
+            return [];
+
+        try
+        {
+            var entry = new PROCESSENTRY32 { dwSize = (uint)Marshal.SizeOf<PROCESSENTRY32>() };
+            if (!Process32First(snapshot, ref entry))
+                return [];
+
+            do
+            {
+                if (string.Equals(entry.szExeFile, processName + ".exe", StringComparison.OrdinalIgnoreCase))
+                    results.Add((int)entry.th32ProcessID);
+            }
+            while (Process32Next(snapshot, ref entry));
+        }
+        finally
+        {
+            _ = CloseHandle(snapshot);
+        }
+
+        return [.. results];
     }
 }

@@ -14,6 +14,11 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
+// Register native VEH handler before any managed crash handlers.
+// Catches CLR heap corruption (COR_E_EXECUTIONENGINE) and stack overflows
+// that managed handlers cannot reach.
+NativeCrashHandler.Register();
+
 AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
 {
     var ex = args.ExceptionObject as Exception;
@@ -93,10 +98,16 @@ if (!createdNew && !suppressWarning)
     if (result == DialogResult.Yes)
     {
         var selfName = Process.GetCurrentProcess().ProcessName;
-        foreach (var proc in Process.GetProcessesByName(selfName))
+        var selfId = Environment.ProcessId;
+        foreach (var pid in NativeMethods.FindProcessIdsByName(selfName))
         {
-            if (proc.Id == Environment.ProcessId) continue;
-            try { proc.Kill(); _ = proc.WaitForExit(3000); } catch { }
+            if (pid == selfId) continue;
+            try
+            {
+                using var proc = Process.GetProcessById(pid);
+                proc.Kill(); _ = proc.WaitForExit(3000);
+            }
+            catch { }
         }
 
         Thread.Sleep(500);

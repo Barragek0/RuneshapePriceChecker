@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RuneshapePriceChecker.App.Dashboard;
 using RuneshapePriceChecker.Configuration;
+using RuneshapePriceChecker.OCR;
 
 namespace RuneshapePriceChecker.Startup;
 
@@ -27,6 +28,7 @@ internal sealed class UpdateChecker(
     private string? _downloadUrl;
     private string? _localZipPath;
     private string? _changelogVersion;
+    private string? _cachedVersionText;
     private CancellationToken _stoppingToken;
 
     internal const string UpdateMarkerName = ".update-pending";
@@ -158,9 +160,12 @@ internal sealed class UpdateChecker(
         dashboard.SetStatus("Checking for updates...", "green");
         logger.LogInformation("Checking for updates...");
 
-        var installDir = AppContext.BaseDirectory;
-        var attr = typeof(UpdateChecker).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>();
-        var currentVersionText = attr?.InformationalVersion ?? "";
+        var currentVersionText = _cachedVersionText;
+        if (currentVersionText is null)
+        {
+            var attr = typeof(UpdateChecker).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>();
+            currentVersionText = _cachedVersionText = attr?.InformationalVersion ?? "";
+        }
         if (string.IsNullOrWhiteSpace(currentVersionText))
         {
             logger.LogInformation("No embedded version found. Skipping update check.");
@@ -355,26 +360,26 @@ internal sealed class UpdateChecker(
 
             // Kill background --rpcservice so the EXE file isn't locked during copy.
             logger.LogInformation("Kill loop: scanning for other RuneshapePriceChecker processes (self={SelfPid})", Environment.ProcessId);
+            var selfId = Environment.ProcessId;
             for (var i = 0; i < 60; i++)
             {
+                var pids = NativeMethods.FindProcessIdsByName("RuneshapePriceChecker");
                 var anyKilled = false;
-                foreach (var p in Process.GetProcessesByName("RuneshapePriceChecker"))
+                foreach (var pid in pids)
                 {
+                    if (pid == selfId) continue;
                     try
                     {
-                        if (p.Id != Environment.ProcessId)
-                        {
-                            logger.LogInformation("Kill loop: killing PID {Pid}", p.Id);
-                            p.Kill();
-                            anyKilled = true;
-                            if (!p.WaitForExit(500))
-                                logger.LogWarning("Kill loop: PID {Pid} did not respond to kill within 500ms", p.Id);
-                            else
-                                logger.LogInformation("Kill loop: PID {Pid} exited", p.Id);
-                        }
+                        using var p = Process.GetProcessById(pid);
+                        logger.LogInformation("Kill loop: killing PID {Pid}", pid);
+                        p.Kill();
+                        anyKilled = true;
+                        if (!p.WaitForExit(500))
+                            logger.LogWarning("Kill loop: PID {Pid} did not respond to kill within 500ms", pid);
+                        else
+                            logger.LogInformation("Kill loop: PID {Pid} exited", pid);
                     }
-                    catch (Exception ex) { logger.LogWarning(ex, "Kill loop: failed to kill PID {Pid}", p.Id); }
-                    finally { p.Dispose(); }
+                    catch (Exception ex) { logger.LogWarning(ex, "Kill loop: failed to kill PID {Pid}", pid); }
                 }
                 if (!anyKilled) { logger.LogInformation("Kill loop: no other processes found, breaking"); break; }
                 logger.LogInformation("Kill loop: waiting 100ms for processes to exit (iteration {Iter})", i);

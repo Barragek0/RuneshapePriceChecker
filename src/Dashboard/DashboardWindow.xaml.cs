@@ -38,9 +38,8 @@ public sealed partial class DashboardWindow : Window
         _lastLsCheckAt = now;
         try
         {
-            var processes = Process.GetProcessesByName("LosslessScaling");
-            _cachedLsRunning = processes.Length > 0;
-            foreach (var p in processes) p.Dispose();
+            var hwnd = FindWindow(null, "Lossless Scaling");
+            _cachedLsRunning = hwnd != IntPtr.Zero;
         }
         catch { _cachedLsRunning = false; }
         return _cachedLsRunning;
@@ -97,6 +96,9 @@ public sealed partial class DashboardWindow : Window
 
     [LibraryImport("user32.dll")]
     private static partial IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr FindWindow(string? lpClassName, string? lpWindowName);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetWindowText(IntPtr hWnd, char[] lpString, int nMaxCount);
@@ -571,16 +573,10 @@ public sealed partial class DashboardWindow : Window
     {
         if (!_setupPending) return;
 
-        // Check on background thread — Process.GetProcesses() enumerates ALL processes
-        // and can block the UI for 50-200ms.
+        // Lightweight FindWindow — no process enumeration needed.
         _ = Task.Run(() =>
         {
-            var poe2Running = Process.GetProcesses()
-                .Any(p =>
-                {
-                    try { return p.MainWindowTitle.Contains("Path of Exile 2", StringComparison.OrdinalIgnoreCase); }
-                    catch { return false; }
-                });
+            var poe2Running = FindWindow(null, "Path of Exile 2") != IntPtr.Zero;
 
             if (poe2Running)
             {

@@ -44,7 +44,7 @@ public static class Poe2ConfigFile
     private static long _lastReadTicks;
     private static FileSystemWatcher? _watcher;
     private static string? _cachedPoe2Owner;
-    private static long _lastPoe2OwnerCheckTicks;
+    private static bool _cachedPoe2OwnerResolved;
     private static readonly object _watcherLock = new();
     public static event Action? ConfigChanged;
 
@@ -95,11 +95,12 @@ public static class Poe2ConfigFile
 
     private static string? GetPoe2ProcessOwner()
     {
-        var now = Stopwatch.GetTimestamp();
-        if (_cachedPoe2Owner is not null && now - _lastPoe2OwnerCheckTicks < Stopwatch.Frequency * 30)
+        // Read once at startup — the PoE2 process owner cannot change while the
+        // app is running, so there's no need for a time-based cache expiry.
+        if (_cachedPoe2OwnerResolved)
             return _cachedPoe2Owner;
 
-        _lastPoe2OwnerCheckTicks = now;
+        _cachedPoe2OwnerResolved = true;
         try
         {
             using var searcher = new System.Management.ManagementObjectSearcher(
@@ -241,7 +242,8 @@ public static class Poe2ConfigFile
             var eqIdx = trimmed.IndexOf('=');
             if (eqIdx < 0) continue;
             var result = trimmed[(eqIdx + 1)..].Trim().ToString();
-            _logger?.LogTrace("PoE2 config lookup: key='{Key}' value='{Value}'", key, result);
+            // Callers (Language, IsFullscreen, UiBrightness) log the result
+            // at their own level — no need for a redundant trace here.
             return result;
         }
         _logger?.LogDebug("PoE2 config lookup: key='{Key}' not found in config.", key);

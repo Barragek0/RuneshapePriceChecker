@@ -19,6 +19,7 @@ public sealed class LeaguePricingWorker(
     DebugOverlayService debugOverlay,
     BannerService bannerService,
     DashboardService dashboard,
+    IPoe2WindowResolutionProvider windowResolution,
     IOptionsMonitor<PricingCacheOptions> pricingOptions,
     IOptionsMonitor<AppOptions> appOptions,
     IOptionsMonitor<OcrOptions> ocrOptions,
@@ -27,7 +28,7 @@ public sealed class LeaguePricingWorker(
 {
     private double TargetCycleMs => ocrOptions.CurrentValue.ScanIntervalMs;
 
-    // Cached PoE2 process check — Process.GetProcesses is expensive (2s interval).
+    // Cached PoE2 window check — lightweight FindWindow replaces expensive Process.GetProcesses (2s interval).
     private static readonly TimeSpan Poe2CheckInterval = TimeSpan.FromSeconds(2);
     private static bool _cachedPoe2Running;
     private static DateTime _lastPoe2CheckAt = DateTime.MinValue;
@@ -41,29 +42,33 @@ public sealed class LeaguePricingWorker(
         _lastPoe2CheckAt = now;
         try
         {
-            foreach (var p in Process.GetProcesses())
-            {
-                try
-                {
-                    if (p.MainWindowHandle != IntPtr.Zero &&
-                        !string.IsNullOrWhiteSpace(p.MainWindowTitle) &&
-                        p.MainWindowTitle.Equals("Path of Exile 2", StringComparison.OrdinalIgnoreCase))
-                    {
-                        return _cachedPoe2Running = true;
-                    }
-                }
-                finally
-                {
-                    p.Dispose();
-                }
-            }
-            return _cachedPoe2Running = false;
+            var hwnd = NativeMethods.FindWindow(null, "Path of Exile 2");
+            return _cachedPoe2Running = hwnd != IntPtr.Zero;
         }
         catch
         {
             return _cachedPoe2Running = false;
         }
     }
+    /// <summary>Waits until Path of Exile 2 is the active foreground window, polling with lightweight FindWindow.</summary>
+    private async Task<bool> WaitForPoe2ForegroundAsync(CancellationToken ct)
+    {
+        dashboard.SetStatus("Waiting for PoE2 window", "amber");
+        logger.LogInformation("Waiting for Path of Exile 2 to be in the foreground before starting OCR...");
+        while (!ct.IsCancellationRequested)
+        {
+            var hwnd = OCR.NativeMethods.FindWindow(null, "Path of Exile 2");
+            if (hwnd != IntPtr.Zero && windowResolution.IsPoe2WindowForeground)
+            {
+                dashboard.SetStatus("Scanning league panel", "green");
+                logger.LogDebug("PoE2 foreground confirmed — starting OCR pipeline.");
+                return true;
+            }
+            await Task.Delay(1000, ct).ConfigureAwait(false);
+        }
+        return false;
+    }
+
     private const double MinIntervalMs = 50;  // Never scan faster than this
     private static readonly TimeSpan StaleRenderTimeout = TimeSpan.FromMilliseconds(180);
     private string _lastSnapshotHash = string.Empty;
@@ -73,6 +78,15 @@ public sealed class LeaguePricingWorker(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         logger.LogDebug("LeaguePricingWorker started");
+
+        // Wait for PoE2 window to be in the foreground before starting OCR.
+        // This eliminates unnecessary WinRT/COM/metadata operations (OCR capture,
+        // WMI queries, process enumeration) when the app is sitting idle, which
+        // also reduces the chance of triggering the .NET 8.0.27 MetaDataGetDispenser
+        // race condition from concurrent COM interop paths.
+        if (!await WaitForPoe2ForegroundAsync(stoppingToken).ConfigureAwait(false))
+            return;
+
         var latestSnapshot = new LeagueWindowSnapshot([], DateTimeOffset.UtcNow);
         var hasCompletedSnapshot = false;
         Task<LeagueWindowSnapshot>? inFlightSnapshotTask = null;
@@ -84,7 +98,7 @@ public sealed class LeaguePricingWorker(
             try
             {
                 // Close with PoE2: shut down when the game exits.
-                // Process.GetProcessesByName is expensive so use a 5-second cache.
+                // Uses lightweight FindWindow, not Process.GetProcesses.
                 if (appOptions.CurrentValue.CloseWithPoE2)
                 {
                     if (IsPoe2ProcessRunning())
@@ -122,6 +136,23 @@ public sealed class LeaguePricingWorker(
                     await DashboardService.WaitForChangelogDismissedAsync(stoppingToken).ConfigureAwait(false);
                     logger.LogInformation("Triggering initial setup");
                     debugOverlay.RunInitialSetup();
+                }
+
+                // Pause OCR when PoE2 isn't the foreground window — don't waste
+                // cycles capturing, recognizing, and resolving prices when the game
+                // is in the background. This also reduces concurrent COM interop
+                // that can trigger the .NET 8.0.27 MetaDataGetDispenser race.
+                if (!windowResolution.IsPoe2WindowForeground)
+                {
+                    if (inFlightSnapshotTask is null)
+                    {
+                        dashboard.SetStatus("Waiting for PoE2 window", "amber");
+                        await Task.Delay(200, stoppingToken).ConfigureAwait(false);
+                        continue;
+                    }
+                    // If there's an in-flight task, let it complete below
+                    // (it will return an empty snapshot since the reader
+                    // also checks IsPoe2WindowForeground).
                 }
 
                 if (inFlightSnapshotTask is null)

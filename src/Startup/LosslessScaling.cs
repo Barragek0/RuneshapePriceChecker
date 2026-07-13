@@ -1,4 +1,4 @@
-using System.Diagnostics;
+using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 
 namespace RuneshapePriceChecker.Startup;
@@ -12,6 +12,9 @@ public static class LosslessScaling
 
     public static void SetLogger(ILogger logger) => _logger = logger;
 
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr FindWindow(string? lpClassName, string? lpWindowName);
+
     public static bool IsRunning
     {
         get
@@ -23,15 +26,14 @@ public static class LosslessScaling
             _cachedRunningAt = now;
             try
             {
-                var processes = Process.GetProcessesByName("LosslessScaling");
-                _cachedIsRunning = processes.Length > 0;
-                foreach (var p in processes) p.Dispose();
-                _logger?.LogDebug("LosslessScaling detected: {Running} (process check)", _cachedIsRunning.Value);
+                var hwnd = FindWindow(null, "Lossless Scaling");
+                _cachedIsRunning = hwnd != IntPtr.Zero;
+                _logger?.LogDebug("LosslessScaling detected: {Running} (window check)", _cachedIsRunning.Value);
             }
             catch
             {
                 _cachedIsRunning = false;
-                _logger?.LogWarning("LosslessScaling detection failed (process enumeration error)");
+                _logger?.LogWarning("LosslessScaling detection failed (FindWindow error)");
             }
 
             return _cachedIsRunning.Value;
