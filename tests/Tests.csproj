@@ -20,10 +20,12 @@
   <ItemGroup>
     <ProjectReference Include="..\src\Dashboard\Dashboard.csproj" />
     <ProjectReference Include="..\RuneshapePriceChecker.csproj" />
+    <ProjectReference Include="CrashSimulator\\CrashSimulator.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <Compile Remove="OcrPricingSimulator\**\*.cs" />
+    <Compile Remove="CrashSimulator\**\*.cs" />
     <Compile Remove="UpdateTestServer\**\*.cs" />
   </ItemGroup>
 

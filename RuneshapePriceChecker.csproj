@@ -19,6 +19,8 @@
   <ItemGroup>
     <InternalsVisibleTo Include="RuneshapePriceChecker.Tests" />
     <InternalsVisibleTo Include="RuneshapePriceChecker.Dashboard" />
+    <InternalsVisibleTo Include="RuneshapePriceChecker.Dashboard" />
+    <InternalsVisibleTo Include="CrashSimulator" />
   </ItemGroup>
 
   <ItemGroup>
@@ -53,8 +55,8 @@
     <HttpActivityPropagationSupport>false</HttpActivityPropagationSupport>
     <UseNativeHttpHandler>true</UseNativeHttpHandler>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
-    <DebugType>none</DebugType>
-    <DebugSymbols>false</DebugSymbols>
+    <DebugType>embedded</DebugType>
+    <DebugSymbols>true</DebugSymbols>
     <PublishDir>$(MSBuildProjectDirectory)\obj\Release\publish\</PublishDir>
   </PropertyGroup>
 
@@ -108,6 +110,15 @@
       <EmbeddedResource Include="$(TessNativeDir)\leptonica-1.82.0.dll" Visible="false" Link="native\leptonica-1.82.0.dll" Condition="Exists('$(TessNativeDir)\leptonica-1.82.0.dll')" />
     </ItemGroup>
   </Target>
+
+  <!-- Native crash handler DLL — copy to output so DllImport resolves it -->
+  <ItemGroup>
+    <Content Include="$(MSBuildProjectDirectory)\native\NativeCrashHandler.dll" Condition="Exists('$(MSBuildProjectDirectory)\native\NativeCrashHandler.dll')">
+      <Link>NativeCrashHandler.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Visible>false</Visible>
+    </Content>
+  </ItemGroup>
 
   <!-- Hot reload: use separate output directory so bin/Debug is never locked -->
   <PropertyGroup Condition="'$(UseRunOutput)' == 'true'">

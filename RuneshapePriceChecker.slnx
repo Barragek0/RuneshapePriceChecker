@@ -3,6 +3,7 @@
     <Project Path="src/Dashboard/Dashboard.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/CrashSimulator/CrashSimulator.csproj" />
     <Project Path="tests/OcrPricingSimulator/OcrPricingSimulator.csproj" />
     <Project Path="tests/Tests.csproj" />
     <Project Path="tests/UpdateTestServer/UpdateTestServer.csproj" />
