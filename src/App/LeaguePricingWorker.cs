@@ -95,8 +95,15 @@ public sealed class LeaguePricingWorker(
         while (!stoppingToken.IsCancellationRequested)
         {
             logger.LogTrace("LeaguePricingWorker loop iteration");
+            var enteredGate = MetadataGate.TryEnter();
             try
             {
+                if (!enteredGate)
+                {
+                    await Task.Delay(50, stoppingToken).ConfigureAwait(false);
+                    continue;
+                }
+
                 // Close with PoE2: shut down when the game exits.
                 // Uses lightweight FindWindow, not Process.GetProcesses.
                 if (appOptions.CurrentValue.CloseWithPoE2)
@@ -385,6 +392,7 @@ public sealed class LeaguePricingWorker(
             {
                 logger.LogError(ex, "Failed to render overlay snapshot: {Context}", ErrorContext.FromException(ex));
             }
+            finally { if (enteredGate) MetadataGate.Exit(); }
         }
     }
 

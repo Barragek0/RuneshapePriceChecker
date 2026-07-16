@@ -58,7 +58,11 @@ public sealed class Poe2WindowResolutionService(
         {
             try
             {
-                RefreshWindowState();
+                if (MetadataGate.TryEnter())
+                {
+                    try { RefreshWindowState(); }
+                    finally { MetadataGate.Exit(); }
+                }
             }
             catch (Exception ex)
             {

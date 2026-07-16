@@ -31,25 +31,32 @@ public sealed class DebugOverlayService(
             var options = _options.CurrentValue;
             try
             {
-                if (options.DebugOverlay)
+                if (MetadataGate.TryEnter())
                 {
-                    EnsureOverlayThreadStarted();
-
-                    // Hide when PoE2 isn't foreground — independent of the dirty
-                    // flag so the overlay clears promptly when the user alt-tabs
-                    // away, even when the OCR loop is paused.
-                    if (!windowResolutionProvider.IsPoe2WindowForeground)
+                    try
                     {
-                        GetOverlayForm()?.SafeHide();
-                    }
+                        if (options.DebugOverlay)
+                        {
+                            EnsureOverlayThreadStarted();
 
-                    if (_frameDirty)
-                    {
-                        _frameDirty = false;
-                        RefreshOverlayFrame(options);
+                            // Hide when PoE2 isn't foreground — independent of the dirty
+                            // flag so the overlay clears promptly when the user alt-tabs
+                            // away, even when the OCR loop is paused.
+                            if (!windowResolutionProvider.IsPoe2WindowForeground)
+                            {
+                                GetOverlayForm()?.SafeHide();
+                            }
+
+                            if (_frameDirty)
+                            {
+                                _frameDirty = false;
+                                RefreshOverlayFrame(options);
+                            }
+                        }
+                        else CloseOverlay();
                     }
+                    finally { MetadataGate.Exit(); }
                 }
-                else CloseOverlay();
             }
             catch (Exception ex)
             {
