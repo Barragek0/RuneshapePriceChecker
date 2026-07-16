@@ -160,113 +160,120 @@ internal sealed class UpdateChecker(
         dashboard.SetStatus("Checking for updates...", "green");
         logger.LogInformation("Checking for updates...");
 
-        var currentVersionText = _cachedVersionText;
-        if (currentVersionText is null)
-        {
-            var attr = typeof(UpdateChecker).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>();
-            currentVersionText = _cachedVersionText = attr?.InformationalVersion ?? "";
-        }
-        if (string.IsNullOrWhiteSpace(currentVersionText))
-        {
-            logger.LogInformation("No embedded version found. Skipping update check.");
-            return;
-        }
-
-        var plusIndex = currentVersionText.IndexOf('+');
-        if (plusIndex >= 0) currentVersionText = currentVersionText[..plusIndex];
-
-        if (!TryParseVersion(currentVersionText, out var currentVersion))
-        {
-            logger.LogInformation("Cannot parse current version '{Version}'. Skipping update check.", currentVersionText);
-            return;
-        }
-
-        logger.LogInformation("Current version: {Version}", currentVersion);
-
-        GitHubRelease? latest;
         try
         {
-            latest = await FetchLatestReleaseWithRetryAsync(GitHubRepoOwner, GitHubRepoName, opts.IgnorePrereleases);
-        }
-        catch (OperationCanceledException)
-        {
-            return;
-        }
+            var currentVersionText = _cachedVersionText;
+            if (currentVersionText is null)
+            {
+                var attr = typeof(UpdateChecker).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>();
+                currentVersionText = _cachedVersionText = attr?.InformationalVersion ?? "";
+            }
+            if (string.IsNullOrWhiteSpace(currentVersionText))
+            {
+                logger.LogInformation("No embedded version found. Skipping update check.");
+                return;
+            }
 
-        if (latest is null)
-        {
-            logger.LogInformation("No GitHub releases found. Assuming up to date.");
+            var plusIndex = currentVersionText.IndexOf('+');
+            if (plusIndex >= 0) currentVersionText = currentVersionText[..plusIndex];
+
+            if (!TryParseVersion(currentVersionText, out var currentVersion))
+            {
+                logger.LogInformation("Cannot parse current version '{Version}'. Skipping update check.", currentVersionText);
+                return;
+            }
+
+            logger.LogInformation("Current version: {Version}", currentVersion);
+
+            GitHubRelease? latest;
+            try
+            {
+                latest = await FetchLatestReleaseWithRetryAsync(GitHubRepoOwner, GitHubRepoName, opts.IgnorePrereleases);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            if (latest is null)
+            {
+                logger.LogInformation("No GitHub releases found. Assuming up to date.");
+                if (forceUpdate)
+                {
+                    _localZipPath = FindLocalReleaseZip();
+                    if (_localZipPath is not null)
+                    {
+                        _downloadUrl = "local";
+                        dashboard.ShowUpdateButton();
+                    }
+                }
+                return;
+            }
+
+            var zipAsset = latest.Assets?.FirstOrDefault(a =>
+                a.Name?.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) == true &&
+                a.BrowserDownloadUrl is not null);
+
+            if (zipAsset is null && !forceUpdate)
+            {
+                logger.LogInformation("Latest release has no .zip asset. Skipping update.");
+                return;
+            }
+
+            var latestVersionText = (latest.TagName ?? string.Empty).TrimStart('v', 'V');
+            if (!TryParseVersion(latestVersionText, out var latestVersion))
+            {
+                logger.LogInformation("Cannot parse GitHub tag '{Tag}' as semver. Skipping update.", latest.TagName);
+                return;
+            }
+
+            if (latestVersion <= currentVersion && !forceUpdate)
+            {
+                logger.LogInformation("Already up to date ({Current} >= {Latest}).", currentVersion, latestVersion);
+
+                if (latestVersion == currentVersion && !string.IsNullOrWhiteSpace(latest.Body))
+                {
+                    _changelogVersion = latestVersionText;
+                    WriteChangelogIfNotAlreadyShown();
+                }
+
+                return;
+            }
+
             if (forceUpdate)
             {
                 _localZipPath = FindLocalReleaseZip();
                 if (_localZipPath is not null)
                 {
                     _downloadUrl = "local";
-                    dashboard.ShowUpdateButton();
+                    logger.LogInformation("ForceUpdateAvailable: using local zip {Path}", _localZipPath);
                 }
-            }
-            return;
-        }
-
-        var zipAsset = latest.Assets?.FirstOrDefault(a =>
-            a.Name?.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) == true &&
-            a.BrowserDownloadUrl is not null);
-
-        if (zipAsset is null && !forceUpdate)
-        {
-            logger.LogInformation("Latest release has no .zip asset. Skipping update.");
-            return;
-        }
-
-        var latestVersionText = (latest.TagName ?? string.Empty).TrimStart('v', 'V');
-        if (!TryParseVersion(latestVersionText, out var latestVersion))
-        {
-            logger.LogInformation("Cannot parse GitHub tag '{Tag}' as semver. Skipping update.", latest.TagName);
-            return;
-        }
-
-        if (latestVersion <= currentVersion && !forceUpdate)
-        {
-            logger.LogInformation("Already up to date ({Current} >= {Latest}).", currentVersion, latestVersion);
-
-            if (latestVersion == currentVersion && !string.IsNullOrWhiteSpace(latest.Body))
-            {
-                _changelogVersion = latestVersionText;
-                WriteChangelogIfNotAlreadyShown();
-            }
-
-            return;
-        }
-
-        if (forceUpdate)
-        {
-            _localZipPath = FindLocalReleaseZip();
-            if (_localZipPath is not null)
-            {
-                _downloadUrl = "local";
-                logger.LogInformation("ForceUpdateAvailable: using local zip {Path}", _localZipPath);
+                else if (zipAsset?.BrowserDownloadUrl is not null)
+                {
+                    _downloadUrl = zipAsset.BrowserDownloadUrl;
+                }
             }
             else if (zipAsset?.BrowserDownloadUrl is not null)
             {
                 _downloadUrl = zipAsset.BrowserDownloadUrl;
             }
+
+            _changelogVersion = latestVersionText;
+            dashboard.ShowUpdateButton();
+
+            // If auto-apply was requested (e.g. via --App:AutoApplyUpdate=true), trigger now.
+            // The earlier auto-apply attempt in DashboardWindow.Loaded may have fired before
+            // CheckForUpdatesAsync had set _downloadUrl, so we retry here.
+            if (appOptions.CurrentValue.AutoApplyUpdate && _downloadUrl is not null)
+                _ = ApplyUpdateAsync();
+
+            if (latestVersion > currentVersion)
+                logger.LogInformation("Update available: {Current} -> {Latest}", currentVersion, latestVersion);
         }
-        else if (zipAsset?.BrowserDownloadUrl is not null)
+        finally
         {
-            _downloadUrl = zipAsset.BrowserDownloadUrl;
+            dashboard.SetStatus("Waiting for PoE2 window", "amber");
         }
-
-        _changelogVersion = latestVersionText;
-        dashboard.ShowUpdateButton();
-
-        // If auto-apply was requested (e.g. via --App:AutoApplyUpdate=true), trigger now.
-        // The earlier auto-apply attempt in DashboardWindow.Loaded may have fired before
-        // CheckForUpdatesAsync had set _downloadUrl, so we retry here.
-        if (appOptions.CurrentValue.AutoApplyUpdate && _downloadUrl is not null)
-            _ = ApplyUpdateAsync();
-
-        if (latestVersion > currentVersion)
-            logger.LogInformation("Update available: {Current} -> {Latest}", currentVersion, latestVersion);
     }
 
     private static string? FindLocalReleaseZip()
