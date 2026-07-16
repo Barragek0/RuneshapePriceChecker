@@ -129,7 +129,6 @@ if (!createdNew && !suppressWarning)
 // started with --watchdog skip this to prevent recursion.
 if (!args.Contains("--watchdog"))
 {
-    var autoRestart = false;
     try
     {
         var cfgPath = Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json");
@@ -139,26 +138,10 @@ if (!args.Contains("--watchdog"))
             if (cfgDoc.RootElement.TryGetProperty("App", out var app) &&
                 app.TryGetProperty("AutoRestartOnCrash", out var ar) &&
                 ar.ValueKind == JsonValueKind.True)
-                autoRestart = true;
+                AutoRestartHelper.StartWatchdog();
         }
     }
     catch { }
-
-    if (autoRestart)
-    {
-        var exePath = Environment.ProcessPath;
-        if (exePath is not null)
-        {
-            // PowerShell loop: start app, wait for exit, restart on non-zero exit code
-            var psScript = $"$m=10;$c=0;while($c -lt $m){{$p=Start-Process '{exePath}' -ArgumentList '--watchdog' -PassThru;$p.WaitForExit();if($p.ExitCode -eq 0){{exit}};$c++;Start-Sleep 3}}";
-            Process.Start(new ProcessStartInfo("powershell")
-            {
-                Arguments = $"-WindowStyle Hidden -NoProfile -Command \"{psScript}\"",
-                UseShellExecute = true,
-                CreateNoWindow = true,
-            });
-        }
-    }
 }
 
 var dashboardSink = new DashboardLogSink();
@@ -303,6 +286,7 @@ Poe2ConfigFile.SetLogger(host.Services.GetRequiredService<ILoggerFactory>().Crea
 RpcServiceRunner.SetLogger(host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("RpcServiceRunner"));
 LeagueListService.SetLogger(host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("LeagueListService"));
 LosslessScaling.SetLogger(host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("LosslessScaling"));
+AutoRestartHelper.SetLogger(host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("AutoRestart"));
 OcrPipeline.SetLogger(host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("OcrPipeline"));
 
 var debugOverlay = host.Services.GetRequiredService<DebugOverlayService>();
@@ -315,6 +299,25 @@ dashboardService.SetBugReportTrigger(bugReportService.StartBugReportFlow);
 
 _ = host.Services.GetRequiredService<IOptionsMonitor<AppOptions>>()
     .OnChange(opts => CrashLogger.MinimumLogLevel = opts.LogLevel);
+
+if (!args.Contains("--watchdog"))
+{
+    var appOptionsMon = host.Services.GetRequiredService<IOptionsMonitor<AppOptions>>();
+    _ = appOptionsMon.OnChange(opts =>
+    {
+        var logger = host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("AutoRestart");
+        logger.LogTrace("AutoRestart: OnChange fired, AutoRestartOnCrash={Enabled}", opts.AutoRestartOnCrash);
+        if (opts.AutoRestartOnCrash)
+            AutoRestartHelper.StartWatchdog();
+        else
+            AutoRestartHelper.StopWatchdog();
+    });
+    // Log initial state
+    var initial = appOptionsMon.CurrentValue;
+    var initLogger = host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("AutoRestart");
+    initLogger.LogTrace("AutoRestart: initial state = {Enabled}, has --watchdog = {Watchdog}",
+        initial.AutoRestartOnCrash, args.Contains("--watchdog"));
+}
 
 // Watch for translations.json changes so user edits take effect immediately
 var translator = host.Services.GetRequiredService<ItemNameTranslator>();
@@ -374,6 +377,7 @@ catch (Exception ex) when (!hostCts.Token.IsCancellationRequested)
     throw; // Still let the process terminate — this is a crash
 }
 
+AutoRestartHelper.StopWatchdog();
 dashboardService.Stop();
 dashboardService.Dispose();
 dashboardLoggerProvider.Dispose();

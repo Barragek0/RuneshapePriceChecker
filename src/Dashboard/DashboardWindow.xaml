@@ -580,6 +580,14 @@
                                                Foreground="{StaticResource TextSecondary}"
                                                FontSize="11"
                                                Margin="6,5,0,0"/>
+                                    <TextBlock x:Name="EmulateCrashBtn"
+                                               Text="Emulate crash"
+                                               Visibility="Collapsed"
+                                               Foreground="{StaticResource RedBrush}"
+                                               FontSize="11"
+                                               Margin="10,5,0,0"
+                                               Cursor="Hand"
+                                               MouseLeftButtonDown="EmulateCrash_Click"/>
                                 </StackPanel>
                                 <TextBlock x:Name="StatusLabel"
                                            Foreground="{StaticResource GreenBrush}"
@@ -670,7 +678,7 @@
                             Visibility="Collapsed"
                             HorizontalAlignment="Right"
                             VerticalAlignment="Bottom"
-                            Margin="0,0,40,6"
+                            Margin="0,0,40,3"
                             Padding="4,2"
                             BorderBrush="{StaticResource RedBrush}"
                             BorderThickness="1.5"
@@ -1292,6 +1300,7 @@
                                                         Click="ReRunSetup_Click">
                                                     Re-run initial setup
                                                 </Button>
+
                                             </StackPanel>
                                         </Grid>
 
@@ -1742,7 +1751,7 @@
                                                   Checked="AutoSetting_Changed"
                                                   Unchecked="AutoSetting_Changed"/>
                                         <CheckBox x:Name="RawBmpCheck"
-                                                  Margin="14,10,0,0"
+                                                  Margin="14,4,0,4"
                                                   Checked="AutoSetting_Changed"
                                                   Unchecked="AutoSetting_Changed">
                                             <StackPanel Orientation="Horizontal">

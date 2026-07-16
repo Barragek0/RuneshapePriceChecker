@@ -285,7 +285,10 @@ public sealed partial class DashboardWindow : Window
         }
 
         if (HasArg("--App:TestMode=true"))
+        {
             TestModeIndicator.Visibility = Visibility.Visible;
+            EmulateCrashBtn.Visibility = Visibility.Visible;
+        }
 
         if (HasArg("--App:SuppressActivation=true"))
         {
@@ -1120,6 +1123,11 @@ public sealed partial class DashboardWindow : Window
     }
 
     private void ReRunSetup_Click(object sender, RoutedEventArgs e) { ToggleSettings(); _vm.OnReRunSetup?.Invoke(); }
+
+    private void EmulateCrash_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        Environment.Exit(1);
+    }
 
     private void ToolTip_Loaded(object sender, RoutedEventArgs e)
     {

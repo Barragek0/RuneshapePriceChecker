@@ -56,11 +56,12 @@
                 "RuneshapePriceChecker.csproj",
                 "--",
                 "run",
-                "-p:UseRunOutput=true"
+                "-p:UseRunOutput=true",
+                "--App:TestMode=true"
             ],
             "isBackground": true,
             "problemMatcher": "$msCompile",
-            "detail": "Runs RuneshapePriceChecker with .NET Hot Reload for development."
+            "detail": "Runs RuneshapePriceChecker with .NET Hot Reload for development (test mode)."
         },
         {
             "label": "Start Update Test Servers",
