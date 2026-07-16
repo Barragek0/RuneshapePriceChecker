@@ -229,6 +229,173 @@ internal static class OcrImagePreprocessor
         }
     }
 
+    // Combined pipeline: LockBits once, process all stages on byte[], create final Bitmap at end.
+    // Skips intermediate Bitmap creation between KeepBlackAndNeighbors, grayscale, and threshold.
+    public static Bitmap PreprocessRaw(Bitmap source, OcrOptions options, ILogger? logger = null)
+    {
+        var threshold = Math.Clamp(options.BinarizationThreshold, 0, 255);
+        var width = source.Width;
+        var height = source.Height;
+        logger?.LogTrace("PreprocessRaw: {W}x{H} threshold={T}", width, height, threshold);
+
+        var rect = new Rectangle(0, 0, width, height);
+        var srcData = source.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+        var stride = Math.Abs(srcData.Stride);
+        var length = stride * height;
+        var srcBytes = new byte[length];
+        Marshal.Copy(srcData.Scan0, srcBytes, 0, length);
+        source.UnlockBits(srcData);
+
+        // KeepBlackAndNeighbors (in-place)
+        var keep = new byte[width * height];
+        var blackThreshold = width >= 600 ? 13 : 15;
+        for (var y = 0; y < height; y++)
+        {
+            var rowOffset = y * stride;
+            for (var x = 0; x < width; x++)
+            {
+                var idx = rowOffset + (x * 3);
+                if (srcBytes[idx] > blackThreshold || srcBytes[idx + 1] > blackThreshold || srcBytes[idx + 2] > blackThreshold)
+                    continue;
+
+                var y0 = Math.Max(0, y - 6);
+                var y1 = Math.Min(height - 1, y + 6);
+                var x0 = Math.Max(0, x - 6);
+                var x1 = Math.Min(width - 1, x + 6);
+                for (var ny = y0; ny <= y1; ny++)
+                {
+                    var keepNY = ny * width;
+                    for (var nx = x0; nx <= x1; nx++)
+                        keep[keepNY + nx] = 1;
+                }
+            }
+        }
+
+        // Remove bright yellow pixels (debug overlay scan bracket lines)
+        for (var y = 0; y < height; y++)
+        {
+            var srcRow = y * stride;
+            for (var x = 0; x < width; x++)
+            {
+                var si = srcRow + (x * 3);
+                var b = srcBytes[si];
+                var g = srcBytes[si + 1];
+                var r = srcBytes[si + 2];
+                if (r > 200 && g > 200 && b < 100)
+                    keep[(y * width) + x] = 0;
+            }
+        }
+
+        // Apply keep mask: discard (→ white) or retain original pixel
+        for (var y = 0; y < height; y++)
+        {
+            var srcRow = y * stride;
+            var keepRow = y * width;
+            for (var x = 0; x < width; x++)
+            {
+                var si = srcRow + (x * 3);
+                if (keep[keepRow + x] == 0)
+                {
+                    srcBytes[si] = srcBytes[si + 1] = srcBytes[si + 2] = 255;
+                }
+            }
+        }
+
+        // Extract grayscale
+        var grayPixels = new byte[width * height];
+        var absStride = stride;
+        for (var y = 0; y < height; y++)
+        {
+            var rowOffset = y * absStride;
+            var grayOffset = y * width;
+            for (var x = 0; x < width; x++)
+            {
+                var si = rowOffset + (x * 3);
+                var r = srcBytes[si + 2];
+                var g = srcBytes[si + 1];
+                var b = srcBytes[si];
+                grayPixels[grayOffset + x] = (byte)(((77 * r) + (150 * g) + (29 * b)) >> 8);
+            }
+        }
+
+        // Adaptive threshold
+        var kernelRadius = Math.Clamp(Math.Min(width, height) / 40, 4, 10);
+        var contrastBias = Math.Clamp((threshold - 100) / 6, 6, 20);
+
+        // Read RGB pixels for text color filtering (continuous packed RGB, not stride-padded)
+        var sourceRgb = new byte[width * height * 3];
+        for (var y = 0; y < height; y++)
+        {
+            var srcRow = y * stride;
+            var dstRow = y * width * 3;
+            for (var x = 0; x < width; x++)
+            {
+                var src = srcRow + (x * 3);
+                var dst = dstRow + (x * 3);
+                sourceRgb[dst] = srcBytes[src + 2];
+                sourceRgb[dst + 1] = srcBytes[src + 1];
+                sourceRgb[dst + 2] = srcBytes[src];
+            }
+        }
+
+        var integral = BuildIntegralImage(grayPixels, width, height);
+        var binarized = new byte[width * height];
+
+        for (var y = 0; y < height; y++)
+        {
+            var rowOffset = y * width;
+            for (var x = 0; x < width; x++)
+            {
+                var mean = GetLocalMean(integral, width, height, x, y, kernelRadius);
+                var luminance = grayPixels[rowOffset + x];
+                var binary = luminance + contrastBias < mean ? (byte)0 : (byte)255;
+                if (binary == 0 &&
+                    options.EnableTextColorFiltering &&
+                    !IsLikelyTextColor(sourceRgb, rowOffset + x, options))
+                {
+                    binary = 255;
+                }
+                binarized[rowOffset + x] = binary;
+            }
+        }
+
+        RemoveIsolatedBlackNoise(binarized, width, height);
+
+        // Black-ratio check: if >97% black, return unprocessed grayscale clone
+        var totalPixels = width * height;
+        var finalBlackCount = 0;
+        for (var i = 0; i < binarized.Length; i++)
+        {
+            if (binarized[i] == 0)
+                finalBlackCount++;
+        }
+        var blackRatio = totalPixels == 0 ? 1d : (double)finalBlackCount / totalPixels;
+        if (blackRatio > 0.97d)
+            return (Bitmap)source.Clone();
+
+        // Write binarized pixels into stride-padded buffer
+        for (var y = 0; y < height; y++)
+        {
+            var rowOffset = y * stride;
+            var binaryOffset = y * width;
+            for (var x = 0; x < width; x++)
+            {
+                var index = rowOffset + (x * 3);
+                var value = binarized[binaryOffset + x];
+                srcBytes[index] = value;
+                srcBytes[index + 1] = value;
+                srcBytes[index + 2] = value;
+            }
+        }
+
+        // Create result Bitmap
+        var result = new Bitmap(width, height, PixelFormat.Format24bppRgb);
+        var dstData = result.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
+        Marshal.Copy(srcBytes, 0, dstData.Scan0, length);
+        result.UnlockBits(dstData);
+        return result;
+    }
+
     public static Bitmap UpscaleForOcr(Bitmap source, int scaleFactor)
     {
         var scale = Math.Clamp(scaleFactor, 1, 6);

@@ -551,12 +551,20 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
 
         attemptedRecognition = true;
 #pragma warning disable CA2000 // Ownership transferred; disposed at method exit via explicit Dispose calls
-        Bitmap masked;
-        using (_perf.Measure(OcrPerfTiming.Slot.KeepBlack))
-            masked = OcrImagePreprocessor.KeepBlackAndNeighbors(capturedBitmap, _logger);
         Bitmap preprocessed;
-        using (_perf.Measure(OcrPerfTiming.Slot.Preprocess))
-            preprocessed = OcrImagePreprocessor.PreprocessForOcr(masked, options, _logger);
+        Bitmap? masked = null;
+        if (options.UseRawBitmapProcessing)
+        {
+            using (_perf.Measure(OcrPerfTiming.Slot.Preprocess))
+                preprocessed = OcrImagePreprocessor.PreprocessRaw(capturedBitmap, options, _logger);
+        }
+        else
+        {
+            using (_perf.Measure(OcrPerfTiming.Slot.KeepBlack))
+                masked = OcrImagePreprocessor.KeepBlackAndNeighbors(capturedBitmap, _logger);
+            using (_perf.Measure(OcrPerfTiming.Slot.Preprocess))
+                preprocessed = OcrImagePreprocessor.PreprocessForOcr(masked, options, _logger);
+        }
 #pragma warning restore CA2000
         _lastPreprocessedBitmap?.Dispose();
         _lastPreprocessedBitmap = new Bitmap(preprocessed);
@@ -580,7 +588,8 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         if (debugDir is not null)
         {
             OcrImagePreprocessor.SavePng(capturedBitmap, Path.Combine(debugDir, "1 Raw.png"));
-            OcrImagePreprocessor.SavePng(masked, Path.Combine(debugDir, "2 Mask.png"));
+            if (masked is not null)
+                OcrImagePreprocessor.SavePng(masked, Path.Combine(debugDir, "2 Mask.png"));
             OcrImagePreprocessor.SavePng(preprocessed, Path.Combine(debugDir, "3 Preprocessed.png"));
             if (crop.HasValue)
             {
@@ -698,7 +707,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
 
         _retryRegions.Clear();
         _rejectedRegions.Clear();
-        masked.Dispose();
+        masked?.Dispose();
         preprocessed.Dispose();
         return _lastOcrText;
     }
