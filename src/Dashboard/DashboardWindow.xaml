@@ -1216,30 +1216,6 @@
                                                                    ToolTip="Auto-focus the app window when launched or on update"/>
                                                     </StackPanel>
                                                 </CheckBox>
-                                                <CheckBox x:Name="AutoRestartCheck"
-                                                          VerticalAlignment="Center"
-                                                          Margin="16,0,0,4"
-                                                          Checked="AutoSetting_Changed"
-                                                          Unchecked="AutoSetting_Changed">
-                                                    <StackPanel Orientation="Horizontal">
-                                                        <TextBlock Text="Auto-restart on crash"
-                                                                   VerticalAlignment="Center"/>
-                                                        <TextBlock Style="{StaticResource TooltipIcon}"
-                                                                   ToolTip="When the app crashes, it will automatically restart itself using a background PowerShell watcher.&#10;&#10;Hidden when Open with PoE2 is enabled — the RPCService already handles restarting."/>
-                                                    </StackPanel>
-                                                </CheckBox>
-                                                <CheckBox x:Name="MetadataSerializationCheck"
-                                                          VerticalAlignment="Center"
-                                                          Margin="16,0,0,4"
-                                                          Checked="AutoSetting_Changed"
-                                                          Unchecked="AutoSetting_Changed">
-                                                    <StackPanel Orientation="Horizontal">
-                                                        <TextBlock Text="Serialize background services"
-                                                                   VerticalAlignment="Center"/>
-                                                        <TextBlock Style="{StaticResource TooltipIcon}"
-                                                                   ToolTip="Ensure background services (OCR, window detection, overlay) do not run concurrently.&#10;&#10;If one service is processing, others skip their cycle and retry on the next tick. This may reduce CPU usage during multi-service contention and can help avoid the MetaDataGetDispenser crash on systems affected by the .NET runtime bug."/>
-                                                    </StackPanel>
-                                                </CheckBox>
                                                 <CheckBox x:Name="OpenWithPoE2Check"
                                                           VerticalAlignment="Center"
                                                           Margin="16,0,0,4"
@@ -1262,6 +1238,18 @@
                                                                    VerticalAlignment="Center"/>
                                                         <TextBlock Style="{StaticResource TooltipIcon}"
                                                                    ToolTip="Automatically close RuneshapePriceChecker when Path of Exile 2 is no longer running"/>
+                                                    </StackPanel>
+                                                </CheckBox>
+                                                <CheckBox x:Name="AutoRestartCheck"
+                                                          VerticalAlignment="Center"
+                                                          Margin="16,0,0,4"
+                                                          Checked="AutoSetting_Changed"
+                                                          Unchecked="AutoSetting_Changed">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Text="Auto-restart on crash"
+                                                                   VerticalAlignment="Center"/>
+                                                        <TextBlock Style="{StaticResource TooltipIcon}"
+                                                                   ToolTip="When the app crashes, it will automatically restart itself using a background PowerShell watcher.&#10;&#10;Hidden when Open with PoE2 is enabled — the RPCService already handles restarting."/>
                                                     </StackPanel>
                                                 </CheckBox>
                                             </StackPanel>
@@ -1750,17 +1738,7 @@
                                                   Visibility="Collapsed"
                                                   Checked="AutoSetting_Changed"
                                                   Unchecked="AutoSetting_Changed"/>
-                                        <CheckBox x:Name="RawBmpCheck"
-                                                  Margin="14,4,0,4"
-                                                  Checked="AutoSetting_Changed"
-                                                  Unchecked="AutoSetting_Changed">
-                                            <StackPanel Orientation="Horizontal">
-                                                <TextBlock Text="Raw bitmap processing"
-                                                           VerticalAlignment="Center"/>
-                                                <TextBlock Style="{StaticResource TooltipIcon}"
-                                                           ToolTip="Process captured frames as raw byte arrays instead of System.Drawing Bitmaps.&#10;&#10;Reduces GDI+ COM operations during OCR preprocessing, which may help reduce the MetaDataGetDispenser crash on systems affected by the .NET runtime bug.&#10;&#10;Only enable this if you are experiencing frequent crashes — has no effect on OCR accuracy or speed under normal conditions."/>
-                                            </StackPanel>
-                                        </CheckBox>
+
                                     </StackPanel>
                                 </ScrollViewer>
 

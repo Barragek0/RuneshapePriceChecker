@@ -38,7 +38,7 @@ public sealed class OcrOptions
     public int ScanIntervalMs { get; set; } = 100;
     public bool BypassOcrCache { get; set; }
     public int PerfMetricsInterval { get; set; }
-    public bool UseRawBitmapProcessing { get; set; }
+
 
     // Overlay scale (auto when null, manual override when set)
     public float? OverlayScale { get; set; }

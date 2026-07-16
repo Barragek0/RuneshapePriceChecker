@@ -415,7 +415,7 @@ public sealed partial class DashboardWindow : Window
         DebugOverlayCheck.IsChecked = _vm.DebugOverlay;
         HideDebugOverlayCheck.IsChecked = _vm.HideDebugOverlayWhenInterfaceNotDetected;
         SaveDebugImagesCheck.IsChecked = _vm.SaveDebugImages;
-        RawBmpCheck.IsChecked = _vm.UseRawBitmapProcessing;
+
         AutoUpdateCheck.IsChecked = _vm.AutoUpdate;
         BringToForegroundCheck.IsChecked = _vm.BringToForeground;
         AlwaysOnTopCheck.IsChecked = _vm.AlwaysOnTop;
@@ -423,7 +423,7 @@ public sealed partial class DashboardWindow : Window
         OpenWithPoE2Check.IsChecked = _vm.OpenWithPoE2;
         AutoRestartCheck.IsChecked = _vm.AutoRestartOnCrash;
         AutoRestartCheck.Visibility = _vm.OpenWithPoE2 ? Visibility.Collapsed : Visibility.Visible;
-        MetadataSerializationCheck.IsChecked = _vm.UseMetadataSerialization;
+
         // Sync capture mode selection
         for (var i = 0; i < CaptureModeCombo.Items.Count; i++)
         {
@@ -480,8 +480,8 @@ public sealed partial class DashboardWindow : Window
         _vm.CloseWithPoE2 = CloseWithPoE2Check.IsChecked == true;
         _vm.OpenWithPoE2 = OpenWithPoE2Check.IsChecked == true;
         _vm.AutoRestartOnCrash = AutoRestartCheck.IsChecked == true;
-        _vm.UseMetadataSerialization = MetadataSerializationCheck.IsChecked == true;
-        _vm.UseRawBitmapProcessing = RawBmpCheck.IsChecked == true;
+
+
         _vm.AutoUpdate = AutoUpdateCheck.IsChecked == true;
         _vm.BringToForeground = BringToForegroundCheck.IsChecked == true;
         _vm.AlwaysOnTop = AlwaysOnTopCheck.IsChecked == true;

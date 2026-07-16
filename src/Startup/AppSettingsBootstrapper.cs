@@ -15,7 +15,7 @@ public static class AppSettingsBootstrapper
         "CloseWithPoE2": false,
         "OpenWithPoE2": false,
         "AutoRestartOnCrash": false,
-        "UseMetadataSerialization": false,
+        "UseMetadataSerialization": true,
         "AllOverlaysDisabled": false,
         "PricingOverlay": true,
         "Banner": true,
@@ -53,7 +53,7 @@ public static class AppSettingsBootstrapper
         "TextColorMaxLuminance": 145,
         "TextColorMaxChannelSpread": 29,
         "DebugImageIntervalSeconds": 15,
-        "UseRawBitmapProcessing": false,
+
         "DebugImageDirectory": "",
         "OcrEngineMode": 2,
         "ScanIntervalMs": 100,

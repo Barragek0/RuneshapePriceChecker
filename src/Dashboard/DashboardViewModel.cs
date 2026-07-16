@@ -31,7 +31,6 @@ public sealed class DashboardViewModel(string configPath)
     public bool DebugOverlay { get; set; }
     public bool HideDebugOverlayWhenInterfaceNotDetected { get; set; }
     public bool SaveDebugImages { get; set; }
-    public bool UseRawBitmapProcessing { get; set; }
     public bool PricingOverlay { get; set; } = true;
     public bool Banner { get; set; } = true;
     public string OcrLanguage { get; set; } = "eng";
@@ -43,7 +42,6 @@ public sealed class DashboardViewModel(string configPath)
     public bool CloseWithPoE2 { get; set; }
     public bool OpenWithPoE2 { get; set; }
     public bool AutoRestartOnCrash { get; set; }
-    public bool UseMetadataSerialization { get; set; }
     public string CaptureMode { get; set; } = "printwindow";
     public int ScanIntervalMs { get; set; } = 100;
     public bool OverlayScaleAuto { get; set; } = true;
@@ -113,7 +111,7 @@ public sealed class DashboardViewModel(string configPath)
                 CloseWithPoE2 = app.Val("CloseWithPoE2", false);
                 OpenWithPoE2 = app.Val("OpenWithPoE2", false);
                 AutoRestartOnCrash = app.Val("AutoRestartOnCrash", false);
-                UseMetadataSerialization = app.Val("UseMetadataSerialization", false);
+
             }
 
             if (root["Pricing"] is JsonNode pricing)
@@ -135,7 +133,7 @@ public sealed class DashboardViewModel(string configPath)
                 DebugOverlay = ocr.Val("DebugOverlay", false);
                 HideDebugOverlayWhenInterfaceNotDetected = ocr.Val("HideDebugOverlayWhenInterfaceNotDetected", false);
                 SaveDebugImages = ocr.Val("SaveDebugImages", false);
-                UseRawBitmapProcessing = ocr.Val("UseRawBitmapProcessing", false);
+
                 OcrLanguage = ocr.Str("Language", "eng");
                 OcrBackend = ocr.Str("OcrBackend", "windows");
                 CaptureMode = ocr.Str("CaptureMode", "printwindow");
@@ -208,7 +206,7 @@ public sealed class DashboardViewModel(string configPath)
                 app["CloseWithPoE2"] = CloseWithPoE2;
                 app["OpenWithPoE2"] = OpenWithPoE2;
                 app["AutoRestartOnCrash"] = AutoRestartOnCrash;
-                app["UseMetadataSerialization"] = UseMetadataSerialization;
+
                 app["PricingOverlay"] = PricingOverlay;
                 app["Banner"] = Banner;
             }
@@ -248,7 +246,7 @@ public sealed class DashboardViewModel(string configPath)
                 ocr["DebugOverlay"] = DebugOverlay;
                 ocr["HideDebugOverlayWhenInterfaceNotDetected"] = HideDebugOverlayWhenInterfaceNotDetected;
                 ocr["SaveDebugImages"] = SaveDebugImages;
-                ocr["UseRawBitmapProcessing"] = UseRawBitmapProcessing;
+
                 ocr["Language"] = OcrLanguage;
                 ocr["OcrBackend"] = OcrBackend;
                 ocr["CaptureMode"] = CaptureMode;
