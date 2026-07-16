@@ -10,9 +10,9 @@
         SourceInitialized="Window_SourceInitialized"
         MinWidth="500"
         MaxWidth="960"
-        MinHeight="712"
-        MaxHeight="712"
-        Height="652"
+        MinHeight="772"
+        MaxHeight="772"
+        Height="712"
         WindowStartupLocation="Manual"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True"
@@ -1092,7 +1092,7 @@
                                         <Run Text="🔒 "/>
                                         <Run Text="No personal information is collected. Only app logs, crash reports, system info, and debug images are included. "/>
                                         <Run FontWeight="Bold"
-                                                Text="Note:"/>
+                                             Text="Note:"/>
                                         <Run Text=" Your Windows profile username may appear in some debug log entries where it's needed to identify which user profile is being used."/>
                                     </TextBlock>
                                     <Button x:Name="BugReportDoneButton"
@@ -1206,6 +1206,30 @@
                                                                    VerticalAlignment="Center"/>
                                                         <TextBlock Style="{StaticResource TooltipIcon}"
                                                                    ToolTip="Auto-focus the app window when launched or on update"/>
+                                                    </StackPanel>
+                                                </CheckBox>
+                                                <CheckBox x:Name="AutoRestartCheck"
+                                                          VerticalAlignment="Center"
+                                                          Margin="16,0,0,4"
+                                                          Checked="AutoSetting_Changed"
+                                                          Unchecked="AutoSetting_Changed">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Text="Auto-restart on crash"
+                                                                   VerticalAlignment="Center"/>
+                                                        <TextBlock Style="{StaticResource TooltipIcon}"
+                                                                   ToolTip="When the app crashes, it will automatically restart itself using a background PowerShell watcher.&#10;&#10;Hidden when Open with PoE2 is enabled — the RPCService already handles restarting."/>
+                                                    </StackPanel>
+                                                </CheckBox>
+                                                <CheckBox x:Name="MetadataSerializationCheck"
+                                                          VerticalAlignment="Center"
+                                                          Margin="16,0,0,4"
+                                                          Checked="AutoSetting_Changed"
+                                                          Unchecked="AutoSetting_Changed">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Text="Serialize background services"
+                                                                   VerticalAlignment="Center"/>
+                                                        <TextBlock Style="{StaticResource TooltipIcon}"
+                                                                   ToolTip="Ensure background services (OCR, window detection, overlay) do not run concurrently.&#10;&#10;If one service is processing, others skip their cycle and retry on the next tick. This may reduce CPU usage during multi-service contention and can help avoid the MetaDataGetDispenser crash on systems affected by the .NET runtime bug."/>
                                                     </StackPanel>
                                                 </CheckBox>
                                                 <CheckBox x:Name="OpenWithPoE2Check"
@@ -1717,6 +1741,17 @@
                                                   Visibility="Collapsed"
                                                   Checked="AutoSetting_Changed"
                                                   Unchecked="AutoSetting_Changed"/>
+                                        <CheckBox x:Name="RawBmpCheck"
+                                                  Margin="14,10,0,0"
+                                                  Checked="AutoSetting_Changed"
+                                                  Unchecked="AutoSetting_Changed">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="Raw bitmap processing"
+                                                           VerticalAlignment="Center"/>
+                                                <TextBlock Style="{StaticResource TooltipIcon}"
+                                                           ToolTip="Process captured frames as raw byte arrays instead of System.Drawing Bitmaps.&#10;&#10;Reduces GDI+ COM operations during OCR preprocessing, which may help reduce the MetaDataGetDispenser crash on systems affected by the .NET runtime bug.&#10;&#10;Only enable this if you are experiencing frequent crashes — has no effect on OCR accuracy or speed under normal conditions."/>
+                                            </StackPanel>
+                                        </CheckBox>
                                     </StackPanel>
                                 </ScrollViewer>
 

@@ -12,6 +12,8 @@ public sealed class AppOptions
     public bool AlwaysOnTop { get; set; }
     public bool CloseWithPoE2 { get; set; }
     public bool OpenWithPoE2 { get; set; }
+    public bool AutoRestartOnCrash { get; set; }
+    public bool UseMetadataSerialization { get; set; }
     public bool AllOverlaysDisabled { get; set; }
     public bool PricingOverlay { get; set; } = true;
     public bool Banner { get; set; } = true;

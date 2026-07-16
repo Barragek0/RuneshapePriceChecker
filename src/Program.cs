@@ -123,6 +123,44 @@ if (!createdNew && !suppressWarning)
 }
 #pragma warning restore CA2000
 
+// Auto-restart on crash: launch a hidden PowerShell watchdog that monitors
+// the app process and re-launches it if it exits with a non-zero exit code
+// (crash).  The watchdog is only launched for the initial instance — instances
+// started with --watchdog skip this to prevent recursion.
+if (!args.Contains("--watchdog"))
+{
+    var autoRestart = false;
+    try
+    {
+        var cfgPath = Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json");
+        if (File.Exists(cfgPath))
+        {
+            using var cfgDoc = JsonDocument.Parse(File.ReadAllText(cfgPath));
+            if (cfgDoc.RootElement.TryGetProperty("App", out var app) &&
+                app.TryGetProperty("AutoRestartOnCrash", out var ar) &&
+                ar.ValueKind == JsonValueKind.True)
+                autoRestart = true;
+        }
+    }
+    catch { }
+
+    if (autoRestart)
+    {
+        var exePath = Environment.ProcessPath;
+        if (exePath is not null)
+        {
+            // PowerShell loop: start app, wait for exit, restart on non-zero exit code
+            var psScript = $"$m=10;$c=0;while($c -lt $m){{$p=Start-Process '{exePath}' -ArgumentList '--watchdog' -PassThru;$p.WaitForExit();if($p.ExitCode -eq 0){{exit}};$c++;Start-Sleep 3}}";
+            Process.Start(new ProcessStartInfo("powershell")
+            {
+                Arguments = $"-WindowStyle Hidden -NoProfile -Command \"{psScript}\"",
+                UseShellExecute = true,
+                CreateNoWindow = true,
+            });
+        }
+    }
+}
+
 var dashboardSink = new DashboardLogSink();
 var dashboardLoggerProvider = new DashboardLoggerProvider(dashboardSink);
 var metricsCollector = new DebugMetricsCollector();
@@ -162,6 +200,8 @@ var host = Host.CreateDefaultBuilder(args)
     })
     .ConfigureServices((context, services) =>
     {
+        MetadataGate.Initialize(context.Configuration.GetValue<bool>("App:UseMetadataSerialization"));
+
         _ = services.Configure<AppOptions>(context.Configuration.GetSection("App"));
         _ = services.Configure<UpdateOptions>(context.Configuration.GetSection("Update"));
         _ = services.Configure<WindowOptions>(context.Configuration.GetSection("Window"));
