@@ -31,17 +31,21 @@ internal sealed partial class OcrCaptureStrategy(ILogger<OcrCaptureStrategy> log
 
         if (context is not null && mode == "printwindow")
         {
+            _logger.LogTrace("GDI: TryPrintWindow enter");
             if (TryPrintWindow(context, region, out var pwBmp))
             {
+                _logger.LogTrace("GDI: TryPrintWindow OK");
                 _ = FailedModes.TryRemove("printwindow", out _);
                 _logger.LogTrace("Capture: PrintWindow succeeded ({W}x{H})", pwBmp.Width, pwBmp.Height);
                 return new CaptureResult(pwBmp, "window-printwindow");
             }
+            _logger.LogTrace("GDI: TryPrintWindow failed");
             _ = FailedModes.TryAdd("printwindow", 0);
             _logger.LogWarning("PrintWindow capture failed — falling back to Desktop.");
             return TryDesktopOnly(region);
         }
 
+        _logger.LogTrace("GDI: fallback desktop capture");
         return TryDesktopOnly(region);
     }
 
@@ -137,7 +141,7 @@ internal sealed partial class OcrCaptureStrategy(ILogger<OcrCaptureStrategy> log
         }
     }
 
-    private static bool TryCaptureWithPrintWindow(WindowCaptureContext context, OcrCaptureRegion absoluteRegion, out Bitmap bitmap)
+    private bool TryCaptureWithPrintWindow(WindowCaptureContext context, OcrCaptureRegion absoluteRegion, out Bitmap bitmap)
     {
         bitmap = null!;
 
@@ -146,24 +150,31 @@ internal sealed partial class OcrCaptureStrategy(ILogger<OcrCaptureStrategy> log
 
         if (sourceX < 0 || sourceY < 0)
         {
+            _logger.LogTrace("GDI: PrintWindow source out of bounds");
             return false;
         }
 
         if (sourceX + absoluteRegion.Width > context.ClientWidth ||
             sourceY + absoluteRegion.Height > context.ClientHeight)
         {
+            _logger.LogTrace("GDI: PrintWindow region exceeds client area");
             return false;
         }
 
+        _logger.LogTrace("GDI: PrintWindow new Bitmap({W}x{H})", context.ClientWidth, context.ClientHeight);
         using var clientBitmap = new Bitmap(context.ClientWidth, context.ClientHeight, PixelFormat.Format24bppRgb);
+        _logger.LogTrace("GDI: PrintWindow Graphics.FromImage");
         using (var graphics = Graphics.FromImage(clientBitmap))
         {
+            _logger.LogTrace("GDI: PrintWindow GetHdc");
             var hdc = graphics.GetHdc();
             try
             {
+                _logger.LogTrace("GDI: PrintWindow calling PrintWindow native (may block)");
                 const uint pwClientOnly = 0x00000001;
                 const uint pwRenderFullContent = 0x00000002;
                 var captured = NativeMethods.PrintWindow(context.WindowHandle, hdc, pwClientOnly | pwRenderFullContent);
+                _logger.LogTrace("GDI: PrintWindow native returned captured={Captured}", captured);
                 if (!captured)
                 {
                     return false;
@@ -171,12 +182,15 @@ internal sealed partial class OcrCaptureStrategy(ILogger<OcrCaptureStrategy> log
             }
             finally
             {
+                _logger.LogTrace("GDI: PrintWindow ReleaseHdc");
                 graphics.ReleaseHdc(hdc);
             }
         }
 
         var cropRect = new Rectangle(sourceX, sourceY, absoluteRegion.Width, absoluteRegion.Height);
+        _logger.LogTrace("GDI: PrintWindow Clone({X},{Y} {W}x{H})", cropRect.X, cropRect.Y, cropRect.Width, cropRect.Height);
         bitmap = clientBitmap.Clone(cropRect, PixelFormat.Format24bppRgb);
+        _logger.LogTrace("GDI: PrintWindow clone OK ({W}x{H})", bitmap.Width, bitmap.Height);
         return true;
     }
 

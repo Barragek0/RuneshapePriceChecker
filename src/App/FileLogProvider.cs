@@ -5,84 +5,52 @@ namespace RuneshapePriceChecker.App;
 
 public sealed class FileLogProvider : ILoggerProvider, IDisposable
 {
-    private readonly string? _path;
-    private readonly StringBuilder? _buffer;
-    private readonly object? _flushLock;
-    private readonly System.Threading.Timer? _flushTimer;
-    private volatile bool _disposed;
+    private readonly string _path;
+    private FileLogger? _logger;
 
-    private const int FlushIntervalMs = 500;
-    private const int MaxBufferSize = 32768;
+    // Shared across all FileLogger instances so concurrent writes from different
+    // categories don't collide on the same file (FileShare.Read would otherwise
+    // fail the second concurrent AppendAllText, silently losing log entries).
+    private static readonly SemaphoreSlim _globalLock = new(1, 1);
 
     public FileLogProvider()
     {
         var dir = Path.Combine(AppContext.BaseDirectory, "logs");
         _ = Directory.CreateDirectory(dir);
         _path = Path.Combine(dir, $"{DateTime.Now:yyyyMMdd-HHmmss.fff}-log.txt");
-        _buffer = new StringBuilder(4096);
-        _flushLock = new();
-        _flushTimer = new System.Threading.Timer(FlushCallback, null, FlushIntervalMs, FlushIntervalMs);
     }
 
-    public ILogger CreateLogger(string categoryName) =>
-        new FileLogger(categoryName, this, _path is not null);
-
-    internal void Write(string entry)
+    public ILogger CreateLogger(string categoryName)
     {
-        if (_disposed || _buffer is null) return;
-
-        lock (_flushLock!)
-        {
-            _ = _buffer.Append(entry).AppendLine();
-            if (_buffer.Length >= MaxBufferSize)
-                FlushToDisk();
-        }
+        var logger = new FileLogger(categoryName, _path, _globalLock);
+        _logger = logger;
+        return logger;
     }
 
-    private void FlushCallback(object? _)
-    {
-        FlushToDisk();
-    }
+    public void Dispose() => _logger?.Dispose();
 
-    private void FlushToDisk()
-    {
-        string? content;
-        lock (_flushLock!)
-        {
-            if (_buffer!.Length == 0) return;
-            content = _buffer.ToString();
-            _ = _buffer.Clear();
-        }
-
-        try
-        {
-            File.AppendAllText(_path!, content, Encoding.UTF8);
-        }
-        catch { }
-    }
-
-    public void Dispose()
-    {
-        if (_disposed) return;
-        _disposed = true;
-        _flushTimer?.Dispose();
-        if (_buffer is not null)
-            FlushToDisk();
-    }
-
-    private sealed class FileLogger(string category, FileLogProvider provider, bool enabled) : ILogger
+    private sealed class FileLogger(string category, string path, SemaphoreSlim globalLock) : ILogger, IDisposable
     {
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-
-        public bool IsEnabled(LogLevel logLevel) => enabled;
+        public bool IsEnabled(LogLevel logLevel) => true;
 
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
-            if (!enabled) return;
+            if (!IsEnabled(logLevel)) return;
             var message = formatter(state, exception);
             var line = $"{DateTime.Now:HH:mm:ss.fff} [{logLevel}] {category}: {message}";
             if (exception is not null) line += $"\n{exception}";
-            provider.Write(line);
+            line += '\n';
+
+            globalLock.Wait();
+            try
+            {
+                File.AppendAllText(path, line, Encoding.UTF8);
+            }
+            catch { }
+            finally { globalLock.Release(); }
         }
+
+        public void Dispose() { }
     }
 }

@@ -473,7 +473,8 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
             (int)(region.Height * opts.PanelTopRowFraction));
         using (var preCapturePerf = _perf.Measure(OcrPerfTiming.Slot.AnchorCheck))
         {
-            using var scanBitmap = CaptureDesktopRegionDirect(scanRect);
+            using var scanBitmap = CaptureDesktopRegionDirect(scanRect, _logger);
+            _logger.LogTrace("GDI: anchor capture result={HasBitmap}", scanBitmap is not null);
             if (scanBitmap is null || !TryDetectPanelOpen(scanBitmap, options, region))
             {
                 _metrics.AnchorCheckFails++;
@@ -507,6 +508,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         using var capturedBitmap = captureResult.Bitmap;
 
         // Keep a clone for per-line retry OCR (used when lines fail to price)
+        _logger.LogTrace("GDI: cloning captured bitmap");
         _lastCaptureBitmap?.Dispose();
         _lastCaptureBitmap = new Bitmap(capturedBitmap);
         _lastPreprocessedBitmap?.Dispose();
@@ -552,25 +554,35 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         attemptedRecognition = true;
 #pragma warning disable CA2000 // Ownership transferred; disposed at method exit via explicit Dispose calls
         Bitmap preprocessed;
-        Bitmap? masked = null;
-        if (options.UseRawBitmapProcessing)
-        {
-            using (_perf.Measure(OcrPerfTiming.Slot.Preprocess))
-                preprocessed = OcrImagePreprocessor.PreprocessRaw(capturedBitmap, options, _logger);
-        }
-        else
-        {
-            using (_perf.Measure(OcrPerfTiming.Slot.KeepBlack))
-                masked = OcrImagePreprocessor.KeepBlackAndNeighbors(capturedBitmap, _logger);
-            using (_perf.Measure(OcrPerfTiming.Slot.Preprocess))
-                preprocessed = OcrImagePreprocessor.PreprocessForOcr(masked, options, _logger);
-        }
+        Bitmap? masked;
+        using (_perf.Measure(OcrPerfTiming.Slot.KeepBlack))
+            masked = OcrImagePreprocessor.KeepBlackAndNeighbors(capturedBitmap, _logger);
+        using (_perf.Measure(OcrPerfTiming.Slot.Preprocess))
+            preprocessed = OcrImagePreprocessor.PreprocessForOcr(masked, options, _logger);
 #pragma warning restore CA2000
+        _logger.LogTrace("GDI: disposing old preprocessed bitmap");
         _lastPreprocessedBitmap?.Dispose();
+        _logger.LogTrace("GDI: cloning preprocessed bitmap");
         _lastPreprocessedBitmap = new Bitmap(preprocessed);
+        _logger.LogTrace("GDI: preprocessed clone OK");
+
+        // Extract pixel bytes ONCE and pass to downstream methods so they don't
+        // need to call LockBits (which triggers MetaDataGetDispenser COM interop
+        // and crashes). FindContentBounds and DetectRowPositions each called
+        // LockBits independently before — consolidate to a single extraction.
+        _logger.LogTrace("GDI: extract bytes for content bounds / row detection");
+        var srcRect = new Rectangle(0, 0, preprocessed.Width, preprocessed.Height);
+        var srcData = preprocessed.LockBits(srcRect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+        var stride = srcData.Stride;
+        var pixelLen = Math.Abs(stride) * preprocessed.Height;
+        var pixelBytes = new byte[pixelLen];
+        Marshal.Copy(srcData.Scan0, pixelBytes, 0, pixelLen);
+        preprocessed.UnlockBits(srcData);
+        _logger.LogTrace("GDI: bytes extracted OK");
+
         Rectangle? crop;
         using (_perf.Measure(OcrPerfTiming.Slot.PostProcess))
-            crop = OcrImagePreprocessor.FindContentBounds(preprocessed);
+            crop = OcrImagePreprocessor.FindContentBounds(pixelBytes, preprocessed.Width, preprocessed.Height, stride);
 
         // Shift the left edge of the scan region from the icon column to the
         // panel text column, so rune icons don't inflate row widths and confuse
@@ -598,9 +610,11 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
             }
         }
 
+        _logger.LogTrace("GDI: about to call DetectRowPositions");
         int[] rowYs, rowHeights;
         using (_perf.Measure(OcrPerfTiming.Slot.PostProcess))
-            (rowYs, rowHeights) = OcrPipeline.DetectRowPositions(preprocessed, crop);
+            (rowYs, rowHeights) = OcrPipeline.DetectRowPositions(pixelBytes, preprocessed.Width, preprocessed.Height, stride, crop);
+        _logger.LogTrace("GDI: DetectRowPositions done");
         _lastOcrRowHeights = rowHeights;
         _lastOcrRowYPositions = rowYs;
         _lastCropBounds = crop;
@@ -895,17 +909,24 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         return true;
     }
 
-    private static Bitmap? CaptureDesktopRegionDirect(OcrCaptureRegion region)
+    private static Bitmap? CaptureDesktopRegionDirect(OcrCaptureRegion region, ILogger? logger = null)
     {
         try
         {
+            logger?.LogTrace("GDI: new Bitmap({W}x{H} 24bpp)", region.Width, region.Height);
             var bmp = new Bitmap(region.Width, region.Height, PixelFormat.Format24bppRgb);
+            logger?.LogTrace("GDI: Graphics.FromImage");
             using (var g = Graphics.FromImage(bmp))
+            {
+                logger?.LogTrace("GDI: CopyFromScreen({X},{Y} {W}x{H})", region.X, region.Y, region.Width, region.Height);
                 g.CopyFromScreen(region.X, region.Y, 0, 0, new Size(region.Width, region.Height), CopyPixelOperation.SourceCopy);
+            }
+            logger?.LogTrace("GDI: CaptureDesktopRegionDirect OK");
             return bmp;
         }
-        catch
+        catch (Exception ex) when (ex is not AccessViolationException)
         {
+            logger?.LogTrace("GDI: CaptureDesktopRegionDirect failed: {Ex}", ex.Message);
             return null;
         }
     }

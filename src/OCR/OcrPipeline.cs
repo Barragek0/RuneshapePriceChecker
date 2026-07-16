@@ -31,7 +31,19 @@ internal static class OcrPipeline
     }
     public static (int[] Ys, int[] Heights) DetectRowPositions(Bitmap source, Rectangle? contentCrop)
     {
-        var scanRegion = contentCrop ?? new Rectangle(0, 0, source.Width, source.Height);
+        var srcRect = new Rectangle(0, 0, source.Width, source.Height);
+        var data = source.LockBits(srcRect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+        var stride = data.Stride;
+        var length = Math.Abs(stride) * source.Height;
+        var bytes = new byte[length];
+        System.Runtime.InteropServices.Marshal.Copy(data.Scan0, bytes, 0, length);
+        source.UnlockBits(data);
+        return DetectRowPositions(bytes, source.Width, source.Height, stride, contentCrop);
+    }
+
+    public static (int[] Ys, int[] Heights) DetectRowPositions(byte[] bytes, int width, int height, int stride, Rectangle? contentCrop)
+    {
+        var scanRegion = contentCrop ?? new Rectangle(0, 0, width, height);
         var scanX = scanRegion.X;
         var scanW = scanRegion.Width;
         var scanY = scanRegion.Y;
@@ -46,21 +58,13 @@ internal static class OcrPipeline
         var widthThreshold = Math.Max(minWidthPixels, (int)(scanW * 0.03));
 
         var blackCounts = new int[scanH];
-        var srcRect = new Rectangle(scanX, scanY, scanW, scanH);
-        var data = source.LockBits(srcRect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
-        var stride = data.Stride;
-        var length = Math.Abs(stride) * scanH;
-        var bytes = new byte[length];
-        System.Runtime.InteropServices.Marshal.Copy(data.Scan0, bytes, 0, length);
-        source.UnlockBits(data);
-
         for (var y = 0; y < scanH; y++)
         {
-            var rowOffset = y * stride;
+            var rowOffset = (scanY + y) * stride;
             var count = 0;
             for (var x = 0; x < scanW; x++)
             {
-                var idx = rowOffset + (x * 3);
+                var idx = rowOffset + ((scanX + x) * 3);
                 if (bytes[idx] < 128)
                     count++;
             }
