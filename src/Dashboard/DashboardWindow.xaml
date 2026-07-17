@@ -10,9 +10,9 @@
         SourceInitialized="Window_SourceInitialized"
         MinWidth="500"
         MaxWidth="960"
-        MinHeight="722"
-        MaxHeight="722"
-        Height="722"
+        MinHeight="732"
+        MaxHeight="732"
+        Height="732"
         WindowStartupLocation="Manual"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True"
@@ -1230,7 +1230,7 @@
                                                 </CheckBox>
                                                 <CheckBox x:Name="CloseWithPoE2Check"
                                                           VerticalAlignment="Center"
-                                                          Margin="16,0,0,0"
+                                                          Margin="16,0,0,4"
                                                           Checked="AutoSetting_Changed"
                                                           Unchecked="AutoSetting_Changed">
                                                     <StackPanel Orientation="Horizontal">

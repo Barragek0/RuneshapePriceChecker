@@ -170,7 +170,6 @@ public sealed class LeaguePricingWorker(
                     {
                         lastOcrStart = Stopwatch.GetTimestamp();
                         logger.LogTrace("Worker: starting OCR task");
-                        dashboard.SetStatus("Scanning league panel", "green");
                         inFlightSnapshotTask = StartSnapshotReadTask(reader, stoppingToken);
                     }
                     else
