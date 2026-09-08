@@ -1,5 +1,4 @@
 ﻿using System.Drawing.Imaging;
-using System.Runtime.InteropServices.WindowsRuntime;
 using Microsoft.Extensions.Logging;
 using Windows.Globalization;
 using Windows.Graphics.Imaging;
@@ -10,9 +9,12 @@ using Windows.Media.Ocr;
 
 namespace RuneshapePriceChecker.OCR;
 
-internal sealed class WindowsOcrEngine : IDisposable
+internal sealed class WindowsOcrEngine
 {
     private readonly OcrEngine _engine;
+    internal string RequestedLanguageTag { get; }
+    internal string ActualLanguageTag { get; }
+    internal bool IsExactLanguageMatch { get; }
     private static readonly Dictionary<string, string> AppToWindowsLang = new(StringComparer.OrdinalIgnoreCase)
     {
         ["eng"] = "en-US",
@@ -35,19 +37,39 @@ internal sealed class WindowsOcrEngine : IDisposable
 
     public WindowsOcrEngine(string? appLanguage, ILogger? logger = null)
     {
+        RequestedLanguageTag = appLanguage is not null && AppToWindowsLang.TryGetValue(appLanguage, out var requested)
+            ? requested : "user-profile";
         if (appLanguage is not null && AppToWindowsLang.TryGetValue(appLanguage, out var winLang))
         {
-            var engine = TryCreateFromLanguageOrFamily(winLang, appLanguage, logger);
-            _engine = engine ?? OcrEngine.TryCreateFromUserProfileLanguages()
+            var selection = TryCreateFromLanguageOrFamily(winLang, appLanguage, logger);
+            if (selection is not null)
+            {
+                _engine = selection.Value.Engine;
+                ActualLanguageTag = selection.Value.ActualLanguageTag;
+                IsExactLanguageMatch = selection.Value.IsExact;
+                return;
+            }
+
+            _engine = OcrEngine.TryCreateFromUserProfileLanguages()
                       ?? throw new InvalidOperationException("Windows OCR engine not available on this system.");
+            ActualLanguageTag = "user-profile";
         }
         else
         {
-            _engine = OcrEngine.TryCreateFromUserProfileLanguages() ?? throw new InvalidOperationException("No Windows OCR language available.");
+            _engine = OcrEngine.TryCreateFromUserProfileLanguages()
+                ?? throw new InvalidOperationException("No Windows OCR language available.");
+            ActualLanguageTag = "user-profile";
         }
     }
 
-    private static OcrEngine? TryCreateFromLanguageOrFamily(string winLang, string appLang, ILogger? logger)
+    internal static bool IsExactLanguageAvailable(string? appLanguage)
+    {
+        return appLanguage is not null && AppToWindowsLang.TryGetValue(appLanguage, out var winLang) &&
+            OcrEngine.AvailableRecognizerLanguages.Any(language =>
+                string.Equals(language.LanguageTag, winLang, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static (OcrEngine Engine, string ActualLanguageTag, bool IsExact)? TryCreateFromLanguageOrFamily(string winLang, string appLang, ILogger? logger)
     {
         // Try the exact regional variant first
         var lang = new Language(winLang);
@@ -56,7 +78,7 @@ internal sealed class WindowsOcrEngine : IDisposable
         {
             logger?.LogInformation("Windows OCR language pack for '{AppLang}' ({WinLang}) loaded successfully.",
                 appLang, winLang);
-            return engine;
+            return (engine, winLang, true);
         }
 
         // Exact variant not installed — try to find any installed pack matching the language family
@@ -74,7 +96,7 @@ internal sealed class WindowsOcrEngine : IDisposable
                         "Using '{Fallback}' ({FallbackTag}) as a compatible fallback. " +
                         "Consider installing the exact pack for best accuracy.",
                         appLang, winLang, available.NativeName, tag);
-                    return engine;
+                    return (engine, tag, false);
                 }
             }
         }
@@ -85,50 +107,52 @@ internal sealed class WindowsOcrEngine : IDisposable
             "Falling back to user profile languages. Install the language pack to improve OCR accuracy. " +
             "Press ⊞ Win and search for \"Language & region\" to install it.",
             appLang, winLang);
-        return OcrEngine.TryCreateFromUserProfileLanguages();
+        var profileEngine = OcrEngine.TryCreateFromUserProfileLanguages();
+        return profileEngine is null ? null : (profileEngine, "user-profile", false);
     }
 
     public string Recognize(Bitmap bitmap, out int[] wordYPositions, int upscaleFactor, OcrPerfTiming? perf = null)
     {
         long? sw = perf is not null ? OcrPerfTiming.RecordStart(OcrPerfTiming.Slot.Recognize) : null;
 
-        using var ms = new MemoryStream();
-        bitmap.Save(ms, ImageFormat.Bmp);
-        var stream = ms.ToArray().AsBuffer().AsStream().AsRandomAccessStream();
-        var decoder = BitmapDecoder.CreateAsync(stream).GetAwaiter().GetResult();
-        using var softwareBitmap = decoder.GetSoftwareBitmapAsync().GetAwaiter().GetResult();
-
-        var result = _engine.RecognizeAsync(softwareBitmap).GetAwaiter().GetResult();
-
-        var positions = new List<int>(result.Lines.Count);
-        var lineTexts = new string[result.Lines.Count];
-        for (var i = 0; i < result.Lines.Count; i++)
+        try
         {
-            var line = result.Lines[i];
-            var words = new string[line.Words.Count];
-            var ySum = 0.0;
-            var hSum = 0.0;
-            for (var w = 0; w < line.Words.Count; w++)
+            using var ms = new MemoryStream();
+            bitmap.Save(ms, ImageFormat.Bmp);
+            ms.Position = 0;
+            using var stream = ms.AsRandomAccessStream();
+            var decoder = BitmapDecoder.CreateAsync(stream).GetAwaiter().GetResult();
+            using var softwareBitmap = decoder.GetSoftwareBitmapAsync().GetAwaiter().GetResult();
+
+            var result = _engine.RecognizeAsync(softwareBitmap).GetAwaiter().GetResult();
+            var positions = new List<int>(result.Lines.Count);
+            var lineTexts = new string[result.Lines.Count];
+            for (var i = 0; i < result.Lines.Count; i++)
             {
-                words[w] = line.Words[w].Text;
-                var r = line.Words[w].BoundingRect;
-                ySum += r.Y;
-                hSum += r.Height;
+                var line = result.Lines[i];
+                var words = new string[line.Words.Count];
+                var ySum = 0.0;
+                for (var w = 0; w < line.Words.Count; w++)
+                {
+                    words[w] = line.Words[w].Text;
+                    ySum += line.Words[w].BoundingRect.Y;
+                }
+                lineTexts[i] = string.Join(" ", words);
+
+                var yTop = line.Words.Count > 0
+                    ? (int)(((ySum / line.Words.Count) - 6) / upscaleFactor)
+                    : 0;
+                positions.Add(yTop);
             }
-            lineTexts[i] = string.Join(" ", words);
 
-            var yTop = line.Words.Count > 0
-                ? (int)(((ySum / line.Words.Count) - 6) / upscaleFactor)
-                : 0;
-            positions.Add(yTop);
+            wordYPositions = [.. positions];
+            return string.Join("\n", lineTexts);
         }
-
-        wordYPositions = [.. positions];
-        if (perf is not null && sw.HasValue)
-            perf.RecordEnd(OcrPerfTiming.Slot.Recognize, sw.Value);
-        return string.Join("\n", lineTexts);
+        finally
+        {
+            if (perf is not null && sw.HasValue)
+                perf.RecordEnd(OcrPerfTiming.Slot.Recognize, sw.Value);
+        }
     }
-
-    public void Dispose() { }
 }
 #pragma warning restore CA1416

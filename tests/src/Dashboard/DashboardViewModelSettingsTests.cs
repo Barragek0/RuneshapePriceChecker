@@ -84,6 +84,13 @@ public class DashboardViewModelSettingsTests
     }
 
     [Fact]
+    public void AutomaticCrashReports_RoundTrip_PreservesValue()
+    {
+        RoundTrip(vm => vm.SendAutomaticCrashReports = false,
+                  (before, after) => Assert.False(after.SendAutomaticCrashReports));
+    }
+
+    [Fact]
     public void PricingOverlay_RoundTrip_PreservesValue()
     {
         RoundTrip(vm => vm.PricingOverlay = false,
@@ -135,6 +142,7 @@ public class DashboardViewModelSettingsTests
             Assert.True(vm.Banner);
             Assert.True(vm.AutoUpdate);
             Assert.False(vm.RememberDebugPanel);
+            Assert.True(vm.SendAutomaticCrashReports);
         }
         finally { TryDelete(path); }
     }

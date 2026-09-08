@@ -42,6 +42,7 @@ public sealed class DashboardViewModel(string configPath)
     public bool CloseWithPoE2 { get; set; }
     public bool OpenWithPoE2 { get; set; }
     public bool AutoRestartOnCrash { get; set; }
+    public bool SendAutomaticCrashReports { get; set; } = true;
     public string CaptureMode { get; set; } = "printwindow";
     public int ScanIntervalMs { get; set; } = 100;
     public bool OverlayScaleAuto { get; set; } = true;
@@ -111,6 +112,7 @@ public sealed class DashboardViewModel(string configPath)
                 CloseWithPoE2 = app.Val("CloseWithPoE2", false);
                 OpenWithPoE2 = app.Val("OpenWithPoE2", false);
                 AutoRestartOnCrash = app.Val("AutoRestartOnCrash", false);
+                SendAutomaticCrashReports = app.Val("SendAutomaticCrashReports", true);
 
             }
 
@@ -206,6 +208,7 @@ public sealed class DashboardViewModel(string configPath)
                 app["CloseWithPoE2"] = CloseWithPoE2;
                 app["OpenWithPoE2"] = OpenWithPoE2;
                 app["AutoRestartOnCrash"] = AutoRestartOnCrash;
+                app["SendAutomaticCrashReports"] = SendAutomaticCrashReports;
 
                 app["PricingOverlay"] = PricingOverlay;
                 app["Banner"] = Banner;

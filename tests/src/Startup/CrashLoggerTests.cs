@@ -5,6 +5,7 @@ using Xunit;
 
 namespace RuneshapePriceChecker.Tests.Startup;
 
+[Collection("SharedLogs")]
 public sealed class CrashLoggerTests
 {
     [Fact]
@@ -25,7 +26,9 @@ public sealed class CrashLoggerTests
 
         // Assert
         Assert.True(Directory.Exists(logsDir), "logs/ directory should exist");
-        var files = Directory.GetFiles(logsDir, "*-crash.txt");
+        var files = Directory.GetFiles(logsDir, "*-crash.txt")
+            .Where(path => !string.Equals(Path.GetFileName(path), "managed-crash.txt", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
         Assert.NotEmpty(files);
 
         var crashFile = files[0];
@@ -61,7 +64,9 @@ public sealed class CrashLoggerTests
         CrashLogger.WriteCrash("Third crash", new Exception("Third"));
 
         // Assert - only one crash file should exist
-        var files = Directory.GetFiles(logsDir, "*-crash.txt");
+        var files = Directory.GetFiles(logsDir, "*-crash.txt")
+            .Where(path => !string.Equals(Path.GetFileName(path), "managed-crash.txt", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
         Assert.Single(files);
 
         var content = File.ReadAllText(files[0]);
@@ -89,7 +94,9 @@ public sealed class CrashLoggerTests
 
         // Assert
         Assert.True(Directory.Exists(logsDir));
-        var files = Directory.GetFiles(logsDir, "*-crash.txt");
+        var files = Directory.GetFiles(logsDir, "*-crash.txt")
+            .Where(path => !string.Equals(Path.GetFileName(path), "managed-crash.txt", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
         Assert.NotEmpty(files);
 
         var content = File.ReadAllText(files[0]);
@@ -129,7 +136,9 @@ public sealed class CrashLoggerTests
         CrashLogger.WriteCrash("Inner exception test", outer);
 
         // Assert
-        var files = Directory.GetFiles(logsDir, "*-crash.txt");
+        var files = Directory.GetFiles(logsDir, "*-crash.txt")
+            .Where(path => !string.Equals(Path.GetFileName(path), "managed-crash.txt", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
         var content = File.ReadAllText(files[0]);
 
         Assert.Contains("--- INNER EXCEPTION ---", content);
@@ -159,7 +168,9 @@ public sealed class CrashLoggerTests
         CrashLogger.WriteCrash("Aggregate test", ae);
 
         // Assert
-        var files = Directory.GetFiles(logsDir, "*-crash.txt");
+        var files = Directory.GetFiles(logsDir, "*-crash.txt")
+            .Where(path => !string.Equals(Path.GetFileName(path), "managed-crash.txt", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
         var content = File.ReadAllText(files[0]);
 
         Assert.Contains("Inner Exception [0]", content);

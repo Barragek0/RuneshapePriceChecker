@@ -580,14 +580,6 @@
                                                Foreground="{StaticResource TextSecondary}"
                                                FontSize="11"
                                                Margin="6,5,0,0"/>
-                                    <TextBlock x:Name="EmulateCrashBtn"
-                                               Text="Emulate crash"
-                                               Visibility="Collapsed"
-                                               Foreground="{StaticResource RedBrush}"
-                                               FontSize="11"
-                                               Margin="10,5,0,0"
-                                               Cursor="Hand"
-                                               MouseLeftButtonDown="EmulateCrash_Click"/>
                                 </StackPanel>
                                 <TextBlock x:Name="StatusLabel"
                                            Foreground="{StaticResource GreenBrush}"
@@ -1240,20 +1232,8 @@
                                                                    ToolTip="Automatically close RuneshapePriceChecker when Path of Exile 2 is no longer running"/>
                                                     </StackPanel>
                                                 </CheckBox>
-                                                <CheckBox x:Name="AutoRestartCheck"
-                                                          VerticalAlignment="Center"
-                                                          Margin="16,0,0,4"
-                                                          Checked="AutoSetting_Changed"
-                                                          Unchecked="AutoSetting_Changed">
-                                                    <StackPanel Orientation="Horizontal">
-                                                        <TextBlock Text="Auto-restart on crash"
-                                                                   VerticalAlignment="Center"/>
-                                                        <TextBlock Style="{StaticResource TooltipIcon}"
-                                                                   ToolTip="When the app crashes, it will automatically restart itself using a background PowerShell watcher.&#10;&#10;Hidden when Open with PoE2 is enabled — the RPCService already handles restarting."/>
-                                                    </StackPanel>
-                                                </CheckBox>
                                             </StackPanel>
-                                            <!-- Right column: Log Level -->
+                                            <!-- Right column: Log Level and settings controls -->
                                             <StackPanel Grid.Row="0"
                                                         Grid.Column="1"
                                                         Grid.RowSpan="3"
@@ -1288,6 +1268,32 @@
                                                         Click="ReRunSetup_Click">
                                                     Re-run initial setup
                                                 </Button>
+                                                <CheckBox x:Name="AutoRestartCheck"
+                                                          AutomationProperties.AutomationId="AutoRestartCheck"
+                                                          VerticalAlignment="Center"
+                                                          Margin="14,8,0,4"
+                                                          Checked="AutoSetting_Changed"
+                                                          Unchecked="AutoSetting_Changed">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Text="Auto-restart on crash"
+                                                                   VerticalAlignment="Center"/>
+                                                        <TextBlock Style="{StaticResource TooltipIcon}"
+                                                                   ToolTip="When the app crashes, it will automatically restart itself using a background PowerShell watcher.&#10;&#10;Hidden when Open with PoE2 is enabled — the RPCService already handles restarting."/>
+                                                    </StackPanel>
+                                                </CheckBox>
+                                                <CheckBox x:Name="AutomaticCrashReportsCheck"
+                                                          AutomationProperties.AutomationId="AutomaticCrashReportsCheck"
+                                                          VerticalAlignment="Center"
+                                                          Margin="14,0,0,4"
+                                                          Checked="AutoSetting_Changed"
+                                                          Unchecked="AutoSetting_Changed">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Text="Automatic crash reporting"
+                                                                   VerticalAlignment="Center"/>
+                                                        <TextBlock Style="{StaticResource TooltipIcon}"
+                                                                   ToolTip="Automatically sends a small crash dump, bounded application logs, and sanitized system/OCR diagnostics to Sentry after a fatal crash. It never sends screenshots, raw settings, tokens, or account information. Changes take effect after restarting the app."/>
+                                                    </StackPanel>
+                                                </CheckBox>
 
                                             </StackPanel>
                                         </Grid>

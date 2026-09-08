@@ -42,6 +42,7 @@ public class AppOptionsBindingTests
         Assert.Equal(LogLevel.Information, options.LogLevel);
         Assert.False(options.ForceUpdateAvailable);
         Assert.False(options.AutoApplyUpdate);
+        Assert.True(options.SendAutomaticCrashReports);
     }
 
     [Fact]

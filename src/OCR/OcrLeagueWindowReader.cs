@@ -22,6 +22,9 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
     private readonly DashboardService _dashboard;
     private readonly OcrCaptureStrategy _captureStrategy;
     private readonly TesseractEngineManager _engineManager;
+    private readonly object _ocrGate = new();
+    private IDisposable? _optionsSubscription;
+    private bool _disposed;
     private WindowsOcrEngine? _windowsOcrEngine;
     private string? _activeOcrBackend;
     private string? _activeOcrLanguage;
@@ -70,42 +73,53 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         // Listen for PoE2 config file changes (language, brightness, etc.)
         Poe2ConfigFile.ConfigChanged += OnPoe2ConfigChanged;
 
-        _ = _options.OnChange((updated, __) =>
+        _optionsSubscription = _options.OnChange((updated, __) =>
         {
-            var effective = ResolveEffectiveOcrBackend(updated.OcrBackend);
-            // Only keep Tesseract engine loaded when Tesseract is the selected backend
-            if (!string.Equals(effective, "windows", StringComparison.OrdinalIgnoreCase))
-                _engineManager.GetEngine(updated);
-            else
-                _engineManager.DisposeEngine();
-
-            if (!string.Equals(_activeOcrBackend, effective, StringComparison.OrdinalIgnoreCase))
+            lock (_ocrGate)
             {
-                var previous = _activeOcrBackend;
-                _activeOcrBackend = null; // force engine re-init on next cycle
-                _lastOcrText = "";        // force non-cached snapshot
-                _metrics.OcrBackend = effective; // update so dashboard toggles slot breakdown
-                if (previous is not null) // only log actual switches, not initial load
-                    _logger.LogInformation("OCR backend changed to: {Backend}", effective);
-            }
-            // Always invalidate the frame-differencing cache when any OCR option changes
-            // (tolerance, thresholds, binarization, etc.) so the new value takes effect
-            // on the next cycle rather than returning stale cached text.
-            _lastOcrText = "";
-            _lastOcrOptions = null;
-            _runContext = _runContext with { FrameHash = 0 };
+                if (_disposed) return;
+                var effective = ResolveEffectiveOcrBackend(updated.OcrBackend);
+                try
+                {
+                    // Only keep Tesseract engine loaded when Tesseract is the selected backend
+                    if (!string.Equals(effective, "windows", StringComparison.OrdinalIgnoreCase))
+                        _engineManager.GetEngine(updated, ResolveEffectiveLanguage(updated));
+                    else
+                        _engineManager.DisposeEngine();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to apply OCR backend settings change: {Context}", ErrorContext.FromException(ex));
+                }
 
-            // When debug-image settings change (SaveDebugImages, interval, directory),
-            // reset the debug capture gate so the change takes effect immediately.
-            if (updated.SaveDebugImages != _lastDebugSaveEnabled ||
-                updated.DebugImageIntervalSeconds != _lastDebugImageInterval ||
-                !string.Equals(updated.DebugImageDirectory, _lastDebugImageDirectory, StringComparison.Ordinal))
-            {
-                _lastDebugImageSavedAtUtc = DateTimeOffset.MinValue;
-                _lastDebugFrameHash = 0;
-                _lastDebugSaveEnabled = updated.SaveDebugImages;
-                _lastDebugImageInterval = updated.DebugImageIntervalSeconds;
-                _lastDebugImageDirectory = updated.DebugImageDirectory;
+                if (!string.Equals(_activeOcrBackend, effective, StringComparison.OrdinalIgnoreCase))
+                {
+                    var previous = _activeOcrBackend;
+                    _activeOcrBackend = null; // force engine re-init on next cycle
+                    _lastOcrText = "";        // force non-cached snapshot
+                    _metrics.OcrBackend = effective; // update so dashboard toggles slot breakdown
+                    if (previous is not null) // only log actual switches, not initial load
+                        _logger.LogInformation("OCR backend changed to: {Backend}", effective);
+                }
+                // Always invalidate the frame-differencing cache when any OCR option changes
+                // (tolerance, thresholds, binarization, etc.) so the new value takes effect
+                // on the next cycle rather than returning stale cached text.
+                _lastOcrText = "";
+                _lastOcrOptions = null;
+                _runContext = _runContext with { FrameHash = 0 };
+
+                // When debug-image settings change (SaveDebugImages, interval, directory),
+                // reset the debug capture gate so the change takes effect immediately.
+                if (updated.SaveDebugImages != _lastDebugSaveEnabled ||
+                    updated.DebugImageIntervalSeconds != _lastDebugImageInterval ||
+                    !string.Equals(updated.DebugImageDirectory, _lastDebugImageDirectory, StringComparison.Ordinal))
+                {
+                    _lastDebugImageSavedAtUtc = DateTimeOffset.MinValue;
+                    _lastDebugFrameHash = 0;
+                    _lastDebugSaveEnabled = updated.SaveDebugImages;
+                    _lastDebugImageInterval = updated.DebugImageIntervalSeconds;
+                    _lastDebugImageDirectory = updated.DebugImageDirectory;
+                }
             }
         });
     }
@@ -142,8 +156,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
     private readonly OcrPerfTiming _perf = new();
     private readonly DebugMetricsCollector _metrics;
 
-    // Last captured and preprocessed bitmaps, kept for per-row OCR cropping.
-    private Bitmap? _lastCaptureBitmap;
+    // The preprocessed bitmap is retained for per-row filtering until the next cycle.
     private Bitmap? _lastPreprocessedBitmap;
     private readonly List<Rectangle> _retryRegions = [];
     private readonly List<Rectangle> _rejectedRegions = [];
@@ -151,6 +164,15 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
     private string[]? _lastRowTexts;
 
     public void Warmup()
+    {
+        lock (_ocrGate)
+        {
+            if (_disposed) return;
+            WarmupCore();
+        }
+    }
+
+    private void WarmupCore()
     {
         var rawBackend = _options.CurrentValue.OcrBackend;
         var backend = ResolveEffectiveOcrBackend(rawBackend);
@@ -165,7 +187,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         else
         {
             _logger.LogDebug("Warmup: initializing Tesseract engine");
-            _ = _engineManager.GetEngine(_options.CurrentValue);
+            _ = _engineManager.GetEngine(_options.CurrentValue, ResolveEffectiveLanguage(_options.CurrentValue));
         }
     }
 
@@ -184,6 +206,15 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
 
     public LeagueWindowSnapshot ReadSnapshot()
     {
+        lock (_ocrGate)
+        {
+            if (_disposed) return CreateEmptySnapshot(DateTimeOffset.UtcNow);
+            return ReadSnapshotCore();
+        }
+    }
+
+    private LeagueWindowSnapshot ReadSnapshotCore()
+    {
         var capturedAt = DateTimeOffset.UtcNow;
 
 
@@ -192,7 +223,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
             return CreateEmptySnapshot(capturedAt);
         }
 
-        var currentLang = _detectedLanguage ?? _options.CurrentValue.Language;
+        var currentLang = ResolveEffectiveLanguage(_options.CurrentValue);
         if (!ItemNameTranslator.IsLanguageSupported(currentLang))
         {
             if (!_logState.HasFlag(OcrLogState.UnsupportedLanguage))
@@ -401,7 +432,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
                         "OCR language mismatch: configured={Configured}, detected={Detected}. Using detected language.",
                         options.Language, _detectedLanguage);
                 }
-                options.Language = _detectedLanguage;
+                // The monitored options instance is immutable for this OCR cycle.
             }
             else
             {
@@ -414,6 +445,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         {
             _logger.LogTrace("OCR language: using configured default '{Lang}' (no detected language override).", options.Language);
         }
+        var effectiveLanguage = ResolveEffectiveLanguage(options);
         if (options.SaveDebugImages)
             EnsureDebugImageDirectoryExists(options);
 
@@ -473,28 +505,58 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
             (int)(region.Height * opts.PanelTopRowFraction));
         using (var preCapturePerf = _perf.Measure(OcrPerfTiming.Slot.AnchorCheck))
         {
-            using var scanBitmap = CaptureDesktopRegionDirect(scanRect, _logger);
-            _logger.LogTrace("GDI: anchor capture result={HasBitmap}", scanBitmap is not null);
-            if (scanBitmap is null || !TryDetectPanelOpen(scanBitmap, options, region))
+            using var directScanBitmap = CaptureDesktopRegionDirect(scanRect, _logger);
+            CaptureResult? fallbackScanCapture = null;
+            try
             {
-                _metrics.AnchorCheckFails++;
-                _metrics.InterfaceDetected = false;
-                return string.Empty;
+                var scanBitmap = directScanBitmap;
+                if (scanBitmap is null)
+                {
+                    fallbackScanCapture = _captureStrategy.Capture(
+                        scanRect,
+                        _windowResolutionProvider.CurrentWindowCaptureContext,
+                        options);
+                    scanBitmap = fallbackScanCapture?.Bitmap;
+                    if (scanBitmap is not null)
+                        _logger.LogWarning("Direct anchor capture failed; using the configured capture strategy for the anchor check.");
+                }
+
+                _logger.LogTrace("GDI: anchor capture result={HasBitmap}", scanBitmap is not null);
+                if (scanBitmap is null || !TryDetectPanelOpen(scanBitmap, options, region))
+                {
+                    _metrics.AnchorCheckFails++;
+                    _metrics.InterfaceDetected = false;
+                    return string.Empty;
+                }
+                _metrics.AnchorCheckPasses++;
             }
-            _metrics.AnchorCheckPasses++;
+            finally
+            {
+                fallbackScanCapture?.Bitmap.Dispose();
+            }
         }
 
-        CaptureResult captureResult;
+        var configuredMode = options.CaptureMode?.ToLowerInvariant() ?? "printwindow";
+        CaptureResult? captureResult;
         string captureMethod;
         using (_perf.Measure(OcrPerfTiming.Slot.Capture))
         {
             captureResult = _captureStrategy.Capture(region, _windowResolutionProvider.CurrentWindowCaptureContext, options);
-            captureMethod = captureResult.Method;
         }
+
+        if (captureResult is null)
+        {
+            _ = _metrics.FailedCaptureModes.TryAdd(configuredMode, 0);
+            _metrics.InterfaceDetected = false;
+            _dashboard.SetStatus("Screen capture unavailable", "amber");
+            _logger.LogWarning("OCR capture failed for configured mode {Mode}; waiting for the next capture cycle.", configuredMode);
+            return string.Empty;
+        }
+
+        captureMethod = captureResult.Method;
 
         // Track capture mode failures: if user selected a specific mode but we got a different one, it failed.
         // If they match, clear any prior failure so transient issues don't permanently disable a mode.
-        var configuredMode = options.CaptureMode?.ToLowerInvariant() ?? "printwindow";
         var actualPrefix = captureMethod switch
         {
             string m when m.Contains("bitblt") => "bitblt",
@@ -507,10 +569,7 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
             _ = _metrics.FailedCaptureModes.TryRemove(configuredMode, out _);
         using var capturedBitmap = captureResult.Bitmap;
 
-        // Keep a clone for per-line retry OCR (used when lines fail to price)
-        _logger.LogTrace("GDI: cloning captured bitmap");
-        _lastCaptureBitmap?.Dispose();
-        _lastCaptureBitmap = new Bitmap(capturedBitmap);
+        // Keep a clone for per-row filtering until the next cycle.
         _lastPreprocessedBitmap?.Dispose();
         _lastPreprocessedBitmap = null; // Will be set after preprocessing below
 
@@ -552,178 +611,190 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
             : null;
 
         attemptedRecognition = true;
-#pragma warning disable CA2000 // Ownership transferred; disposed at method exit via explicit Dispose calls
-        Bitmap preprocessed;
-        Bitmap? masked;
-        using (_perf.Measure(OcrPerfTiming.Slot.KeepBlack))
-            masked = OcrImagePreprocessor.KeepBlackAndNeighbors(capturedBitmap, _logger);
-        using (_perf.Measure(OcrPerfTiming.Slot.Preprocess))
-            preprocessed = OcrImagePreprocessor.PreprocessForOcr(masked, options, _logger);
-#pragma warning restore CA2000
-        _logger.LogTrace("GDI: disposing old preprocessed bitmap");
-        _lastPreprocessedBitmap?.Dispose();
-        _logger.LogTrace("GDI: cloning preprocessed bitmap");
-        _lastPreprocessedBitmap = new Bitmap(preprocessed);
-        _logger.LogTrace("GDI: preprocessed clone OK");
-
-        // Extract pixel bytes ONCE and pass to downstream methods so they don't
-        // need to call LockBits (which triggers MetaDataGetDispenser COM interop
-        // and crashes). FindContentBounds and DetectRowPositions each called
-        // LockBits independently before — consolidate to a single extraction.
-        _logger.LogTrace("GDI: extract bytes for content bounds / row detection");
-        var srcRect = new Rectangle(0, 0, preprocessed.Width, preprocessed.Height);
-        var srcData = preprocessed.LockBits(srcRect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
-        var stride = srcData.Stride;
-        var pixelLen = Math.Abs(stride) * preprocessed.Height;
-        var pixelBytes = new byte[pixelLen];
-        Marshal.Copy(srcData.Scan0, pixelBytes, 0, pixelLen);
-        preprocessed.UnlockBits(srcData);
-        _logger.LogTrace("GDI: bytes extracted OK");
-
-        Rectangle? crop;
-        using (_perf.Measure(OcrPerfTiming.Slot.PostProcess))
-            crop = OcrImagePreprocessor.FindContentBounds(pixelBytes, preprocessed.Width, preprocessed.Height, stride);
-
-        // Shift the left edge of the scan region from the icon column to the
-        // panel text column, so rune icons don't inflate row widths and confuse
-        // the row detection.  The left yellow dashed line in the debug overlay marks
-        // this boundary.
-        if (crop.HasValue && preprocessed.Width > 0)
+        Bitmap preprocessed = null!;
+        Bitmap? masked = null;
+        try
         {
-            var textColX = (int)(preprocessed.Width * options.PanelLeftFraction);
-            var newX = Math.Max(crop.Value.X, textColX);
-            crop = new Rectangle(newX, crop.Value.Y,
-                Math.Max(1, crop.Value.Right - newX), crop.Value.Height);
-        }
+            using (_perf.Measure(OcrPerfTiming.Slot.KeepBlack))
+                masked = OcrImagePreprocessor.KeepBlackAndNeighbors(capturedBitmap, _logger);
+            using (_perf.Measure(OcrPerfTiming.Slot.Preprocess))
+                preprocessed = OcrImagePreprocessor.PreprocessForOcr(masked, options, _logger);
+            _logger.LogTrace("GDI: disposing old preprocessed bitmap");
+            _lastPreprocessedBitmap?.Dispose();
+            _logger.LogTrace("GDI: cloning preprocessed bitmap");
+            _lastPreprocessedBitmap = new Bitmap(preprocessed);
+            _logger.LogTrace("GDI: preprocessed clone OK");
 
-        var debugDir = debugContext?.DirectoryPath;
-        if (debugDir is not null)
-        {
-            OcrImagePreprocessor.SavePng(capturedBitmap, Path.Combine(debugDir, "1 Raw.png"));
-            if (masked is not null)
-                OcrImagePreprocessor.SavePng(masked, Path.Combine(debugDir, "2 Mask.png"));
-            OcrImagePreprocessor.SavePng(preprocessed, Path.Combine(debugDir, "3 Preprocessed.png"));
-            if (crop.HasValue)
+            // Extract pixel bytes ONCE and pass to downstream methods so they don't
+            // need to call LockBits (which triggers MetaDataGetDispenser COM interop
+            // and crashes). FindContentBounds and DetectRowPositions each called
+            // LockBits independently before — consolidate to a single extraction.
+            _logger.LogTrace("GDI: extract bytes for content bounds / row detection");
+            var srcRect = new Rectangle(0, 0, preprocessed.Width, preprocessed.Height);
+            var srcData = preprocessed.LockBits(srcRect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+            int stride;
+            byte[] pixelBytes;
+            try
             {
-                using var croppedDbg = OcrImagePreprocessor.CropBitmap(preprocessed, crop.Value);
-                OcrImagePreprocessor.SavePng(croppedDbg, Path.Combine(debugDir, "4 Cropped.png"));
+                stride = srcData.Stride;
+                var pixelLen = Math.Abs(stride) * preprocessed.Height;
+                pixelBytes = new byte[pixelLen];
+                Marshal.Copy(srcData.Scan0, pixelBytes, 0, pixelLen);
             }
-        }
-
-        _logger.LogTrace("GDI: about to call DetectRowPositions");
-        int[] rowYs, rowHeights;
-        using (_perf.Measure(OcrPerfTiming.Slot.PostProcess))
-            (rowYs, rowHeights) = OcrPipeline.DetectRowPositions(pixelBytes, preprocessed.Width, preprocessed.Height, stride, crop);
-        _logger.LogTrace("GDI: DetectRowPositions done");
-        _lastOcrRowHeights = rowHeights;
-        _lastOcrRowYPositions = rowYs;
-        _lastCropBounds = crop;
-        _runContext = _runContext with { RowYPositions = rowYs };
-
-        if (rowYs.Length == 0)
-        {
-            _lastOcrText = string.Empty;
-            _lastOcrOptions = options;
-            _lastRowTexts = [];
-        }
-        else
-        {
-            var rowTexts = new string[rowYs.Length];
-
-            if (IsWindowsOcrEnabled(options))
+            finally
             {
-                EnsureWindowsOcrEngine();
-                using (_perf.Measure(OcrPerfTiming.Slot.Recognize))
-                {
-                    for (var i = 0; i < rowYs.Length; i++)
-                    {
-                        var rowBitmap = OcrPipeline.PrepareRowBitmap(preprocessed, crop, rowYs[i], rowHeights[i]);
-                        try
-                        {
-                            var rawText = _windowsOcrEngine!.Recognize(rowBitmap, out _, 3, null);
-                            var lines = OcrImagePreprocessor.SplitAndTrim(rawText);
-                            var cleaned = lines.Length > 0
-                                ? (OcrTextPostProcessor.ExtractLikelyItemNames(lines[0], _detectedLanguage) is { Count: > 0 } cl ? cl[0] : lines[0])
-                                : string.Empty;
-                            _logger.LogTrace("OCR: row {Row} raw='{Raw}' cleaned='{Clean}' lang={Lang}", i, rawText, cleaned, _detectedLanguage);
-                            rowTexts[i] = cleaned;
-                        }
-                        finally
-                        {
-                            rowBitmap.Dispose();
-                        }
+                preprocessed.UnlockBits(srcData);
+            }
+            _logger.LogTrace("GDI: bytes extracted OK");
 
-                        if (debugDir is not null)
-                            OcrPipeline.SaveRowDebugImage(preprocessed, crop, rowYs[i], rowHeights[i], i, debugDir);
-                    }
+            Rectangle? crop;
+            using (_perf.Measure(OcrPerfTiming.Slot.PostProcess))
+                crop = OcrImagePreprocessor.FindContentBounds(pixelBytes, preprocessed.Width, preprocessed.Height, stride);
+
+            // Shift the left edge of the scan region from the icon column to the
+            // panel text column, so rune icons don't inflate row widths and confuse
+            // the row detection.  The left yellow dashed line in the debug overlay marks
+            // this boundary.
+            if (crop.HasValue && preprocessed.Width > 0)
+            {
+                var textColX = (int)(preprocessed.Width * options.PanelLeftFraction);
+                var newX = Math.Max(crop.Value.X, textColX);
+                crop = new Rectangle(newX, crop.Value.Y,
+                    Math.Max(1, crop.Value.Right - newX), crop.Value.Height);
+            }
+
+            var debugDir = debugContext?.DirectoryPath;
+            if (debugDir is not null)
+            {
+                OcrImagePreprocessor.SavePng(capturedBitmap, Path.Combine(debugDir, "1 Raw.png"));
+                if (masked is not null)
+                    OcrImagePreprocessor.SavePng(masked, Path.Combine(debugDir, "2 Mask.png"));
+                OcrImagePreprocessor.SavePng(preprocessed, Path.Combine(debugDir, "3 Preprocessed.png"));
+                if (crop.HasValue)
+                {
+                    using var croppedDbg = OcrImagePreprocessor.CropBitmap(preprocessed, crop.Value);
+                    OcrImagePreprocessor.SavePng(croppedDbg, Path.Combine(debugDir, "4 Cropped.png"));
                 }
+            }
+
+            _logger.LogTrace("GDI: about to call DetectRowPositions");
+            int[] rowYs, rowHeights;
+            using (_perf.Measure(OcrPerfTiming.Slot.PostProcess))
+                (rowYs, rowHeights) = OcrPipeline.DetectRowPositions(pixelBytes, preprocessed.Width, preprocessed.Height, stride, crop);
+            _logger.LogTrace("GDI: DetectRowPositions done");
+            _lastOcrRowHeights = rowHeights;
+            _lastOcrRowYPositions = rowYs;
+            _lastCropBounds = crop;
+            _runContext = _runContext with { RowYPositions = rowYs };
+
+            if (rowYs.Length == 0)
+            {
+                _lastOcrText = string.Empty;
+                _lastOcrOptions = options;
+                _lastRowTexts = [];
             }
             else
             {
-                _activeOcrBackend = "tesseract";
-                _metrics.OcrBackend = "tesseract";
-                var engine = _engineManager.GetEngine(options)!;
-                engine.SetPageSegMode(7); // PSM_SINGLE_LINE
+                var rowTexts = new string[rowYs.Length];
 
-                using (_perf.Measure(OcrPerfTiming.Slot.Recognize))
+                if (IsWindowsOcrEnabled(options))
                 {
-                    for (var i = 0; i < rowYs.Length; i++)
+                    EnsureWindowsOcrEngine();
+                    using (_perf.Measure(OcrPerfTiming.Slot.Recognize))
                     {
-                        string? text;
-                        try
+                        for (var i = 0; i < rowYs.Length; i++)
                         {
                             var rowBitmap = OcrPipeline.PrepareRowBitmap(preprocessed, crop, rowYs[i], rowHeights[i]);
                             try
                             {
-                                text = engine.RecognizeSingleLine(rowBitmap);
+                                var rawText = _windowsOcrEngine!.Recognize(rowBitmap, out _, 3, null);
+                                var lines = OcrImagePreprocessor.SplitAndTrim(rawText);
+                                var cleaned = lines.Length > 0
+                                    ? (OcrTextPostProcessor.ExtractLikelyItemNames(lines[0], _detectedLanguage) is { Count: > 0 } cl ? cl[0] : lines[0])
+                                    : string.Empty;
+                                _logger.LogTrace("OCR: row {Row} raw='{Raw}' cleaned='{Clean}' lang={Lang}", i, rawText, cleaned, _detectedLanguage);
+                                rowTexts[i] = cleaned;
                             }
                             finally
                             {
                                 rowBitmap.Dispose();
                             }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Per-row Tesseract recognition failed for row {Row}/{Total}: {Context}", i + 1, rowYs.Length, ErrorContext.FromException(ex));
-                            text = null;
-                        }
-                        var tessCleaned = text ?? string.Empty;
-                        _logger.LogTrace("OCR: row {Row} raw='{Raw}' cleaned='{Clean}' lang={Lang} backend=tesseract", i, text, tessCleaned, _detectedLanguage);
-                        rowTexts[i] = tessCleaned;
 
-                        if (debugDir is not null)
-                            OcrPipeline.SaveRowDebugImage(preprocessed, crop, rowYs[i], rowHeights[i], i, debugDir);
+                            if (debugDir is not null)
+                                OcrPipeline.SaveRowDebugImage(preprocessed, crop, rowYs[i], rowHeights[i], i, debugDir);
+                        }
                     }
                 }
+                else
+                {
+                    _activeOcrBackend = "tesseract";
+                    _metrics.OcrBackend = "tesseract";
+                    var engine = _engineManager.GetEngine(options, effectiveLanguage)!;
+                    engine.SetPageSegMode(7); // PSM_SINGLE_LINE
+
+                    using (_perf.Measure(OcrPerfTiming.Slot.Recognize))
+                    {
+                        for (var i = 0; i < rowYs.Length; i++)
+                        {
+                            string? text;
+                            try
+                            {
+                                var rowBitmap = OcrPipeline.PrepareRowBitmap(preprocessed, crop, rowYs[i], rowHeights[i]);
+                                try
+                                {
+                                    text = engine.RecognizeSingleLine(rowBitmap);
+                                }
+                                finally
+                                {
+                                    rowBitmap.Dispose();
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "Per-row Tesseract recognition failed for row {Row}/{Total}: {Context}", i + 1, rowYs.Length, ErrorContext.FromException(ex));
+                                text = null;
+                            }
+                            var tessCleaned = text ?? string.Empty;
+                            _logger.LogTrace("OCR: row {Row} raw='{Raw}' cleaned='{Clean}' lang={Lang} backend=tesseract", i, text, tessCleaned, _detectedLanguage);
+                            rowTexts[i] = tessCleaned;
+
+                            if (debugDir is not null)
+                                OcrPipeline.SaveRowDebugImage(preprocessed, crop, rowYs[i], rowHeights[i], i, debugDir);
+                        }
+                    }
+                }
+
+                if (debugDir is not null)
+                    OcrPipeline.SaveRowOverlayDebugImage(preprocessed, crop, rowYs, rowHeights, debugDir);
+
+                string joined;
+                using (_perf.Measure(OcrPerfTiming.Slot.PostProcess))
+                    joined = string.Join(Environment.NewLine, rowTexts);
+                _lastOcrText = joined;
+                _lastOcrOptions = options;
+                _lastRowTexts = rowTexts;
             }
 
-            if (debugDir is not null)
-                OcrPipeline.SaveRowOverlayDebugImage(preprocessed, crop, rowYs, rowHeights, debugDir);
+            _perf.RecordEnd(OcrPerfTiming.Slot.Total, t0);
+            var fullOcrMs = Stopwatch.GetElapsedTime(t0).TotalMilliseconds;
+            _metrics.RecordCycle(fullOcrMs, fromCache: false, isFullOcr: true);
+            _metrics.CaptureMethod = _runContext.CaptureMethod;
+            _metrics.IsPoe2Foreground = true;
+            _metrics.InterfaceDetected = true;
+            var cycleSlots = _perf.GetCycleSlotMs();
+            for (var s = 0; s < cycleSlots.Length; s++)
+                _metrics.RecordSlotDuration(s, cycleSlots[s]);
+            TryLogPerfMetrics(options);
 
-            string joined;
-            using (_perf.Measure(OcrPerfTiming.Slot.PostProcess))
-                joined = string.Join(Environment.NewLine, rowTexts);
-            _lastOcrText = joined;
-            _lastOcrOptions = options;
-            _lastRowTexts = rowTexts;
+            _retryRegions.Clear();
+            _rejectedRegions.Clear();
+            return _lastOcrText;
         }
-
-        _perf.RecordEnd(OcrPerfTiming.Slot.Total, t0);
-        var fullOcrMs = Stopwatch.GetElapsedTime(t0).TotalMilliseconds;
-        _metrics.RecordCycle(fullOcrMs, fromCache: false, isFullOcr: true);
-        _metrics.CaptureMethod = _runContext.CaptureMethod;
-        _metrics.IsPoe2Foreground = true;
-        _metrics.InterfaceDetected = true;
-        var cycleSlots = _perf.GetCycleSlotMs();
-        for (var s = 0; s < cycleSlots.Length; s++)
-            _metrics.RecordSlotDuration(s, cycleSlots[s]);
-        TryLogPerfMetrics(options);
-
-        _retryRegions.Clear();
-        _rejectedRegions.Clear();
-        masked?.Dispose();
-        preprocessed.Dispose();
-        return _lastOcrText;
+        finally
+        {
+            masked?.Dispose();
+            preprocessed?.Dispose();
+        }
     }
 
     // (Per-row OCR pipeline moved to OcrPipeline.cs)
@@ -744,6 +815,24 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
 
     private void OnPoe2ConfigChanged()
     {
+        lock (_ocrGate)
+        {
+            if (!_disposed)
+            {
+                try
+                {
+                    OnPoe2ConfigChangedCore();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to apply PoE2 OCR configuration change: {Context}", ErrorContext.FromException(ex));
+                }
+            }
+        }
+    }
+
+    private void OnPoe2ConfigChangedCore()
+    {
         var rawLang = Poe2ConfigFile.Language;
         var detectedLang = rawLang is not null && ItemNameTranslator.IsLanguageSupported(rawLang) ? rawLang : null;
         if (detectedLang is null && _detectedLanguage is null) return; // still unsupported
@@ -763,15 +852,16 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
 
     private void EnsureWindowsOcrEngine()
     {
-        var lang = _detectedLanguage ?? _options.CurrentValue.Language;
+        var lang = ResolveEffectiveLanguage(_options.CurrentValue);
         var backend = ResolveEffectiveOcrBackend(_options.CurrentValue.OcrBackend);
         if (_activeOcrBackend == backend && string.Equals(_activeOcrLanguage, lang, StringComparison.OrdinalIgnoreCase) && _windowsOcrEngine is not null)
         {
             // Periodically retry engine creation (every ~15s) so that if the user
             // installed the language pack after we created a fallback engine, we
             // pick it up on the next retry without requiring an app restart.
-            if (_lastWindowsOcrRetryUtc is null ||
+            if (!_windowsOcrEngine.IsExactLanguageMatch && (_lastWindowsOcrRetryUtc is null ||
                 (DateTime.UtcNow - _lastWindowsOcrRetryUtc.Value).TotalSeconds >= 15)
+            )
             {
                 _lastWindowsOcrRetryUtc = DateTime.UtcNow;
                 TryRecreateWindowsOcrEngine(lang, backend);
@@ -779,7 +869,6 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
             return;
         }
 
-        _windowsOcrEngine?.Dispose();
         _windowsOcrEngine = new WindowsOcrEngine(lang, _logger);
         _activeOcrBackend = backend;
         _activeOcrLanguage = lang;
@@ -793,8 +882,11 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
     {
         try
         {
+            if (!WindowsOcrEngine.IsExactLanguageAvailable(lang))
+                return;
             var newEngine = new WindowsOcrEngine(lang, _logger);
-            _windowsOcrEngine?.Dispose();
+            if (!newEngine.IsExactLanguageMatch)
+                return;
             _windowsOcrEngine = newEngine;
             _activeOcrBackend = backend;
             _activeOcrLanguage = lang;
@@ -804,6 +896,13 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
         {
             // Pack still not available — keep the existing fallback engine
         }
+    }
+
+    private string ResolveEffectiveLanguage(OcrOptions options)
+    {
+        if (_detectedLanguage is not null && ItemNameTranslator.IsLanguageSupported(_detectedLanguage))
+            return _detectedLanguage;
+        return string.IsNullOrWhiteSpace(options.Language) ? "eng" : options.Language;
     }
 
     private bool TrySkipOcrViaFrameDifferencing(Bitmap bitmap, OcrOptions currentOptions)
@@ -911,10 +1010,11 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
 
     private static Bitmap? CaptureDesktopRegionDirect(OcrCaptureRegion region, ILogger? logger = null)
     {
+        Bitmap? bmp = null;
         try
         {
             logger?.LogTrace("GDI: new Bitmap({W}x{H} 24bpp)", region.Width, region.Height);
-            var bmp = new Bitmap(region.Width, region.Height, PixelFormat.Format24bppRgb);
+            bmp = new Bitmap(region.Width, region.Height, PixelFormat.Format24bppRgb);
             logger?.LogTrace("GDI: Graphics.FromImage");
             using (var g = Graphics.FromImage(bmp))
             {
@@ -922,10 +1022,13 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
                 g.CopyFromScreen(region.X, region.Y, 0, 0, new Size(region.Width, region.Height), CopyPixelOperation.SourceCopy);
             }
             logger?.LogTrace("GDI: CaptureDesktopRegionDirect OK");
-            return bmp;
+            var result = bmp;
+            bmp = null;
+            return result;
         }
         catch (Exception ex) when (ex is not AccessViolationException)
         {
+            bmp?.Dispose();
             logger?.LogTrace("GDI: CaptureDesktopRegionDirect failed: {Ex}", ex.Message);
             return null;
         }
@@ -1060,10 +1163,38 @@ public sealed class OcrLeagueWindowReader : ILeagueWindowReader, IDisposable
 
     public void Dispose()
     {
-        _windowsOcrEngine?.Dispose();
-        _lastCaptureBitmap?.Dispose();
-        _lastPreprocessedBitmap?.Dispose();
-        _engineManager.Dispose();
+        lock (_ocrGate)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            Poe2ConfigFile.ConfigChanged -= OnPoe2ConfigChanged;
+            try
+            {
+                _optionsSubscription?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to dispose OCR options subscription.");
+            }
+            _optionsSubscription = null;
+            try
+            {
+                _lastPreprocessedBitmap?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to dispose the retained OCR bitmap.");
+            }
+            _lastPreprocessedBitmap = null;
+            try
+            {
+                _engineManager.Dispose();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to dispose the Tesseract engine.");
+            }
+        }
     }
 
     private void TryLogPerfMetrics(OcrOptions options)

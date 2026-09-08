@@ -13,6 +13,7 @@ public sealed class AppOptions
     public bool CloseWithPoE2 { get; set; }
     public bool OpenWithPoE2 { get; set; }
     public bool AutoRestartOnCrash { get; set; }
+    public bool SendAutomaticCrashReports { get; set; } = true;
     public bool UseMetadataSerialization { get; set; }
     public bool AllOverlaysDisabled { get; set; }
     public bool PricingOverlay { get; set; } = true;

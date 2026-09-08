@@ -10,6 +10,7 @@ namespace RuneshapePriceChecker.Startup;
 internal static class CrashLogger
 {
     private static readonly string LogDir = Path.Combine(AppContext.BaseDirectory, "logs");
+    public static string CurrentManagedCrashPath => Path.Combine(LogDir, "managed-crash.txt");
     private static readonly object SyncLock = new();
     private static volatile bool _hasCrashed;
 
@@ -25,6 +26,12 @@ internal static class CrashLogger
     {
         _ = Directory.CreateDirectory(LogDir);
         return Path.Combine(LogDir, $"{DateTime.Now:yyyyMMdd-HHmmss.fff}-caught.txt");
+    }
+
+    public static void PrepareSession()
+    {
+        _hasCrashed = false;
+        try { if (File.Exists(CurrentManagedCrashPath)) File.Delete(CurrentManagedCrashPath); } catch { }
     }
 
     private static void WriteLog(string path, string title, string reportLabel, Exception? ex, [CallerFilePath] string? sourceFile = null, [CallerMemberName] string? caller = null)
@@ -98,6 +105,9 @@ internal static class CrashLogger
             _hasCrashed = true;
             _ = Directory.CreateDirectory(LogDir);
             WriteLog(GenerateCrashLogPath(), title, "Crash Report", ex, sourceFile, caller);
+            var pendingPath = CurrentManagedCrashPath + ".tmp";
+            WriteLog(pendingPath, title, "Crash Report", ex, sourceFile, caller);
+            try { File.Move(pendingPath, CurrentManagedCrashPath, overwrite: true); } catch { }
         }
     }
 

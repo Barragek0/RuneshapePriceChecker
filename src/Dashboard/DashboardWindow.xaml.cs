@@ -287,7 +287,6 @@ public sealed partial class DashboardWindow : Window
         if (HasArg("--App:TestMode=true"))
         {
             TestModeIndicator.Visibility = Visibility.Visible;
-            EmulateCrashBtn.Visibility = Visibility.Visible;
         }
 
         if (HasArg("--App:SuppressActivation=true"))
@@ -423,6 +422,7 @@ public sealed partial class DashboardWindow : Window
         OpenWithPoE2Check.IsChecked = _vm.OpenWithPoE2;
         AutoRestartCheck.IsChecked = _vm.AutoRestartOnCrash;
         AutoRestartCheck.Visibility = _vm.OpenWithPoE2 ? Visibility.Collapsed : Visibility.Visible;
+        AutomaticCrashReportsCheck.IsChecked = _vm.SendAutomaticCrashReports;
 
         // Sync capture mode selection
         for (var i = 0; i < CaptureModeCombo.Items.Count; i++)
@@ -480,6 +480,7 @@ public sealed partial class DashboardWindow : Window
         _vm.CloseWithPoE2 = CloseWithPoE2Check.IsChecked == true;
         _vm.OpenWithPoE2 = OpenWithPoE2Check.IsChecked == true;
         _vm.AutoRestartOnCrash = AutoRestartCheck.IsChecked == true;
+        _vm.SendAutomaticCrashReports = AutomaticCrashReportsCheck.IsChecked == true;
 
 
         _vm.AutoUpdate = AutoUpdateCheck.IsChecked == true;
@@ -1123,11 +1124,6 @@ public sealed partial class DashboardWindow : Window
     }
 
     private void ReRunSetup_Click(object sender, RoutedEventArgs e) { ToggleSettings(); _vm.OnReRunSetup?.Invoke(); }
-
-    private void EmulateCrash_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
-    {
-        Environment.Exit(1);
-    }
 
     private void ToolTip_Loaded(object sender, RoutedEventArgs e)
     {

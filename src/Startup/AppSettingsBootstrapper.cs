@@ -15,6 +15,7 @@ public static class AppSettingsBootstrapper
         "CloseWithPoE2": false,
         "OpenWithPoE2": false,
         "AutoRestartOnCrash": false,
+        "SendAutomaticCrashReports": true,
         "UseMetadataSerialization": true,
         "AllOverlaysDisabled": false,
         "PricingOverlay": true,

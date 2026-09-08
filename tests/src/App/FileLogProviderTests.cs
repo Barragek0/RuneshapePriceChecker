@@ -1,9 +1,11 @@
+using System.IO;
 using Microsoft.Extensions.Logging;
 using RuneshapePriceChecker.App;
 using Xunit;
 
 namespace RuneshapePriceChecker.Tests.App;
 
+[Collection("SharedLogs")]
 public class FileLogProviderTests : IDisposable
 {
     public FileLogProviderTests()
@@ -84,5 +86,20 @@ public class FileLogProviderTests : IDisposable
         provider.Dispose();
         // Double dispose should be safe
         provider.Dispose();
+    }
+
+    [Fact]
+    public void Logger_RotatesAtBoundedSize()
+    {
+        using var provider = new FileLogProvider();
+        var logger = provider.CreateLogger("Rotation");
+        var message = new string('x', 1024 * 1024);
+
+        for (var i = 0; i < 5; i++)
+            logger.LogInformation("{Message}", message);
+
+        Assert.True(File.Exists(provider.PreviousLogPath));
+        Assert.True(new FileInfo(provider.CurrentLogPath).Length <= 4 * 1024 * 1024);
+        Assert.True(new FileInfo(provider.PreviousLogPath).Length <= 4 * 1024 * 1024);
     }
 }

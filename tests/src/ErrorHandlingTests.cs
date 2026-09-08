@@ -16,6 +16,7 @@ using Xunit;
 
 namespace RuneshapePriceChecker.Tests;
 
+[Collection("SharedLogs")]
 public sealed class ErrorHandlingTests
 {
     [Fact]
@@ -27,10 +28,11 @@ public sealed class ErrorHandlingTests
             var ex = new AccessViolationException("Simulated fatal error");
             CrashLogger.WriteCrash("Test: fatal crash", ex);
 
-            var files = Directory.GetFiles(dir, "*-crash.txt");
+            var files = CrashFiles(dir);
             var content = File.ReadAllText(files[0]);
             Assert.Contains("AccessViolationException", content);
             Assert.Contains("--- STACK TRACE ---", content);
+            Assert.True(File.Exists(CrashLogger.CurrentManagedCrashPath));
         });
     }
 
@@ -43,7 +45,7 @@ public sealed class ErrorHandlingTests
             var ex = new InvalidOperationException("test crash", new ArgumentException("inner"));
             CrashLogger.WriteCrash("Full format test", ex);
 
-            var content = File.ReadAllText(Directory.GetFiles(dir, "*-crash.txt")[0]);
+            var content = File.ReadAllText(CrashFiles(dir)[0]);
             Assert.Contains("RuneshapePriceChecker Crash Report", content);
             Assert.Contains("--- EXCEPTION ---", content);
             Assert.Contains("--- STACK TRACE ---", content);
@@ -51,7 +53,7 @@ public sealed class ErrorHandlingTests
             Assert.Contains("--- SYSTEM INFO ---", content);
             Assert.Contains("PID:", content);
             Assert.Contains("CLR:", content);
-            Assert.Matches(@"\d{8}-\d{6}\.\d{3}-crash\.txt", Path.GetFileName(Directory.GetFiles(dir, "*-crash.txt")[0]));
+            Assert.Matches(@"\d{8}-\d{6}\.\d{3}-crash\.txt", Path.GetFileName(CrashFiles(dir)[0]));
         });
     }
 
@@ -64,7 +66,7 @@ public sealed class ErrorHandlingTests
             CrashLogger.WriteCrash("First", new Exception("a"));
             CrashLogger.WriteCrash("Second", new Exception("b"));
             CrashLogger.WriteCrash("Third", new Exception("c"));
-            Assert.Single(Directory.GetFiles(dir, "*-crash.txt"));
+            Assert.Single(CrashFiles(dir));
         });
     }
 
@@ -75,7 +77,7 @@ public sealed class ErrorHandlingTests
         {
             ResetCrashLogger();
             CrashLogger.WriteCrash("Null test", null);
-            Assert.Contains("Null test", File.ReadAllText(Directory.GetFiles(dir, "*-crash.txt")[0]));
+            Assert.Contains("Null test", File.ReadAllText(CrashFiles(dir)[0]));
         });
     }
 
@@ -88,7 +90,7 @@ public sealed class ErrorHandlingTests
             CrashLogger.WriteCrash("Aggregate test",
                 new AggregateException(new InvalidOperationException("a"), new ArgumentException("b")));
 
-            var content = File.ReadAllText(Directory.GetFiles(dir, "*-crash.txt")[0]);
+            var content = File.ReadAllText(CrashFiles(dir)[0]);
             Assert.Contains("Inner Exception [0]", content);
             Assert.Contains("Inner Exception [1]", content);
         });
@@ -347,6 +349,12 @@ public sealed class ErrorHandlingTests
     {
         typeof(CrashLogger).GetField("_hasCrashed",
             BindingFlags.Static | BindingFlags.NonPublic)?.SetValue(null, false);
+    }
+
+    private static string[] CrashFiles(string dir)
+    {
+        return [.. Directory.GetFiles(dir, "*-crash.txt")
+            .Where(path => !string.Equals(Path.GetFileName(path), "managed-crash.txt", StringComparison.OrdinalIgnoreCase))];
     }
 }
 file sealed class NullPricingSource : IPricingSource

@@ -1,0 +1,7 @@
+{
+  "version": "0.16.2",
+  "url": "https://github.com/getsentry/sentry-native/releases/download/0.16.2/sentry-native.zip",
+  "sha256": "BE95ECCFE42EC87DF234E1BD1B30E154BC4F5E87F509E586C091E4BFBAA90A3B",
+  "backend": "crashpad",
+  "transport": "winhttp"
+}

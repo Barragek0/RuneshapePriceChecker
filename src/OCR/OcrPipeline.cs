@@ -21,24 +21,26 @@ internal static class OcrPipeline
         var padW = Math.Min(cropW + 8, source.Width - padX);
 
         var cropRect = new Rectangle(padX, rowY, padW, rowHeight);
-        var rowBitmap = source.Clone(cropRect, source.PixelFormat);
-
+        using var rowBitmap = source.Clone(cropRect, source.PixelFormat);
         using var upscaled = OcrImagePreprocessor.UpscaleForOcr(rowBitmap, 3);
-        var bordered = OcrImagePreprocessor.AddWhiteBorder(upscaled, 2);
-
-        rowBitmap.Dispose();
-        return bordered;
+        return OcrImagePreprocessor.AddWhiteBorder(upscaled, 2);
     }
     public static (int[] Ys, int[] Heights) DetectRowPositions(Bitmap source, Rectangle? contentCrop)
     {
         var srcRect = new Rectangle(0, 0, source.Width, source.Height);
         var data = source.LockBits(srcRect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
-        var stride = data.Stride;
-        var length = Math.Abs(stride) * source.Height;
-        var bytes = new byte[length];
-        System.Runtime.InteropServices.Marshal.Copy(data.Scan0, bytes, 0, length);
-        source.UnlockBits(data);
-        return DetectRowPositions(bytes, source.Width, source.Height, stride, contentCrop);
+        try
+        {
+            var stride = data.Stride;
+            var length = Math.Abs(stride) * source.Height;
+            var bytes = new byte[length];
+            System.Runtime.InteropServices.Marshal.Copy(data.Scan0, bytes, 0, length);
+            return DetectRowPositions(bytes, source.Width, source.Height, stride, contentCrop);
+        }
+        finally
+        {
+            source.UnlockBits(data);
+        }
     }
 
     public static (int[] Ys, int[] Heights) DetectRowPositions(byte[] bytes, int width, int height, int stride, Rectangle? contentCrop)

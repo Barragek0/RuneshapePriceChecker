@@ -13,7 +13,7 @@ internal sealed partial class OcrCaptureStrategy(ILogger<OcrCaptureStrategy> log
     private readonly ILogger<OcrCaptureStrategy> _logger = logger;
     internal static readonly ConcurrentDictionary<string, byte> FailedModes = new(StringComparer.OrdinalIgnoreCase);
 
-    public CaptureResult Capture(OcrCaptureRegion region, WindowCaptureContext? context, OcrOptions options)
+    public CaptureResult? Capture(OcrCaptureRegion region, WindowCaptureContext? context, OcrOptions options)
     {
         _logger.LogTrace("Capture: region=({X},{Y} {W}x{H}) mode={Mode}",
             region.X, region.Y, region.Width, region.Height, options.CaptureMode);
@@ -21,13 +21,22 @@ internal sealed partial class OcrCaptureStrategy(ILogger<OcrCaptureStrategy> log
         if (LosslessScaling.IsRunning)
         {
             _logger.LogTrace("Capture: LosslessScaling active, using desktop capture");
-            return TryDesktopOnly(region);
+            if (TryDesktopOnly(region, out var desktopResult))
+                return desktopResult;
+
+            return TryPrintWindowFallback(context, region);
         }
 
         var mode = options.CaptureMode?.ToLowerInvariant() ?? "printwindow";
 
         if (mode == "desktop")
-            return TryDesktopOnly(region);
+        {
+            if (TryDesktopOnly(region, out var desktopResult))
+                return desktopResult;
+
+            _logger.LogWarning("Desktop capture failed; trying PrintWindow fallback.");
+            return TryPrintWindowFallback(context, region);
+        }
 
         if (context is not null && mode == "printwindow")
         {
@@ -42,50 +51,100 @@ internal sealed partial class OcrCaptureStrategy(ILogger<OcrCaptureStrategy> log
             _logger.LogTrace("GDI: TryPrintWindow failed");
             _ = FailedModes.TryAdd("printwindow", 0);
             _logger.LogWarning("PrintWindow capture failed — falling back to Desktop.");
-            return TryDesktopOnly(region);
+            if (TryDesktopOnly(region, out var desktopResult))
+                return desktopResult;
+
+            _logger.LogWarning("Desktop fallback capture failed; no capture frame is available.");
+            return null;
         }
 
         _logger.LogTrace("GDI: fallback desktop capture");
-        return TryDesktopOnly(region);
+        return TryDesktopOnly(region, out var fallbackResult) ? fallbackResult : null;
+    }
+
+    private CaptureResult? TryPrintWindowFallback(WindowCaptureContext? context, OcrCaptureRegion region)
+    {
+        if (context is null)
+        {
+            _logger.LogWarning("Desktop capture failed and PrintWindow fallback is unavailable because no window context exists.");
+            return null;
+        }
+
+        if (TryPrintWindow(context, region, out var printWindowBitmap))
+        {
+            _ = FailedModes.TryRemove("printwindow", out _);
+            _logger.LogWarning("Desktop capture failed; using PrintWindow fallback.");
+            return new CaptureResult(printWindowBitmap, "window-printwindow-fallback");
+        }
+
+        _ = FailedModes.TryAdd("printwindow", 0);
+        _logger.LogWarning("Desktop capture failed and PrintWindow fallback also failed; no capture frame is available.");
+        return null;
     }
 
     private bool TryPrintWindow(WindowCaptureContext context, OcrCaptureRegion region, out Bitmap bitmap)
     {
-        _logger.LogTrace("TryPrintWindow: source=({SX},{SY}) region=({RW}x{RH})",
-            region.X - context.ClientX, region.Y - context.ClientY,
-            region.Width, region.Height);
-
-        if (TryCaptureWithPrintWindow(context, region, out bitmap))
-        {
-            _logger.LogTrace("TryPrintWindow: captured {W}x{H}",
-                bitmap.Width, bitmap.Height);
-
-            if (!IsLikelyInvalidCapture(bitmap))
-                return true;
-            _logger.LogWarning("PrintWindow: captured bitmap is invalid (all same color or near-black).");
-            bitmap.Dispose();
-        }
-
         bitmap = null!;
-        return false;
+        try
+        {
+            _logger.LogTrace("TryPrintWindow: source=({SX},{SY}) region=({RW}x{RH})",
+                region.X - context.ClientX, region.Y - context.ClientY,
+                region.Width, region.Height);
+
+            if (TryCaptureWithPrintWindow(context, region, out bitmap))
+            {
+                _logger.LogTrace("TryPrintWindow: captured {W}x{H}",
+                    bitmap.Width, bitmap.Height);
+
+                if (!IsLikelyInvalidCapture(bitmap))
+                    return true;
+                _logger.LogWarning("PrintWindow: captured bitmap is invalid (all same color or near-black).");
+                bitmap.Dispose();
+            }
+
+            bitmap = null!;
+            return false;
+        }
+        catch (Exception ex)
+        {
+            bitmap?.Dispose();
+            bitmap = null!;
+            _logger.LogWarning(ex, "PrintWindow capture failed.");
+            return false;
+        }
     }
 
 #pragma warning disable CA2000 // Ownership transferred to CaptureResult
-    private static CaptureResult TryDesktopOnly(OcrCaptureRegion region)
+    private bool TryDesktopOnly(OcrCaptureRegion region, out CaptureResult result)
     {
-        var bitmap = new Bitmap(region.Width, region.Height, PixelFormat.Format24bppRgb);
-        using (var graphics = Graphics.FromImage(bitmap))
+        result = null!;
+        Bitmap? bitmap = null;
+        try
         {
-            graphics.CopyFromScreen(
-                region.X,
-                region.Y,
-                0,
-                0,
-                new Size(region.Width, region.Height),
-                CopyPixelOperation.SourceCopy);
-        }
+            bitmap = new Bitmap(region.Width, region.Height, PixelFormat.Format24bppRgb);
+            using (var graphics = Graphics.FromImage(bitmap))
+            {
+                graphics.CopyFromScreen(
+                    region.X,
+                    region.Y,
+                    0,
+                    0,
+                    new Size(region.Width, region.Height),
+                    CopyPixelOperation.SourceCopy);
+            }
 
-        return new CaptureResult(bitmap, "desktop-copyfromscreen");
+            result = new CaptureResult(bitmap, "desktop-copyfromscreen");
+            bitmap = null;
+            _ = FailedModes.TryRemove("desktop", out _);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            bitmap?.Dispose();
+            _ = FailedModes.TryAdd("desktop", 0);
+            _logger.LogWarning(ex, "Desktop CopyFromScreen capture failed.");
+            return false;
+        }
     }
 #pragma warning restore CA2000
 

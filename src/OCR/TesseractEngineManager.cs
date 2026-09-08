@@ -9,11 +9,13 @@ internal sealed class TesseractEngineManager(ILogger<TesseractEngineManager> log
     private NativeTesseractEngine? _engine;
     private string? _engineLanguage;
 
-    public NativeTesseractEngine? GetEngine(OcrOptions options, bool required = true)
+    public NativeTesseractEngine? GetEngine(OcrOptions options, string? languageOverride = null, bool required = true)
     {
         if (!required) return null;
 
-        var language = !string.IsNullOrWhiteSpace(options.Language)
+        var language = !string.IsNullOrWhiteSpace(languageOverride)
+            ? languageOverride
+            : !string.IsNullOrWhiteSpace(options.Language)
             ? options.Language
             : "eng";
 
@@ -36,11 +38,7 @@ internal sealed class TesseractEngineManager(ILogger<TesseractEngineManager> log
                 if (string.Equals(language, "eng", StringComparison.OrdinalIgnoreCase))
                     throw new InvalidOperationException(
                         "Tesseract English language data is not available and could not be downloaded.");
-                return GetEngine(new OcrOptions
-                {
-                    Language = "eng",
-                    TesseractDataPath = options.TesseractDataPath
-                });
+                return GetEngine(options, "eng", required);
             }
 
             logger.LogInformation("Tesseract: {Lang} language data download complete", language);

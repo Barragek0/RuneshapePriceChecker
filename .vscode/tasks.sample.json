@@ -8,7 +8,7 @@
             "args": [
                 "-NoProfile",
                 "-Command",
-                "dotnet clean RuneshapePriceChecker.slnx; dotnet build RuneshapePriceChecker.slnx"
+                "$ErrorActionPreference = 'Stop'; dotnet clean RuneshapePriceChecker.slnx; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; dotnet build RuneshapePriceChecker.slnx; exit $LASTEXITCODE"
             ],
             "problemMatcher": "$msCompile",
             "detail": "Cleans then builds the full solution from scratch (no incremental caching)."
@@ -21,7 +21,8 @@
                 "publish",
                 "RuneshapePriceChecker.csproj",
                 "-c",
-                "Release"
+                "Release",
+                "-p:SentryDsn=${input:sentryDsn}"
             ],
             "dependsOn": [
                 "Clean (Release)"
@@ -64,25 +65,34 @@
             "detail": "Runs RuneshapePriceChecker with .NET Hot Reload for development (test mode)."
         },
         {
-            "label": "Start Update Test Servers",
+            "label": "Start Update Test Server",
             "type": "shell",
             "command": "powershell",
             "args": [
+                "-NoProfile",
                 "-ExecutionPolicy",
                 "Bypass",
                 "-File",
-                "scripts\\start-update-test-servers.ps1"
+                "scripts\\start-update-test-server.ps1",
+                "-ReleaseZipPath",
+                "${input:updateZipPath}"
             ],
-            "isBackground": true,
             "problemMatcher": [],
-            "detail": "Starts the HTTP test server and TLS proxy for local auto-update testing."
+            "detail": "Builds and starts the local HTTP update test server using the release ZIP."
         },
         {
-            "label": "Stop Update Test Servers",
+            "label": "Stop Update Test Server",
             "type": "shell",
-            "command": "taskkill /F /IM UpdateTestServer.exe & taskkill /F /IM TlsProxy.exe",
+            "command": "powershell",
+            "args": [
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "scripts\\stop-update-test-server.ps1"
+            ],
             "problemMatcher": [],
-            "detail": "Stops the HTTP test server and TLS proxy."
+            "detail": "Stops the local HTTP update test server started by the matching task."
         },
         {
             "label": "Run Performance Comparison",
@@ -112,6 +122,21 @@
             "group": "test",
             "problemMatcher": [],
             "detail": "Runs the full pre-release test suite. Output is clean PASS/FAIL lines."
+        }
+    ],
+    "inputs": [
+        {
+            "id": "sentryDsn",
+            "type": "promptString",
+            "description": "Sentry DSN (optional; leave blank to disable automatic crash reporting)",
+            "default": "",
+            "password": true
+        },
+        {
+            "id": "updateZipPath",
+            "type": "promptString",
+            "description": "Release ZIP path for the local update test server",
+            "default": "bin\\Release\\RuneshapePriceChecker.zip"
         }
     ]
 }

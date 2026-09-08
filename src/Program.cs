@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Reflection;
 using System.Text.Json;
 using RuneshapePriceChecker.App;
 using RuneshapePriceChecker.App.Dashboard;
@@ -14,16 +15,41 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-// Register native VEH handler before any managed crash handlers.
-// Catches CLR heap corruption (COR_E_EXECUTIONENGINE) and stack overflows
-// that managed handlers cannot reach.
-NativeCrashHandler.Register();
+AppSettingsBootstrapper.EnsureExists();
+AppSettingsBootstrapper.TryRecoverBugReportSnapshot();
+CrashLogger.PrepareSession();
+
+var bootstrapConfiguration = new ConfigurationBuilder()
+    .SetBasePath(AppContext.BaseDirectory)
+    .AddJsonFile("config/appsettings.json", optional: false, reloadOnChange: false)
+    .AddCommandLine(args)
+    .Build();
+#pragma warning disable CA2000 // Providers live for the entire application lifetime and are disposed during shutdown.
+var fileLogProvider = new FileLogProvider();
+var entryAssembly = Assembly.GetEntryAssembly();
+var releaseVersion = entryAssembly?.GetName().Version?.ToString() ?? "unknown";
+var sentryDsn = entryAssembly?.GetCustomAttributes<AssemblyMetadataAttribute>()
+    .FirstOrDefault(attribute => string.Equals(attribute.Key, "SentryDsn", StringComparison.Ordinal))?.Value ?? string.Empty;
+var sentryReporter = SentryCrashReporter.Start(new SentryCrashReporterOptions(
+    bootstrapConfiguration.GetValue("App:SendAutomaticCrashReports", true) && !string.IsNullOrWhiteSpace(sentryDsn),
+    sentryDsn,
+    $"runeshape-price-checker@{releaseVersion}",
+    "production",
+    SentryPaths.DatabaseDirectory,
+    SentryPaths.HandlerPath,
+    fileLogProvider.CurrentLogPath,
+    fileLogProvider.PreviousLogPath,
+    CrashLogger.CurrentManagedCrashPath,
+    SentryPaths.ContextPath));
+#pragma warning restore CA2000
 
 AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
 {
     var ex = args.ExceptionObject as Exception;
-    CrashLogger.WriteCrash($"AppDomain unhandled exception (terminating={args.IsTerminating})", ex);
-    TrySaveCrashLog();
+    if (args.IsTerminating)
+        CrashLogger.WriteCrash("AppDomain unhandled exception", ex);
+    else
+        CrashLogger.WriteCaught("AppDomain non-terminating exception", ex);
 };
 
 TaskScheduler.UnobservedTaskException += (sender, args) =>
@@ -37,8 +63,7 @@ TaskScheduler.UnobservedTaskException += (sender, args) =>
 Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
 Application.ThreadException += (sender, args) =>
 {
-    CrashLogger.WriteCrash($"WinForms thread exception ({args.Exception.GetType().Name})", args.Exception);
-    TrySaveCrashLog();
+    CrashLogger.WriteCaught($"WinForms thread exception ({args.Exception.GetType().Name})", args.Exception);
 };
 
 if (args.Contains("--rpcservice"))
@@ -164,11 +189,6 @@ if (File.Exists(exeNewPath))
 }
 
 var resolvedTesseractDataPath = TesseractBootstrapper.ResolveTessDataPath();
-AppSettingsBootstrapper.EnsureExists();
-
-// If the app crashed or was closed during a bug report, restore the pre-bug-report
-// settings so the app doesn't start with diagnostic mode (Trace logging, etc.).
-AppSettingsBootstrapper.TryRecoverBugReportSnapshot();
 
 var host = Host.CreateDefaultBuilder(args)
     .ConfigureHostOptions(options =>
@@ -194,6 +214,9 @@ var host = Host.CreateDefaultBuilder(args)
         _ = services.AddSingleton(dashboardSink);
         _ = services.AddSingleton(dashboardService);
         _ = services.AddSingleton(metricsCollector);
+        _ = services.AddSingleton(sentryReporter);
+        _ = services.AddSingleton<CrashReportingContextService>();
+        _ = services.AddHostedService(sp => sp.GetRequiredService<CrashReportingContextService>());
 
         _ = services.AddOptions<PricingCacheOptions>()
             .Bind(context.Configuration.GetSection("Pricing"))
@@ -267,7 +290,7 @@ var host = Host.CreateDefaultBuilder(args)
 
         _ = logging.ClearProviders();
         _ = logging.AddProvider(dashboardLoggerProvider);
-        _ = logging.AddProvider(new FileLogProvider());
+        _ = logging.AddProvider(fileLogProvider);
         _ = logging.AddSimpleConsole(options =>
         {
             options.TimestampFormat = "HH:mm:ss.fff ";
@@ -350,15 +373,15 @@ foreach (var staleDir in new[] { "tesseract", "ocr-debug" })
 }
 
 var ocrReader = host.Services.GetRequiredService<OcrLeagueWindowReader>();
-_ = Task.Run(() =>
+try
 {
-    try { ocrReader.Warmup(); }
-    catch (Exception ex)
-    {
-        dashboardSink.Emit($"Tesseract warmup failed: {ex.Message}", "amber");
-        dashboardService.SetStatus($"Tesseract warmup failed: {ex.Message}", "amber");
-    }
-});
+    ocrReader.Warmup();
+}
+catch (Exception ex)
+{
+    dashboardSink.Emit($"Tesseract warmup failed: {ex.Message}", "amber");
+    dashboardService.SetStatus($"Tesseract warmup failed: {ex.Message}", "amber");
+}
 
 dashboardService.SetOnWindowLoaded(() =>
 {
@@ -373,7 +396,6 @@ try
 catch (Exception ex) when (!hostCts.Token.IsCancellationRequested)
 {
     CrashLogger.WriteCrash("Host.RunAsync threw an unhandled exception", ex);
-    TrySaveCrashLog();
     throw; // Still let the process terminate — this is a crash
 }
 
@@ -384,24 +406,9 @@ dashboardLoggerProvider.Dispose();
 dashboardSink.Dispose();
 hostCts.Dispose();
 mutex?.Dispose();
+sentryReporter.Dispose();
 
 static void TryDeleteFile(string path)
 {
     try { if (File.Exists(path)) File.Delete(path); } catch { }
-}
-
-static void TrySaveCrashLog()
-{
-    try
-    {
-        // When FileLogProvider is active, flush pending entries to disk so the crash log has full context.
-        // Force a GC and wait for pending finalizers so buffered ILogger writes drain.
-        GC.Collect();
-        GC.WaitForPendingFinalizers();
-        Thread.Sleep(500);
-    }
-    catch
-    {
-        // Best effort
-    }
 }

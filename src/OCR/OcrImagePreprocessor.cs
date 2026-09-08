@@ -31,11 +31,19 @@ internal static class OcrImagePreprocessor
         logger?.LogTrace("KeepBlackAndNeighbors: {W}x{H}", width, height);
         var rect = new Rectangle(0, 0, width, height);
         var srcData = source.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
-        var stride = srcData.Stride;
-        var length = Math.Abs(stride) * height;
-        var srcBytes = new byte[length];
-        Marshal.Copy(srcData.Scan0, srcBytes, 0, length);
-        source.UnlockBits(srcData);
+        int stride;
+        byte[] srcBytes;
+        try
+        {
+            stride = srcData.Stride;
+            var length = Math.Abs(stride) * height;
+            srcBytes = new byte[length];
+            Marshal.Copy(srcData.Scan0, srcBytes, 0, length);
+        }
+        finally
+        {
+            source.UnlockBits(srcData);
+        }
 
         // Flat 1D byte array for mask: 0=discard, 1=keep. Better cache locality than bool[,].
         var keep = new byte[width * height];
@@ -90,37 +98,51 @@ internal static class OcrImagePreprocessor
 
         // Third pass: build output bitmap from masked pixels
         var result = new Bitmap(width, height, PixelFormat.Format24bppRgb);
-        var dstData = result.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
-        var dstStride = dstData.Stride;
-        var dstLength = Math.Abs(dstStride) * height;
-        var dstBytes = new byte[dstLength];
-
-        for (var y = 0; y < height; y++)
+        try
         {
-            var srcRow = y * stride;
-            var dstRow = y * dstStride;
-            var keepRow = y * width;
-            for (var x = 0; x < width; x++)
+            var dstData = result.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
+            try
             {
-                var di = dstRow + (x * 3);
-                if (keep[keepRow + x] != 0)
+                var dstStride = dstData.Stride;
+                var dstLength = Math.Abs(dstStride) * height;
+                var dstBytes = new byte[dstLength];
+
+                for (var y = 0; y < height; y++)
                 {
-                    var si = srcRow + (x * 3);
-                    dstBytes[di] = srcBytes[si];
-                    dstBytes[di + 1] = srcBytes[si + 1];
-                    dstBytes[di + 2] = srcBytes[si + 2];
+                    var srcRow = y * stride;
+                    var dstRow = y * dstStride;
+                    var keepRow = y * width;
+                    for (var x = 0; x < width; x++)
+                    {
+                        var di = dstRow + (x * 3);
+                        if (keep[keepRow + x] != 0)
+                        {
+                            var si = srcRow + (x * 3);
+                            dstBytes[di] = srcBytes[si];
+                            dstBytes[di + 1] = srcBytes[si + 1];
+                            dstBytes[di + 2] = srcBytes[si + 2];
+                        }
+                        else
+                        {
+                            dstBytes[di] = dstBytes[di + 1] = dstBytes[di + 2] = 255;
+                        }
+                    }
                 }
-                else
-                {
-                    dstBytes[di] = dstBytes[di + 1] = dstBytes[di + 2] = 255;
-                }
+
+                Marshal.Copy(dstBytes, 0, dstData.Scan0, dstLength);
             }
+            finally
+            {
+                result.UnlockBits(dstData);
+            }
+
+            return result;
         }
-
-        Marshal.Copy(dstBytes, 0, dstData.Scan0, dstLength);
-        result.UnlockBits(dstData);
-
-        return result;
+        catch
+        {
+            result.Dispose();
+            throw;
+        }
     }
 
     public static Bitmap PreprocessForOcr(Bitmap source, OcrOptions options, ILogger? logger = null)
@@ -132,9 +154,19 @@ internal static class OcrImagePreprocessor
 
         // Fast grayscale via LockBits (avoids GDI ColorMatrix rendering overhead)
         Bitmap? grayscale = new(width, height, PixelFormat.Format24bppRgb);
-        FastGrayscale(source, grayscale, logger);
+        Bitmap grayscaleSnapshot;
+        try
+        {
+            FastGrayscale(source, grayscale, logger);
+            grayscaleSnapshot = (Bitmap)grayscale.Clone();
+        }
+        catch
+        {
+            grayscale.Dispose();
+            throw;
+        }
 
-        using var grayscaleSnapshot = (Bitmap)grayscale.Clone();
+        using var grayscaleSnapshotOwner = grayscaleSnapshot;
 
         var rect = new Rectangle(0, 0, width, height);
         var data = grayscale.LockBits(rect, ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
@@ -199,7 +231,7 @@ internal static class OcrImagePreprocessor
                 grayscale.UnlockBits(data);
                 grayscale.Dispose();
                 grayscale = null;
-                return (Bitmap)grayscaleSnapshot.Clone();
+                return (Bitmap)grayscaleSnapshotOwner.Clone();
             }
 
             for (var y = 0; y < height; y++)
@@ -247,43 +279,65 @@ internal static class OcrImagePreprocessor
 
         var srcRect = new Rectangle(0, 0, srcW, srcH);
         var srcData = source.LockBits(srcRect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
-        var srcStride = srcData.Stride;
-        var srcBytes = new byte[Math.Abs(srcStride) * srcH];
-        Marshal.Copy(srcData.Scan0, srcBytes, 0, srcBytes.Length);
-        source.UnlockBits(srcData);
-
-        var upscaled = new Bitmap(dstW, dstH, PixelFormat.Format24bppRgb);
-        var dstRect = new Rectangle(0, 0, dstW, dstH);
-        var dstData = upscaled.LockBits(dstRect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
-        var dstStride = dstData.Stride;
-        var dstBytes = new byte[Math.Abs(dstStride) * dstH];
-
-        // Nearest-neighbor pixel replication (no GDI overhead)
-        for (var sy = 0; sy < srcH; sy++)
+        int srcStride;
+        byte[] srcBytes;
+        try
         {
-            var srcRow = sy * srcStride;
-            for (var dy = 0; dy < scale; dy++)
-            {
-                var dstRow = ((sy * scale) + dy) * dstStride;
-                for (var sx = 0; sx < srcW; sx++)
-                {
-                    var b = srcBytes[srcRow + (sx * 3)];
-                    var g = srcBytes[srcRow + (sx * 3) + 1];
-                    var r = srcBytes[srcRow + (sx * 3) + 2];
-                    for (var dx = 0; dx < scale; dx++)
-                    {
-                        var di = dstRow + (((sx * scale) + dx) * 3);
-                        dstBytes[di] = b;
-                        dstBytes[di + 1] = g;
-                        dstBytes[di + 2] = r;
-                    }
-                }
-            }
+            srcStride = srcData.Stride;
+            srcBytes = new byte[Math.Abs(srcStride) * srcH];
+            Marshal.Copy(srcData.Scan0, srcBytes, 0, srcBytes.Length);
+        }
+        finally
+        {
+            source.UnlockBits(srcData);
         }
 
-        Marshal.Copy(dstBytes, 0, dstData.Scan0, dstBytes.Length);
-        upscaled.UnlockBits(dstData);
-        return upscaled;
+        var upscaled = new Bitmap(dstW, dstH, PixelFormat.Format24bppRgb);
+        try
+        {
+            var dstRect = new Rectangle(0, 0, dstW, dstH);
+            var dstData = upscaled.LockBits(dstRect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
+            try
+            {
+                var dstStride = dstData.Stride;
+                var dstBytes = new byte[Math.Abs(dstStride) * dstH];
+
+                // Nearest-neighbor pixel replication (no GDI overhead)
+                for (var sy = 0; sy < srcH; sy++)
+                {
+                    var srcRow = sy * srcStride;
+                    for (var dy = 0; dy < scale; dy++)
+                    {
+                        var dstRow = ((sy * scale) + dy) * dstStride;
+                        for (var sx = 0; sx < srcW; sx++)
+                        {
+                            var b = srcBytes[srcRow + (sx * 3)];
+                            var g = srcBytes[srcRow + (sx * 3) + 1];
+                            var r = srcBytes[srcRow + (sx * 3) + 2];
+                            for (var dx = 0; dx < scale; dx++)
+                            {
+                                var di = dstRow + (((sx * scale) + dx) * 3);
+                                dstBytes[di] = b;
+                                dstBytes[di + 1] = g;
+                                dstBytes[di + 2] = r;
+                            }
+                        }
+                    }
+                }
+
+                Marshal.Copy(dstBytes, 0, dstData.Scan0, dstBytes.Length);
+            }
+            finally
+            {
+                upscaled.UnlockBits(dstData);
+            }
+            return upscaled;
+        }
+        catch
+        {
+            upscaled.Dispose();
+            throw;
+        }
     }
 
     public static Bitmap AddWhiteBorder(Bitmap source, int borderPx)
@@ -298,41 +352,62 @@ internal static class OcrImagePreprocessor
         var dstH = srcH + (border * 2);
 
         var bordered = new Bitmap(dstW, dstH, PixelFormat.Format24bppRgb);
-        var dstRect = new Rectangle(0, 0, dstW, dstH);
-        var dstData = bordered.LockBits(dstRect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
-        var dstStride = dstData.Stride;
-        var dstBytes = new byte[Math.Abs(dstStride) * dstH];
-
-        Array.Fill(dstBytes, (byte)255);
-
-        // Copy source into center (avoid GDI DrawImage)
-        if (srcW > 0 && srcH > 0)
+        try
         {
-            var srcRect = new Rectangle(0, 0, srcW, srcH);
-            var srcData = source.LockBits(srcRect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
-            var srcStride = srcData.Stride;
-            var srcBytes = new byte[Math.Abs(srcStride) * srcH];
-            Marshal.Copy(srcData.Scan0, srcBytes, 0, srcBytes.Length);
-            source.UnlockBits(srcData);
-
-            for (var y = 0; y < srcH; y++)
+            var dstRect = new Rectangle(0, 0, dstW, dstH);
+            var dstData = bordered.LockBits(dstRect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
+            try
             {
-                var srcRow = y * srcStride;
-                var dstRow = ((y + border) * dstStride) + (border * 3);
-                for (var x = 0; x < srcW; x++)
-                {
-                    var si = srcRow + (x * 3);
-                    var di = dstRow + (x * 3);
-                    dstBytes[di] = srcBytes[si];
-                    dstBytes[di + 1] = srcBytes[si + 1];
-                    dstBytes[di + 2] = srcBytes[si + 2];
-                }
-            }
-        }
+                var dstStride = dstData.Stride;
+                var dstBytes = new byte[Math.Abs(dstStride) * dstH];
+                Array.Fill(dstBytes, (byte)255);
 
-        Marshal.Copy(dstBytes, 0, dstData.Scan0, dstBytes.Length);
-        bordered.UnlockBits(dstData);
-        return bordered;
+                // Copy source into center (avoid GDI DrawImage)
+                if (srcW > 0 && srcH > 0)
+                {
+                    var srcRect = new Rectangle(0, 0, srcW, srcH);
+                    var srcData = source.LockBits(srcRect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+                    int srcStride;
+                    byte[] srcBytes;
+                    try
+                    {
+                        srcStride = srcData.Stride;
+                        srcBytes = new byte[Math.Abs(srcStride) * srcH];
+                        Marshal.Copy(srcData.Scan0, srcBytes, 0, srcBytes.Length);
+                    }
+                    finally
+                    {
+                        source.UnlockBits(srcData);
+                    }
+
+                    for (var y = 0; y < srcH; y++)
+                    {
+                        var srcRow = y * srcStride;
+                        var dstRow = ((y + border) * dstStride) + (border * 3);
+                        for (var x = 0; x < srcW; x++)
+                        {
+                            var si = srcRow + (x * 3);
+                            var di = dstRow + (x * 3);
+                            dstBytes[di] = srcBytes[si];
+                            dstBytes[di + 1] = srcBytes[si + 1];
+                            dstBytes[di + 2] = srcBytes[si + 2];
+                        }
+                    }
+                }
+
+                Marshal.Copy(dstBytes, 0, dstData.Scan0, dstBytes.Length);
+            }
+            finally
+            {
+                bordered.UnlockBits(dstData);
+            }
+            return bordered;
+        }
+        catch
+        {
+            bordered.Dispose();
+            throw;
+        }
     }
 
     public static Rectangle? FindContentBounds(Bitmap binarized)
@@ -396,12 +471,20 @@ internal static class OcrImagePreprocessor
     public static Bitmap CropBitmap(Bitmap source, Rectangle crop)
     {
         var result = new Bitmap(crop.Width, crop.Height, PixelFormat.Format24bppRgb);
-        using var g = Graphics.FromImage(result);
-        g.DrawImage(source,
-            new Rectangle(0, 0, crop.Width, crop.Height),
-            crop,
-            GraphicsUnit.Pixel);
-        return result;
+        try
+        {
+            using var g = Graphics.FromImage(result);
+            g.DrawImage(source,
+                new Rectangle(0, 0, crop.Width, crop.Height),
+                crop,
+                GraphicsUnit.Pixel);
+            return result;
+        }
+        catch
+        {
+            result.Dispose();
+            throw;
+        }
     }
 
     private static void FastGrayscale(Bitmap source, Bitmap dest, ILogger? logger = null)
@@ -413,43 +496,50 @@ internal static class OcrImagePreprocessor
         // Using source.PixelFormat is fragile — if a non-24bpp bitmap arrives,
         // srcBpp and stride would be wrong, causing out-of-bounds reads.
         var srcData = source.LockBits(srcRect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
-        var dstData = dest.LockBits(srcRect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
         try
         {
-            var srcStride = Math.Abs(srcData.Stride);
-            var dstStride = Math.Abs(dstData.Stride);
-            var srcBytes = new byte[srcStride * h];
-            var dstBytes = new byte[dstStride * h];
-            Marshal.Copy(srcData.Scan0, srcBytes, 0, srcBytes.Length);
-
-            logger?.LogTrace(
-                "FastGrayscale: {W}x{H} srcStride={S} dstStride={DS}",
-                w, h, srcData.Stride, dstData.Stride);
-
-            for (var y = 0; y < h; y++)
+            var dstData = dest.LockBits(srcRect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
+            try
             {
-                var srcRow = y * srcStride;
-                var dstRow = y * dstStride;
-                for (var x = 0; x < w; x++)
+                var srcStride = Math.Abs(srcData.Stride);
+                var dstStride = Math.Abs(dstData.Stride);
+                var srcBytes = new byte[srcStride * h];
+                var dstBytes = new byte[dstStride * h];
+                Marshal.Copy(srcData.Scan0, srcBytes, 0, srcBytes.Length);
+
+                logger?.LogTrace(
+                    "FastGrayscale: {W}x{H} srcStride={S} dstStride={DS}",
+                    w, h, srcData.Stride, dstData.Stride);
+
+                for (var y = 0; y < h; y++)
                 {
-                    var si = srcRow + (x * 3);
-                    // ITU-R BT.601 luminance: integer approx of 0.299R + 0.587G + 0.114B
-                    byte r = srcBytes[si + 2]; // BGR in memory
-                    byte g = srcBytes[si + 1];
-                    byte b = srcBytes[si];
-                    byte lum = (byte)(((77 * r) + (150 * g) + (29 * b)) >> 8);
-                    var di = dstRow + (x * 3);
-                    dstBytes[di] = lum;
-                    dstBytes[di + 1] = lum;
-                    dstBytes[di + 2] = lum;
+                    var srcRow = y * srcStride;
+                    var dstRow = y * dstStride;
+                    for (var x = 0; x < w; x++)
+                    {
+                        var si = srcRow + (x * 3);
+                        // ITU-R BT.601 luminance: integer approx of 0.299R + 0.587G + 0.114B
+                        byte r = srcBytes[si + 2]; // BGR in memory
+                        byte g = srcBytes[si + 1];
+                        byte b = srcBytes[si];
+                        byte lum = (byte)(((77 * r) + (150 * g) + (29 * b)) >> 8);
+                        var di = dstRow + (x * 3);
+                        dstBytes[di] = lum;
+                        dstBytes[di + 1] = lum;
+                        dstBytes[di + 2] = lum;
+                    }
                 }
+
+                Marshal.Copy(dstBytes, 0, dstData.Scan0, dstBytes.Length);
             }
-            Marshal.Copy(dstBytes, 0, dstData.Scan0, dstBytes.Length);
+            finally
+            {
+                dest.UnlockBits(dstData);
+            }
         }
         finally
         {
             source.UnlockBits(srcData);
-            dest.UnlockBits(dstData);
         }
     }
 

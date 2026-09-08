@@ -9,7 +9,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <NoWarn>$(NoWarn);CA1873;CA2101</NoWarn>
     <AssemblyName>RuneshapePriceChecker</AssemblyName>
@@ -59,6 +59,17 @@
     <DebugSymbols>true</DebugSymbols>
     <PublishDir>$(MSBuildProjectDirectory)\obj\Release\publish\</PublishDir>
   </PropertyGroup>
+
+  <ItemGroup Condition="'$(Configuration)' == 'Release'">
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>SentryDsn</_Parameter1>
+      <_Parameter2>$(SentryDsn)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>RepositoryCommit</_Parameter1>
+      <_Parameter2>$(SourceRevisionId)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
 
   <!-- NuGet -->
   <ItemGroup>
@@ -111,14 +122,20 @@
     </ItemGroup>
   </Target>
 
-  <!-- Native crash handler DLL — copy to output so DllImport resolves it -->
+  <Target Name="EnsureSentryNativeRuntime" BeforeTargets="AssignTargetPaths" Condition="'$(Configuration)' == 'Release'">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\native\SentryNative\build.ps1&quot;" Condition="!Exists('$(MSBuildProjectDirectory)\native\SentryNative\runtime\win-x64\sentry.dll')" />
+  </Target>
+
   <ItemGroup>
-    <Content Include="$(MSBuildProjectDirectory)\native\NativeCrashHandler.dll" Condition="Exists('$(MSBuildProjectDirectory)\native\NativeCrashHandler.dll')">
-      <Link>NativeCrashHandler.dll</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Visible>false</Visible>
-    </Content>
+    <EmbeddedResource Include="$(MSBuildProjectDirectory)\native\SentryNative\runtime\win-x64\sentry.dll" Visible="false" Condition="Exists('$(MSBuildProjectDirectory)\native\SentryNative\runtime\win-x64\sentry.dll')" />
+    <EmbeddedResource Include="$(MSBuildProjectDirectory)\native\SentryNative\runtime\win-x64\crashpad_handler.exe" Visible="false" Condition="Exists('$(MSBuildProjectDirectory)\native\SentryNative\runtime\win-x64\crashpad_handler.exe')" />
+    <EmbeddedResource Include="$(MSBuildProjectDirectory)\native\SentryNative\runtime\win-x64\crashpad_wer.dll" Visible="false" Condition="Exists('$(MSBuildProjectDirectory)\native\SentryNative\runtime\win-x64\crashpad_wer.dll')" />
+    <EmbeddedResource Include="$(MSBuildProjectDirectory)\native\SentryNative\runtime\win-x64\manifest.json" Visible="false" Condition="Exists('$(MSBuildProjectDirectory)\native\SentryNative\runtime\win-x64\manifest.json')" />
   </ItemGroup>
+
+  <Target Name="ValidateSentryDsn" BeforeTargets="Publish" Condition="'$(Configuration)' == 'Release' and '$(SentryDsn)' != ''">
+    <Error Condition="!$([System.String]::Copy('$(SentryDsn)').StartsWith('https://')) and !$([System.String]::Copy('$(SentryDsn)').StartsWith('http://'))" Text="SentryDsn must be an HTTP or HTTPS DSN." />
+  </Target>
 
   <!-- Hot reload: use separate output directory so bin/Debug is never locked -->
   <PropertyGroup Condition="'$(UseRunOutput)' == 'true'">
@@ -134,7 +151,7 @@
     saving ~3-5 seconds of redundant MSBuild overhead.
   -->
   <Target Name="Test" AfterTargets="Publish" Condition="'$(Configuration)' == 'Release' and '$(DesignTimeBuild)' != 'true' and '$(SkipTest)' != 'true'">
-    <Exec Command="dotnet test tests\Tests.csproj -c Release --nologo --verbosity normal -m:4 --filter &quot;Category!=NativeCrash&quot;" />
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\scripts\run-release-tests.ps1&quot; -Configuration Release -Filter &quot;Category!=NativeCrash&quot;" />
   </Target>
 
   <Target Name="Zip" AfterTargets="Test" Condition="'$(Configuration)' == 'Release' and '$(DesignTimeBuild)' != 'true'">
@@ -143,7 +160,7 @@
       <_PublishDir>$(MSBuildProjectDirectory)\obj\Release\publish</_PublishDir>
     </PropertyGroup>
     <!-- Close 7-Zip if open — it locks the destination zip file -->
-    <Exec Command="powershell -NoProfile -Command &quot;Get-Process 7zFM,7zG,7z -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue&quot;" ContinueOnError="WarnAndContinue" />
+    <Exec Command="powershell -NoProfile -Command &quot;Get-Process 7zFM,7zG,7z -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; exit 0&quot;" />
     <MakeDir Directories="$(_ZipDir)" Condition="!Exists('$(_ZipDir)')" />
     <Exec Command="powershell -NoProfile -Command Compress-Archive -Path '$(_PublishDir)\RuneshapePriceChecker.exe', '$(MSBuildProjectDirectory)\README.md' -DestinationPath '$(_ZipDir)\RuneshapePriceChecker.zip' -Force" />
     <Message Text="Created $(_ZipDir)\RuneshapePriceChecker.zip" Importance="high" />

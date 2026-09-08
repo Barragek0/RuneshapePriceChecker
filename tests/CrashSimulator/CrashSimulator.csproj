@@ -13,12 +13,4 @@
     <ProjectReference Include="..\..\RuneshapePriceChecker.csproj" />
   </ItemGroup>
 
-  <!-- Native crash handler DLL — copy to output so DllImport resolves it -->
-  <ItemGroup>
-    <Content Include="..\..\native\NativeCrashHandler.dll" Condition="Exists('..\..\native\NativeCrashHandler.dll')">
-      <Link>NativeCrashHandler.dll</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Visible>false</Visible>
-    </Content>
-  </ItemGroup>
 </Project>
